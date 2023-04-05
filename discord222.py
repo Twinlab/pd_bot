@@ -1,97 +1,91 @@
 import discord
-import random
-from discord.ext import commands
+from discord.ext import commands, tasks
+import json
+import time
 import asyncio
 
-TOKEN = 'NjcxMTQxNDU5ODgxMDk5Mjc3.G0RWKU.SzgEXQ4F6TIYqZw0MN_Fim3uMk1_OGASV7fe7c'
+# Создайте файл "config.json" с токеном вашего бота и айди администратора
+with open('config.json') as f:
+    config = json.load(f)
+
+TOKEN = config["token"]
+ADMIN_ID = config["admin_id"]
 
 intents = discord.Intents.default()
 intents.messages = True
 intents.reactions = True
-intents.members = True
 intents.message_content = True
 
-bot = commands.Bot(command_prefix='!', intents=intents)
-most_reacted_posts = {}
+bot = commands.Bot(command_prefix="!", intents=intents)
 
+# Обработка события запуска бота
 @bot.event
 async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
+    print(f"{bot.user.name} is ready!")
 
-async def fetch_history(ctx):
-    global most_reacted_posts
+@bot.command(name="parse")
+@commands.is_owner()
+async def parse_messages(ctx):
+    all_channels = ctx.guild.channels
+    channels_to_parse = [channel for channel in all_channels if isinstance(channel, discord.TextChannel)]
 
-    most_reacted_posts = {}
-    total_channels = len(ctx.guild.text_channels)
-    progress_message = await ctx.send('Started fetching message history...')
-    await ctx.send(f'Fetching message history: 0/{total_channels} channels processed')
+    progress_message = await ctx.send("Процесс парсинга начался...\nПрогресс - 0%/100%")
 
-    tasks = [fetch_message_history(channel) for channel in ctx.guild.text_channels]
-    await asyncio.gather(*tasks)
+    channels_parsed = 0
+    reactions_data = {}
+    update_interval = 10 * 60  # Обновление прогресса каждые 10 минут
+    last_update_time = time.time()
 
-    await ctx.send('Message history fetched and most reacted posts list updated.')
+    for channel in channels_to_parse:
+        async for message in channel.history(limit=None):
+            if message.reactions:
+                unique_users = set()
+                for reaction in message.reactions:
+                    async for user in reaction.users():
+                        unique_users.add(user.id)
+                reactions_data[message.id] = {
+                    "reactions": len(unique_users),
+                    "author_id": message.author.id,
+                    "channel_id": message.channel.id
+                }
+                with open("reactions_data.json", "w") as f:
+                    json.dump(reactions_data, f)
 
-async def fetch_message_history(channel):
-    global most_reacted_posts
+        channels_parsed += 1
 
-    async for message in channel.history(limit=None):  # Установите параметр limit в None
-        total_reactions = sum([react.count for react in message.reactions])
+        if time.time() - last_update_time >= update_interval:
+            progress = int(channels_parsed / len(channels_to_parse) * 100)
+            await progress_message.edit(content=f"Процесс парсинга начался...\nПрогресс - {progress}%/100%")
+            last_update_time = time.time()
 
-        if total_reactions > 0:
-            most_reacted_posts[message.id] = {
-                'total_reactions': total_reactions,
-                'message': message
-            }
-    
-@bot.event
-async def on_message(message):
-    if message.author.id == 154601435990982656 and random.random() < 0.05:
-        await message.channel.send('иди нахуй абасранер')
+    progress = int(channels_parsed / len(channels_to_parse) * 100)
+    await progress_message.edit(content=f"Процесс парсинга начался...\nПрогресс - {progress}%/100%")
+    await ctx.send("Парсинг завершен!")
 
-    # Don't forget to process bot commands after checking the author's ID
-    await bot.process_commands(message)
-    
-@bot.command(name='fetch_history', help='Fetches message history and updates most reacted posts list.')
-@commands.has_permissions(administrator=True)
-async def fetch_history(ctx):
-    global most_reacted_posts
+@bot.command(name="top20")
+async def show_top_20(ctx):
+    with open("reactions_data.json") as f:
+        reactions_data = json.load(f)
 
-    most_reacted_posts = {}
-    total_channels = len(ctx.guild.text_channels)
-    progress_message = await ctx.send('Started fetching message history...')
-    await ctx.send(f'Fetching message history: 0/{total_channels} channels processed')
+    sorted_data = sorted(reactions_data.items(), key=lambda x: x[1]["reactions"], reverse=True)[:20]
 
-    for index, channel in enumerate(ctx.guild.text_channels, start=1):
-        await fetch_message_history(channel)
-        await progress_message.edit(content=f'Fetching message history: {index}/{total_channels} channels processed')
+    top_posts = ""
+    for i, (message_id, message_data) in enumerate(sorted_data, start=1):
+        author = await bot.fetch_user(message_data["author_id"])
+        channel = bot.get_channel(message_data["channel_id"])
+        message_link = f"https://discord.com/channels/{ctx.guild.id}/{channel.id}/{message_id}"
+        top_posts += f"{i}. [{author.name}]({message_link}) - {message_data['reactions']} reactions\n"
 
-    await ctx.send('Message history fetched and most reacted posts list updated.')
+    embed = discord.Embed(title="Топ-20 постов по количеству реакций", description=top_posts, color=discord.Color.blue())
+    await ctx.send(embed=embed)
 
-@fetch_history.error
-async def fetch_history_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send('You do not have permission to use this command.')
+@bot.command(name="hello")
+async def test_command(ctx):
+    await ctx.send("Hello!")
 
-
-@bot.command(name='top_posts', help='Shows the top 20 most reacted posts in the current channel.')
-
-async def top_posts(ctx):
-    if ctx.channel.id not in most_reacted_posts:
-        await ctx.send("No message history found for this channel. Run !fetch_history first.")
-        return
-
-    channel_posts = [post for post in most_reacted_posts.values() if post['message'].channel.id == ctx.channel.id]
-    top_20_posts = sorted(channel_posts, key=lambda x: x['total_reactions'], reverse=True)[:20]
-    response = 'Top 20 most reacted posts in this channel:\n'
-
-    for index, post in enumerate(top_20_posts, start=1):
-        response += f"{index}. {post['message'].jump_url} (Reactions: {post['total_reactions']})\n"
-
-    await ctx.send(response)
-
-
-@bot.command(name='hello', help='Greets the user.')
-async def hello(ctx):
-    await ctx.send(f'Hello, {ctx.author.mention}!')
+@parse_messages.error
+async def parse_error(ctx, error):
+    if isinstance(error, commands.errors.NotOwner):
+        await ctx.send("пашол нах ты не админ")
 
 bot.run(TOKEN)
