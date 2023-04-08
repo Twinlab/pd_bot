@@ -74,19 +74,11 @@ def load_config():
 
 STEAM_API_KEY = load_config()
 
-def get_user_or_default(links: list, user_id: int):
-    for link in links:
-        if link["user"] == user_id:
-            return link
-    return {"user": user_id, "links": []}
-
 async def handle_link(ctx, player_id: int):
     """Link Dota 2 account to Discord."""
-
     users = Users(user_links_file) 
-    
     user = users.get_or_default(ctx.author.id)
-    if user in users["links"]:
+    if player_id in user["links"]:
         await ctx.send(f"Аккаунт Dota 2 с ID {player_id} уже привязан к аккаунту Discord <@{ctx.author.id}>.")
     else:
         user["links"].append(player_id)
@@ -97,14 +89,13 @@ async def handle_link(ctx, player_id: int):
 async def handle_lastmatch(ctx, mentioned_user: discord.Member = None):
     """Get last match info."""
     users = Users(user_links_file)
-
     if mentioned_user:
         user = users.get_or_default(mentioned_user.id)
         if not user['links']:
             await ctx.send(f"Пользователь {mentioned_user.mention} не привязал свой аккаунт Dota 2. Он должен использовать команду `--link PLAYER_ID`.")
             return
     else:
-        user = users.get_or_default(mentioned_user.id)
+        user = users.get_or_default(ctx.author.id)
         if not user['links']:
             await ctx.send("Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2 с помощью команды `--link PLAYER_ID`.")
             return
