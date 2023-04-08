@@ -21,7 +21,7 @@ class Users:
 
     def add_or_update(self, new_user: dict) -> None:
         """Adds or updates user."""
-        index = self._find(new_user["id"])
+        index = self._get_user_by_id(new_user["id"])
         users = self._get_users()
         if index is not None:
             users[index] = new_user
@@ -31,14 +31,14 @@ class Users:
 
     def get_or_default(self, user_id: int):
         """Returns user by id or default user."""
-        index = self._find(user_id)
+        index = self._get_user_by_id(user_id)
         if index is not None:
             users = self._get_users()
             return users[index]
         else:
             return {"id": user_id, "links": []}
         
-    def _find(self, user_id: int):
+    def _get_user_by_id(self, user_id: int):
         """Returns user by id."""
         for index, user in enumerate(self._get_users()):
             if user["id"] == user_id:
