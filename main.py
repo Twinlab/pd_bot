@@ -1,11 +1,12 @@
 import discord
+import json
+import os
+from discord import Intents
 from discord.ext import commands
 from on_message import handle_message
 from snipe import on_message_delete as handle_message_delete, handle_snipe
 from dota2 import handle_link, handle_lastmatch, save_user_links, user_links_file
-import json
-import os
-from discord import Intents
+from avatar import handle_avatar
 
 with open("config.json", "r") as f:
     config = json.load(f)
@@ -57,6 +58,10 @@ async def on_message_delete(message):
 @bot.command()
 async def snipe(ctx):
     await handle_snipe(ctx)
+
+@bot.command()
+async def avatar(ctx, mentioned_user: discord.Member = None):
+    await handle_avatar(ctx, mentioned_user)
 
 @bot.command()
 async def link(ctx, player_id: int):
