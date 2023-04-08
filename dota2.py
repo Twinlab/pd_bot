@@ -33,30 +33,15 @@ GAME_MODES = {
     24: "Mutation",
     25: "Ranked All Pick"
 }
+user_links = {}
 user_links_file = "user_links.json"
 config_file = "config.json"
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
-
-user_links = {}
-
-def load_user_links():
-    global user_links
-    if os.path.exists(user_links_file):
-        with open(user_links_file, "r") as f:
-            loaded_data = json.load(f)
-            user_links = {int(key): value for key, value in loaded_data.items()}
-    else:
-        user_links = {}
-    return user_links
-
-def save_user_links():
-    global user_links
-    with open(user_links_file, "w") as f:
+def save_user_links(user_links):
+    with open(user_links_file, "w") as f: 
         json.dump(user_links, f, ensure_ascii=False, indent=4)
 
+        
 async def fetch_hero_image_url(hero_id, heroes_data):
     hero_data = next((hero for hero in heroes_data if hero["id"] == hero_id), None)
     if not hero_data:
@@ -95,21 +80,18 @@ def load_config():
 
 STEAM_API_KEY = load_config()
 
-@bot.command()
-async def handle_link(ctx, player_id: int):
-    global user_links
+async def handle_link(ctx, player_id: int, user_links: dict):
     if ctx.author.id not in user_links:
         user_links[ctx.author.id] = []
     if player_id in user_links[ctx.author.id]:
         await ctx.send(f"Аккаунт Dota 2 с ID {player_id} уже привязан к аккаунту Discord <@{ctx.author.id}>.")
         return
     user_links[ctx.author.id].append(player_id)
-    save_user_links()
+    save_user_links(user_links)  # передайте user_links как аргумент
     await ctx.send(f"Аккаунт Dota 2 с ID {player_id} успешно привязан к аккаунту Discord <@{ctx.author.id}>.")
 
-@bot.command()
-async def handle_lastmatch(ctx, mentioned_user: discord.Member = None):
-    global user_links
+
+async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member = None):
     if mentioned_user:
         player_ids = user_links.get(mentioned_user.id, [])
         if not player_ids:

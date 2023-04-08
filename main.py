@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from on_message import handle_message
 from snipe import on_message_delete as handle_message_delete, handle_snipe
-from dota2 import handle_link, handle_lastmatch, user_links_file
+from dota2 import handle_link, handle_lastmatch, save_user_links, user_links_file
 import json
 import os
 from discord import Intents
@@ -17,23 +17,26 @@ intents.messages = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 user_links = {}
-def load_links():
-    try:
+
+def load_user_links():
+    global user_links
+    if os.path.exists(user_links_file):
         with open(user_links_file, "r") as f:
-            if not os.stat(user_links_file).st_size:
-                return {}  # return empty dictionary if file is empty
-            loaded_data = json.load(f)
-            for key in loaded_data.keys():
-                new_key = int(key)
-                user_links[new_key] = loaded_data[key]
-    except FileNotFoundError:
-        print("User links file not found.")
-    except Exception as e:
-        print(f"An error occurred while loading user links: {e}")
+            try:
+                loaded_data = json.load(f)
+                user_links = {int(key): value for key, value in loaded_data.items()}
+            except json.JSONDecodeError:
+                print("Ошибка: Файл user_links.json содержит некорректный JSON. Файл будет очищен.")
+                user_links = {}
+                save_user_links(user_links)  # Сохраняем пустой словарь, чтобы очистить файл
+    else:
+        user_links = {}
+    return user_links
+
     
 @bot.event
 async def on_ready():
-    load_links()
+    load_user_links()
     print(f"Logged in as {bot.user.name}")
 
 @bot.event
@@ -53,10 +56,12 @@ async def snipe(ctx):
 
 @bot.command()
 async def link(ctx, player_id: int):
-    await handle_link(ctx, player_id)
+    global user_links
+    load_user_links()
+    await handle_link(ctx, player_id, user_links)
 
 @bot.command()
 async def lastmatch(ctx, mentioned_user: discord.Member = None):
-    await handle_lastmatch(ctx, mentioned_user)
+    await handle_lastmatch(ctx, user_links, mentioned_user)
 
 bot.run(config["BOT_TOKEN"])
