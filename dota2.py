@@ -2,6 +2,7 @@ import discord
 import aiohttp
 import json
 import datetime
+from storage import Users, read_json, write_json, update_json
 
 GAME_MODES = {
     0: "Unknown",
@@ -31,15 +32,9 @@ GAME_MODES = {
     24: "Mutation",
     25: "Ranked All Pick"
 }
-user_links = {}
+
 user_links_file = "user_links.json"
 config_file = "config.json"
-
-def save_user_links(user_links):
-    with open(user_links_file, "w") as f:
-        output_data = [{"user": user_id, "links": links} for user_id, links in user_links.items()]
-        json.dump(output_data, f, ensure_ascii=False, indent=4)
-
         
 async def fetch_hero_image_url(hero_id, heroes_data):
     hero_data = next((hero for hero in heroes_data if hero["id"] == hero_id), None)
@@ -79,32 +74,44 @@ def load_config():
 
 STEAM_API_KEY = load_config()
 
-async def handle_link(ctx, player_id: int, user_links: dict):
-    if ctx.author.id not in user_links:
-        user_links[ctx.author.id] = []
-    if player_id in user_links[ctx.author.id]:
+def get_user_or_default(links: list, user_id: int):
+    for link in links:
+        if link["user"] == user_id:
+            return link
+    return {"user": user_id, "links": []}
+
+async def handle_link(ctx, player_id: int):
+    """Link Dota 2 account to Discord."""
+
+    users = Users(user_links_file) 
+    
+    user = users.get_or_default(ctx.author.id)
+    if user in users["links"]:
         await ctx.send(f"Аккаунт Dota 2 с ID {player_id} уже привязан к аккаунту Discord <@{ctx.author.id}>.")
-        return
-    user_links[ctx.author.id].append(player_id)
-    save_user_links(user_links)
-    await ctx.send(f"Аккаунт Dota 2 с ID {player_id} успешно привязан к аккаунту Discord <@{ctx.author.id}>.")
+    else:
+        user["links"].append(player_id)
+        users.add_or_update(user)
+        await ctx.send(f"Аккаунт Dota 2 с ID {player_id} успешно привязан к аккаунту Discord <@{ctx.author.id}>.")
 
 
-async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member = None):
+async def handle_lastmatch(ctx, mentioned_user: discord.Member = None):
+    """Get last match info."""
+    users = Users(user_links_file)
+
     if mentioned_user:
-        player_ids = user_links.get(mentioned_user.id, [])
-        if not player_ids:
+        user = users.get_or_default(mentioned_user.id)
+        if not user['links']:
             await ctx.send(f"Пользователь {mentioned_user.mention} не привязал свой аккаунт Dota 2. Он должен использовать команду `--link PLAYER_ID`.")
             return
     else:
-        player_ids = user_links.get(ctx.author.id, [])
-        if not player_ids:
+        user = users.get_or_default(mentioned_user.id)
+        if not user['links']:
             await ctx.send("Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2 с помощью команды `--link PLAYER_ID`.")
             return
 
     latest_match = None
     player_info = None
-    for player_id in player_ids:
+    for player_id in user['links']:
         matches = await fetch_player_matches(player_id)
         if not matches:
             continue
