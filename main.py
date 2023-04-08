@@ -20,24 +20,28 @@ user_links = {}
 
 def load_user_links():
     global user_links
-    if os.path.exists(user_links_file):
-        with open(user_links_file, "r") as f:
-            try:
-                loaded_data = json.load(f)
-                user_links = {int(key): value for key, value in loaded_data.items()}
-            except json.JSONDecodeError:
-                print("Ошибка: Файл user_links.json содержит некорректный JSON. Файл будет очищен.")
-                user_links = {}
-                save_user_links(user_links)  # Сохраняем пустой словарь, чтобы очистить файл
-    else:
-        user_links = {}
-    return user_links
+    if not os.path.exists(user_links_file):
+        with open(user_links_file, "w") as f:
+            json.dump([], f)
 
-    
+    with open(user_links_file, "r") as f:
+        try:
+            loaded_data = json.load(f)
+        except json.JSONDecodeError:
+            loaded_data = []
+
+    user_links_dict = {}
+    for item in loaded_data:
+        user_links_dict[item["user"]] = item["links"]
+
+    user_links = user_links_dict
+
+
 @bot.event
 async def on_ready():
     load_user_links()
     print(f"Logged in as {bot.user.name}")
+    print(user_links)
 
 @bot.event
 async def on_message(message):

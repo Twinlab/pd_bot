@@ -1,8 +1,6 @@
 import discord
 import aiohttp
-from discord.ext import commands
 import json
-import os
 import datetime
 
 GAME_MODES = {
@@ -38,8 +36,9 @@ user_links_file = "user_links.json"
 config_file = "config.json"
 
 def save_user_links(user_links):
-    with open(user_links_file, "w") as f: 
-        json.dump(user_links, f, ensure_ascii=False, indent=4)
+    with open(user_links_file, "w") as f:
+        output_data = [{"user": user_id, "links": links} for user_id, links in user_links.items()]
+        json.dump(output_data, f, ensure_ascii=False, indent=4)
 
         
 async def fetch_hero_image_url(hero_id, heroes_data):
@@ -87,7 +86,7 @@ async def handle_link(ctx, player_id: int, user_links: dict):
         await ctx.send(f"Аккаунт Dota 2 с ID {player_id} уже привязан к аккаунту Discord <@{ctx.author.id}>.")
         return
     user_links[ctx.author.id].append(player_id)
-    save_user_links(user_links)  # передайте user_links как аргумент
+    save_user_links(user_links)
     await ctx.send(f"Аккаунт Dota 2 с ID {player_id} успешно привязан к аккаунту Discord <@{ctx.author.id}>.")
 
 
