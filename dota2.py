@@ -2,7 +2,7 @@ import discord
 import aiohttp
 import json
 import datetime
-from storage import Users, read_json, write_json, update_json
+from storage import Users, read_json, write_json
 
 GAME_MODES = {
     0: "Unknown",

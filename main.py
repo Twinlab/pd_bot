@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 from on_message import handle_message
 from snipe import on_message_delete as handle_message_delete, handle_snipe
-from dota2 import handle_link, handle_lastmatch, save_user_links, user_links_file
+from dota2 import handle_link, handle_lastmatch
 import json
 import os
 from discord import Intents
