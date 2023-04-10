@@ -82,24 +82,62 @@ STEAM_API_KEY = load_config()
 async def handle_link(ctx, player_id: int, user_links: dict):
     if ctx.author.id not in user_links:
         user_links[ctx.author.id] = []
+
     if player_id in user_links[ctx.author.id]:
         await ctx.send(f"Аккаунт Dota 2 с ID {player_id} уже привязан к аккаунту Discord <@{ctx.author.id}>.")
         return
+
+    # Check if the player_id is already linked to another user
+    for user_id, links in user_links.items():
+        if player_id in links:
+            await ctx.send(f"Аккаунт Dota 2 с ID {player_id} уже привязан к другому аккаунту Discord.")
+            return
+
     user_links[ctx.author.id].append(player_id)
     save_user_links(user_links)
     await ctx.send(f"Аккаунт Dota 2 с ID {player_id} успешно привязан к аккаунту Discord <@{ctx.author.id}>.")
+
+async def handle_unlink(ctx, user_links: dict, player_id=None):
+    if player_id:
+        if ctx.author.id in user_links and player_id in user_links[ctx.author.id]:
+            user_links[ctx.author.id].remove(player_id)
+            await ctx.send(f"Аккаунт Dota 2 с ID {player_id} успешно отвязан от аккаунта Discord <@{ctx.author.id}>.")
+            save_user_links(user_links)
+        else:
+            await ctx.send(f"Аккаунт Dota 2 с ID {player_id} не был привязан к аккаунту Discord <@{ctx.author.id}>.")
+    else:
+        if ctx.author.id in user_links:
+            del user_links[ctx.author.id]
+            await ctx.send(f"Все аккаунты Dota 2 были успешно отвязаны от аккаунта Discord <@{ctx.author.id}>.")
+            save_user_links(user_links)
+        else:
+            await ctx.send(f"Вы еще не привязали ни одного аккаунта Dota 2 к аккаунту Discord <@{ctx.author.id}>.")
+
+async def handle_links(ctx, user_links):
+    if ctx.author.id not in user_links:
+        await ctx.send("Вы не привязывали аккаунт Dota 2 к своему аккаунту Discord. Используйте команду `!link PLAYER_ID`, чтобы привязать свой аккаунт.")
+        return
+    links = user_links[ctx.author.id]
+    if not links:
+        await ctx.send("Вы не привязали ни одного аккаунта Dota 2 к своему аккаунту Discord.")
+        return
+    message = "Ваши привязанные аккаунты Dota 2:\n"
+    for link in links:
+        message += f"{link}\n"
+    await ctx.send(message)
+
 
 
 async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member = None):
     if mentioned_user:
         player_ids = user_links.get(mentioned_user.id, [])
         if not player_ids:
-            await ctx.send(f"Пользователь {mentioned_user.mention} не привязал свой аккаунт Dota 2. Он должен использовать команду `--link PLAYER_ID`.")
+            await ctx.send(f"Пользователь {mentioned_user.mention} не привязал свой аккаунт Dota 2. Он должен использовать команду `!link PLAYER_ID`.")
             return
     else:
         player_ids = user_links.get(ctx.author.id, [])
         if not player_ids:
-            await ctx.send("Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2 с помощью команды `--link PLAYER_ID`.")
+            await ctx.send("Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2 с помощью команды `!link PLAYER_ID`.")
             return
 
     latest_match = None
@@ -122,7 +160,7 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     radiant_win = latest_match["radiant_win"]
     player_slot = latest_match["player_slot"]
     is_radiant = player_slot < 128
-    result = "+25" if (radiant_win and is_radiant) or (not radiant_win and not is_radiant) else "проебал"
+    result = "победил" if (radiant_win and is_radiant) or (not radiant_win and not is_radiant) else "проебал"
     kills = latest_match["kills"]
     deaths = latest_match["deaths"]
     assists = latest_match["assists"]
