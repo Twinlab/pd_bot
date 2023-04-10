@@ -39,4 +39,5 @@ Thumbs.db
 # my_own_files
 config.json
 user_links.json
+twitch_streams.json
 __pycache__

@@ -206,5 +206,3 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     )
 
     await ctx.send(embed=embed)
-
-

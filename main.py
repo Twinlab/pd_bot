@@ -8,6 +8,7 @@ from snipe import on_message_delete as handle_message_delete, handle_snipe
 from dota2 import handle_link, handle_unlink, handle_links, handle_lastmatch, save_user_links, user_links_file
 from avatar import handle_avatar
 from music import join_channel, play_music, pause_music, resume_music, stop_music, leave_channel, skip_song, show_queue
+from twitch import load_twitch_streams, twitch_checker, handle_twitch
 
 with open("config.json", "r") as f:
     config = json.load(f)
@@ -37,10 +38,6 @@ def load_user_links():
         user_links_dict[item["user"]] = item["links"]
 
     return user_links_dict
-
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user.name}")
 
 @bot.event
 async def on_message(message):
@@ -114,6 +111,15 @@ async def queue(ctx):
 @bot.command()
 async def skip(ctx):
     await skip_song(ctx)
+
+@bot.command()
+async def twitch(ctx, stream_link: str, announcement_channel: discord.TextChannel = None):
+    await handle_twitch(ctx, stream_link, announcement_channel)
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user.name}")
+    bot.loop.create_task(twitch_checker(bot, config["TWITCH_CLIENT_ID"], config["TWITCH_CLIENT_SECRET"])) 
 
 if __name__ == "__main__":
     bot.run(config["BOT_TOKEN"])
