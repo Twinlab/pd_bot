@@ -62,7 +62,7 @@ async def show_queue(ctx):
     else:
         queue_list = "Текущая очередь:\n"
         for i, song in enumerate(queue):
-            queue_list += f"{i+1}. {song.title} ({song.uploader}), заказал: {song.requester.display_name}\n"  # Изменено
+            queue_list += f"{i+1}. {song.title} ({song.uploader}), заказал: {song.requester}\n"  # Изменено
         await ctx.send(queue_list)
 
 async def skip_song(ctx):
@@ -136,10 +136,10 @@ async def play_music(ctx, *, query):
 
     async with ctx.typing():
         player = await YTDLSource.from_url(query, loop=ctx.bot.loop, stream=True)
-        song = Song(query, player.data, ctx.author.display_name)  # Изменено
+        song = Song(query, player.data, ctx.author.display_name)
 
         if not ctx.voice_client.is_playing():
-            ctx.voice_client.play(player, after=lambda e: print(f"Player error: {e}") if e else None)
+            ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next_song(ctx), ctx.bot.loop) if not e else None)
             ctx.current_requester = ctx.author
             await ctx.send(f"Сейчас играет: {song.title}, заказал {ctx.author.display_name}")
         else:
@@ -152,9 +152,11 @@ async def play_next_song(ctx):  # Изменено
         song = queue.pop(0)
         player = await YTDLSource.from_url(song.url, loop=ctx.bot.loop, stream=True)
         ctx.voice_client.stop()
-        ctx.voice_client.play(player, after=lambda e: print(f"Player error: {e}") if e else None)
+        ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next_song(ctx), ctx.bot.loop) if not e else None)
         ctx.current_requester = song.requester
         await ctx.send(f"Следующий трек начинается: {song.title}, заказал {ctx.author.display_name}")
+    else:
+        await ctx.send("Очередь пуста.")
 
 async def pause_music(ctx):
     ctx.voice_client.pause()
