@@ -2,6 +2,7 @@ import discord
 import aiohttp
 import json
 import datetime
+import time
 
 GAME_MODES = {
     0: "Unknown",
@@ -42,13 +43,18 @@ def save_user_links(user_links):
 
         
 async def fetch_hero_image_url(hero_id, heroes_data):
-    hero_data = next((hero for hero in heroes_data if hero["id"] == hero_id), None)
-    if not hero_data:
-        return None
+    if not isinstance(heroes_data, list):
+        print("Warning: Invalid heroes_data format:", heroes_data)
+        return None, None
 
-    hero_name = hero_data["name"].replace('npc_dota_hero_', '')
-    hero_image_url = f"http://cdn.dota2.com/apps/dota2/images/heroes/{hero_name}_full.png"
-    return hero_name, hero_image_url
+    hero_data = next((hero for hero in heroes_data if hero["id"] == hero_id), None)
+
+    if hero_data is None:
+        print("Warning: Hero not found for hero_id:", hero_id)
+        return None, None
+
+    hero_image_url = f"http://cdn.dota2.com/apps/dota2/images/heroes/{hero_data['name'].replace('npc_dota_hero_', '')}_full.png"
+    return hero_image_url
 
 async def fetch_heroes():
     global STEAM_API_KEY
@@ -56,12 +62,14 @@ async def fetch_heroes():
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
             data = await response.json()
-            return data["result"]["heroes"]
+            return data
 
 async def fetch_player_matches(player_id):
-    url = f"https://api.opendota.com/api/players/{player_id}/matches?limit=1"
+    url = f"https://api.opendota.com/api/players/{player_id}/matches?limit=500"
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as response:
+            if response.status != 200:
+                return None
             data = await response.json()
             return data
         
@@ -71,6 +79,41 @@ async def fetch_player_info(player_id):
         async with session.get(url) as response:
             data = await response.json()
             return data
+        
+def calculate_win_lose_stats(matches, player_id):
+    now = time.time()
+    daily_matches = [match for match in matches if (now - match['start_time']) <= 86400]
+    weekly_matches = [match for match in matches if (now - match['start_time']) <= 604800]
+    ranked_game_modes = {22, 25, 2}
+
+    daily_wl = {'wins': 0, 'losses': 0}
+    weekly_wl = {'wins': 0, 'losses': 0}
+
+    for match in daily_matches:
+        if match['game_mode'] in ranked_game_modes:
+            is_radiant = match["player_slot"] < 128
+            if (is_radiant and match["radiant_win"]) or (not is_radiant and not match["radiant_win"]):
+                daily_wl['wins'] += 1
+            else:
+                daily_wl['losses'] += 1
+
+    for match in weekly_matches:
+        if match['game_mode'] in ranked_game_modes:
+            is_radiant = match["player_slot"] < 128
+            if (is_radiant and match["radiant_win"]) or (not is_radiant and not match["radiant_win"]):
+                weekly_wl['wins'] += 1
+            else:
+                weekly_wl['losses'] += 1
+
+    return daily_wl, weekly_wl
+
+def get_player_role(player_slot):
+    if 0 <= player_slot <= 4:
+        return "Carry" if player_slot == 0 else "Mid" if player_slot == 1 else "Offlane" if player_slot == 2 else "Support" if player_slot == 3 else "Hard Support"
+    elif 128 <= player_slot <= 132:
+        return "Carry" if player_slot == 128 else "Mid" if player_slot == 129 else "Offlane" if player_slot == 130 else "Support" if player_slot == 131 else "Hard Support"
+    else:
+        return "Unknown"
         
 def load_config():
     with open(config_file, 'r') as f:
@@ -126,8 +169,6 @@ async def handle_links(ctx, user_links):
         message += f"{link}\n"
     await ctx.send(message)
 
-
-
 async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member = None):
     if mentioned_user:
         player_ids = user_links.get(mentioned_user.id, [])
@@ -165,10 +206,7 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     deaths = latest_match["deaths"]
     assists = latest_match["assists"]
     heroes_data = await fetch_heroes()
-    hero_name, hero_image_url = await fetch_hero_image_url(hero_id, heroes_data)
-
-    match_url = f"https://www.dotabuff.com/matches/{latest_match['match_id']}"
-    
+    hero_image_url = await fetch_hero_image_url(hero_id, heroes_data["result"]["heroes"])
     start_time = latest_match["start_time"]
     duration = latest_match["duration"]
     match_date = datetime.datetime.fromtimestamp(start_time)
@@ -176,6 +214,11 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     duration_string = f"{duration // 60}:{duration % 60}"
     game_mode_id = latest_match["game_mode"]
     game_mode = GAME_MODES.get(game_mode_id, "Неизвестный режим")
+    match_history = await fetch_player_matches(player_id)
+    daily_wl, weekly_wl = calculate_win_lose_stats(match_history, player_id)
+    player_role = get_player_role(player_slot)
+    daily_wl_str = f"{daily_wl['wins']}-{daily_wl['losses']}"
+    weekly_wl_str = f"{weekly_wl['wins']}-{weekly_wl['losses']}"
 
     kda_value = (kills + assists) / max(deaths, 1)
 
@@ -183,17 +226,22 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
         kda_comment = "красава разъебал" if kda_value > 4 else "затащили дурака" if kda_value < 2 else "норм сыграл"
     else:
         kda_comment = "старался, команда подвела" if kda_value > 4 else "заруинил пидорас" if kda_value < 2 else "норм сыграл"
-
+        
+    match_url = f"https://www.dotabuff.com/matches/{latest_match['match_id']}"
     stratz_url = f"https://stratz.com/matches/{latest_match['match_id']}"
+    opendota_url = f"https://opendota.com/matches/{latest_match['match_id']}"
     masked_match_id = f"{latest_match['match_id']}"
     player_name = player_info["profile"].get("personaname", "Неизвестный игрок")
+
     embed = discord.Embed(title=f"Match ID: {masked_match_id}", color=discord.Color.blue())
     embed.add_field(name="Имя аккаунта:", value=player_name, inline=True)
     embed.add_field(name="Результат:", value=result, inline=True)
     embed.add_field(name="KDA:", value=f"{kills}/{deaths}/{assists}", inline=True)
-    embed.add_field(name="Мод игры:", value=game_mode, inline=True)
+    embed.add_field(name="Роль:", value=player_role, inline=True)
     embed.add_field(name="Дата:", value=formatted_date, inline=True)
     embed.add_field(name="Длительность:", value=duration_string, inline=True)
+    #embed.add_field(name="Ranked Daily W-L:", value=daily_wl_str, inline=True)
+    #embed.add_field(name="Ranked Weekly W-L:", value=weekly_wl_str, inline=True)
 
     if kda_comment:
         embed.add_field(name="Комментарий:", value=kda_comment, inline=False)
@@ -202,6 +250,7 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
 
     embed.description = (
         f"[Dotabuff]({match_url}) | "
+        f"[Opendota]({opendota_url}) | "
         f"[Stratz]({stratz_url})"
     )
 

@@ -7,7 +7,7 @@ from on_message import handle_message
 from snipe import on_message_delete as handle_message_delete, handle_snipe
 from dota2 import handle_link, handle_unlink, handle_links, handle_lastmatch, save_user_links, user_links_file
 from avatar import handle_avatar
-from music import join_channel, play_music, pause_music, resume_music, stop_music, leave_channel, skip_song, show_queue
+from music import join_channel, play_music, pause_music, resume_music, stop_music, leave_channel, skip_song, show_queue, auto_leave
 from twitch import load_twitch_streams, twitch_checker, handle_twitch
 
 with open("config.json", "r") as f:
@@ -87,6 +87,8 @@ async def join(ctx, *, channel: discord.VoiceChannel = None):
 @bot.command()
 async def play(ctx, *, query):
     await play_music(ctx, query=query)
+    await auto_leave(ctx)
+
 
 @bot.command()
 async def pause(ctx):

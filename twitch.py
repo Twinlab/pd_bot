@@ -44,7 +44,7 @@ async def check_twitch_live_status(stream_url, twitch_client_id, twitch_client_s
         url = f"https://api.twitch.tv/helix/streams?user_login={user_login}"
         async with session.get(url, headers=headers) as response:
             data = await response.json()
-            return len(data["data"]) > 0
+            return len(data.get("data", [])) > 0
 
 async def twitch_checker(bot, twitch_client_id, twitch_client_secret):
     await bot.wait_until_ready()

@@ -4,6 +4,7 @@ import yt_dlp
 from discord.voice_client import VoiceClient
 import discord
 from discord.ext import commands
+import time
 
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
@@ -132,7 +133,8 @@ async def play_music(ctx, *, query):
     if ctx.voice_client is None:
         await voice_channel.connect()
     elif ctx.voice_client.channel != voice_channel:
-        await ctx.voice_client.move_to(voice_channel)
+        await ctx.send("Бот уже занят в другом канале")
+        return
 
     async with ctx.typing():
         player = await YTDLSource.from_url(query, loop=ctx.bot.loop, stream=True)
@@ -142,12 +144,37 @@ async def play_music(ctx, *, query):
             ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next_song(ctx), ctx.bot.loop) if not e else None)
             ctx.current_requester = ctx.author
             await ctx.send(f"Сейчас играет: {song.title}, заказал {ctx.author.display_name}")
+            await update_bot_status(ctx, song.title)
         else:
             queue.append(song)
             position = len(queue)
             await ctx.send(f"Добавлен в очередь: {song.title} (позиция: {position})")
 
-async def play_next_song(ctx):  # Изменено
+async def update_bot_status(ctx, title):
+    game = discord.Game(f"🎶 {title}")
+    await ctx.bot.change_presence(status=discord.Status.online, activity=game)
+
+async def leave_if_empty(ctx):
+    while ctx.voice_client is not None and ctx.voice_client.is_connected():
+        if len(ctx.voice_client.channel.members) == 1:  # Только бот в голосовом канале
+            await asyncio.sleep(10)
+            if ctx.voice_client is not None and len(ctx.voice_client.channel.members) == 1:  # Проверка после 10 секунд
+                await ctx.voice_client.disconnect()
+                break
+        await asyncio.sleep(5)
+
+async def auto_leave(ctx):
+    while ctx.voice_client is not None and ctx.voice_client.is_connected():
+        if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
+            await asyncio.sleep(5)
+        elif len(queue) == 0:
+            await asyncio.sleep(180)  # 3 минуты
+            if not ctx.voice_client.is_playing() and len(queue) == 0:
+                await ctx.voice_client.disconnect()
+                break
+        await leave_if_empty(ctx)
+
+async def play_next_song(ctx):
     if len(queue) > 0:
         song = queue.pop(0)
         player = await YTDLSource.from_url(song.url, loop=ctx.bot.loop, stream=True)
@@ -155,8 +182,10 @@ async def play_next_song(ctx):  # Изменено
         ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next_song(ctx), ctx.bot.loop) if not e else None)
         ctx.current_requester = song.requester
         await ctx.send(f"Следующий трек начинается: {song.title}, заказал {ctx.author.display_name}")
+        await update_bot_status(ctx, song.title)  # Добавлено
     else:
         await ctx.send("Очередь пуста.")
+        asyncio.create_task(auto_leave(ctx))
 
 async def pause_music(ctx):
     ctx.voice_client.pause()
