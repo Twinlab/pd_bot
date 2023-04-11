@@ -151,8 +151,11 @@ async def play_music(ctx, *, query):
             await ctx.send(f"Добавлен в очередь: {song.title} (позиция: {position})")
 
 async def update_bot_status(ctx, title):
-    game = discord.Game(f"🎶 {title}")
+    game = discord.Listening(f"🎶 {title}")
     await ctx.bot.change_presence(status=discord.Status.online, activity=game)
+
+async def clear_bot_status(ctx):
+    await ctx.bot.change_presence(status=discord.Status.online, activity=None)
 
 async def leave_if_empty(ctx):
     while ctx.voice_client is not None and ctx.voice_client.is_connected():
@@ -185,6 +188,7 @@ async def play_next_song(ctx):
         await update_bot_status(ctx, song.title)  # Добавлено
     else:
         await ctx.send("Очередь пуста.")
+        await clear_bot_status(ctx)  # Очищаем статус бота
         asyncio.create_task(auto_leave(ctx))
 
 async def pause_music(ctx):
@@ -198,7 +202,9 @@ async def resume_music(ctx):
 async def stop_music(ctx):
     ctx.voice_client.stop()
     await ctx.send("Стопнула")
+    await clear_bot_status(ctx)
 
 async def leave_channel(ctx):
     await ctx.voice_client.disconnect()
     await ctx.send("Всем пока, спасибо за прослушивание!")
+    await clear_bot_status(ctx)  # Очищаем статус бота
