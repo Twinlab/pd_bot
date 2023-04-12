@@ -41,3 +41,5 @@ config.json
 user_links.json
 twitch_streams.json
 __pycache__
+test.py
+output*

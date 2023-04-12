@@ -151,11 +151,12 @@ async def play_music(ctx, *, query):
             await ctx.send(f"Добавлен в очередь: {song.title} (позиция: {position})")
 
 async def update_bot_status(ctx, title):
-    game = discord.Listening(f"🎶 {title}")
-    await ctx.bot.change_presence(status=discord.Status.online, activity=game)
+    listening = discord.Activity(type=discord.ActivityType.listening, name=f"{title}")
+    await ctx.bot.change_presence(status=discord.Status.online, activity=listening)
 
 async def clear_bot_status(ctx):
-    await ctx.bot.change_presence(status=discord.Status.online, activity=None)
+    await ctx.bot.change_presence(activity=discord.Game(name="Делаю милые вещи и пью чай"))
+
 
 async def leave_if_empty(ctx):
     while ctx.voice_client is not None and ctx.voice_client.is_connected():

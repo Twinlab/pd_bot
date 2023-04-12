@@ -114,6 +114,26 @@ def get_player_role(player_slot):
         return "Carry" if player_slot == 128 else "Mid" if player_slot == 129 else "Offlane" if player_slot == 130 else "Support" if player_slot == 131 else "Hard Support"
     else:
         return "Unknown"
+    
+def convert_average_rank_to_medal(average_rank):
+    medals = {
+        1: "Herald",
+        2: "Guardian",
+        3: "Crusader",
+        4: "Archon",
+        5: "Legend",
+        6: "Ancient",
+        7: "Divine",
+        8: "Immortal",
+    }
+
+    medal_number = int(str(average_rank)[0])
+    stars = int(str(average_rank)[1])
+
+    if medal_number == 8:
+        stars = 0
+
+    return f"{medals[medal_number]} {stars}"
         
 def load_config():
     with open(config_file, 'r') as f:
@@ -212,13 +232,15 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     match_date = datetime.datetime.fromtimestamp(start_time)
     formatted_date = match_date.strftime("%d/%m/%Y")
     duration_string = f"{duration // 60}:{duration % 60}"
-    game_mode_id = latest_match["game_mode"]
-    game_mode = GAME_MODES.get(game_mode_id, "Неизвестный режим")
+    #game_mode_id = latest_match["game_mode"]
+    #game_mode = GAME_MODES.get(game_mode_id, "Неизвестный режим")
     match_history = await fetch_player_matches(player_id)
-    daily_wl, weekly_wl = calculate_win_lose_stats(match_history, player_id)
+    #daily_wl, weekly_wl = calculate_win_lose_stats(match_history, player_id)
     player_role = get_player_role(player_slot)
-    daily_wl_str = f"{daily_wl['wins']}-{daily_wl['losses']}"
-    weekly_wl_str = f"{weekly_wl['wins']}-{weekly_wl['losses']}"
+    #daily_wl_str = f"{daily_wl['wins']}-{daily_wl['losses']}"
+    #weekly_wl_str = f"{weekly_wl['wins']}-{weekly_wl['losses']}"
+    average_rank = latest_match["average_rank"]
+    rank = convert_average_rank_to_medal(average_rank)
 
     kda_value = (kills + assists) / max(deaths, 1)
 
@@ -234,12 +256,13 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     player_name = player_info["profile"].get("personaname", "Неизвестный игрок")
 
     embed = discord.Embed(title=f"Match ID: {masked_match_id}", color=discord.Color.blue())
-    embed.add_field(name="Имя аккаунта:", value=player_name, inline=True)
+    embed.add_field(name="Никнейм:", value=player_name, inline=True)
     embed.add_field(name="Результат:", value=result, inline=True)
     embed.add_field(name="KDA:", value=f"{kills}/{deaths}/{assists}", inline=True)
-    embed.add_field(name="Роль:", value=player_role, inline=True)
+    embed.add_field(name="Аверага:", value=f"{rank}", inline=True)
     embed.add_field(name="Дата:", value=formatted_date, inline=True)
     embed.add_field(name="Длительность:", value=duration_string, inline=True)
+    #embed.add_field(name="Роль:", value=player_role, inline=True)
     #embed.add_field(name="Ranked Daily W-L:", value=daily_wl_str, inline=True)
     #embed.add_field(name="Ranked Weekly W-L:", value=weekly_wl_str, inline=True)
 

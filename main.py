@@ -9,7 +9,7 @@ from dota2 import handle_link, handle_unlink, handle_links, handle_lastmatch, sa
 from avatar import handle_avatar
 from music import join_channel, play_music, pause_music, resume_music, stop_music, leave_channel, skip_song, show_queue, auto_leave
 from twitch import load_twitch_streams, twitch_checker, handle_twitch
-
+from contest import handle_giveaway
 with open("config.json", "r") as f:
     config = json.load(f)
 
@@ -18,7 +18,6 @@ intents.message_content = True
 intents.messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-
 
 user_links = {}
 
@@ -89,7 +88,6 @@ async def play(ctx, *, query):
     await play_music(ctx, query=query)
     await auto_leave(ctx)
 
-
 @bot.command()
 async def pause(ctx):
     await pause_music(ctx)
@@ -118,9 +116,14 @@ async def skip(ctx):
 async def twitch(ctx, stream_link: str, announcement_channel: discord.TextChannel = None):
     await handle_twitch(ctx, stream_link, announcement_channel)
 
+@bot.command()
+async def giveaway(ctx, duration: str, *, description: str):
+    await handle_giveaway(ctx, duration, description=description)
+
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
+    await bot.change_presence(activity=discord.Game(name="Делаю милые вещи и пью чай"))
     bot.loop.create_task(twitch_checker(bot, config["TWITCH_CLIENT_ID"], config["TWITCH_CLIENT_SECRET"])) 
 
 if __name__ == "__main__":
