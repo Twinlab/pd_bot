@@ -3,6 +3,7 @@ import aiohttp
 import json
 import datetime
 import time
+import requests
 
 GAME_MODES = {
     0: "Unknown",
@@ -35,6 +36,14 @@ GAME_MODES = {
 user_links = {}
 user_links_file = "user_links.json"
 config_file = "config.json"
+
+def load_config(key):
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+        return config.get(key)
+
+STEAM_API_KEY = load_config('STEAM_API_KEY')
+STRATZ_API_KEY = load_config('STRATZ_API_KEY')
 
 def save_user_links(user_links):
     with open(user_links_file, "w") as f:
@@ -107,13 +116,35 @@ def calculate_win_lose_stats(matches, player_id):
 
     return daily_wl, weekly_wl
 
-def get_player_role(player_slot):
-    if 0 <= player_slot <= 4:
-        return "Carry" if player_slot == 0 else "Mid" if player_slot == 1 else "Offlane" if player_slot == 2 else "Support" if player_slot == 3 else "Hard Support"
-    elif 128 <= player_slot <= 132:
-        return "Carry" if player_slot == 128 else "Mid" if player_slot == 129 else "Offlane" if player_slot == 130 else "Support" if player_slot == 131 else "Hard Support"
-    else:
-        return "Unknown"
+def get_player_role(player_id, masked_match_id):
+    url = 'https://api.stratz.com/graphql'
+    query = '''
+    query ($player_id: Long!, $match_id: Long!) {
+      match(id: $match_id) {
+        players(steamAccountId: $player_id) {
+        position
+        }
+      }
+    }
+    '''
+    STRATZ_API_KEY = load_config('STRATZ_API_KEY')
+    headers = {'Authorization': f'Bearer {STRATZ_API_KEY}'}
+    variables = {'player_id': player_id, 'match_id': masked_match_id}
+    response = requests.post(url, json={'query': query, 'variables': variables}, headers=headers)
+    data = response.json()
+
+    role_value = data['data']['match']['players'][0]['position']
+
+    role_dict = {
+        "POSITION_1": "Carry",
+        "POSITION_2": "Mid",
+        "POSITION_3": "Offlane",
+        "POSITION_4": "Soft Support",
+        "POSITION_5": "Hard Support"
+    }
+
+    role = role_dict.get(role_value, "Unknown")
+    return role
     
 def convert_average_rank_to_medal(average_rank):
     medals = {
@@ -134,13 +165,6 @@ def convert_average_rank_to_medal(average_rank):
         stars = 0
 
     return f"{medals[medal_number]} {stars}"
-        
-def load_config():
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-        return config.get('STEAM_API_KEY')
-
-STEAM_API_KEY = load_config()
 
 async def handle_link(ctx, player_id: int, user_links: dict):
     if ctx.author.id not in user_links:
@@ -225,6 +249,7 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     kills = latest_match["kills"]
     deaths = latest_match["deaths"]
     assists = latest_match["assists"]
+    
     heroes_data = await fetch_heroes()
     hero_image_url = await fetch_hero_image_url(hero_id, heroes_data["result"]["heroes"])
     start_time = latest_match["start_time"]
@@ -236,7 +261,6 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     #game_mode = GAME_MODES.get(game_mode_id, "Неизвестный режим")
     match_history = await fetch_player_matches(player_id)
     #daily_wl, weekly_wl = calculate_win_lose_stats(match_history, player_id)
-    player_role = get_player_role(player_slot)
     #daily_wl_str = f"{daily_wl['wins']}-{daily_wl['losses']}"
     #weekly_wl_str = f"{weekly_wl['wins']}-{weekly_wl['losses']}"
     average_rank = latest_match["average_rank"]
@@ -254,6 +278,7 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     opendota_url = f"https://opendota.com/matches/{latest_match['match_id']}"
     masked_match_id = f"{latest_match['match_id']}"
     player_name = player_info["profile"].get("personaname", "Неизвестный игрок")
+    role = get_player_role(int(player_id), int(masked_match_id))
 
     embed = discord.Embed(title=f"Match ID: {masked_match_id}", color=discord.Color.blue())
     embed.add_field(name="Никнейм:", value=player_name, inline=True)
@@ -262,7 +287,7 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     embed.add_field(name="Аверага:", value=f"{rank}", inline=True)
     embed.add_field(name="Дата:", value=formatted_date, inline=True)
     embed.add_field(name="Длительность:", value=duration_string, inline=True)
-    #embed.add_field(name="Роль:", value=player_role, inline=True)
+    embed.add_field(name="Роль:", value=role, inline=True)
     #embed.add_field(name="Ranked Daily W-L:", value=daily_wl_str, inline=True)
     #embed.add_field(name="Ranked Weekly W-L:", value=weekly_wl_str, inline=True)
 

@@ -9,7 +9,8 @@ from dota2 import handle_link, handle_unlink, handle_links, handle_lastmatch, sa
 from avatar import handle_avatar
 from music import join_channel, play_music, pause_music, resume_music, stop_music, leave_channel, skip_song, show_queue, auto_leave
 from twitch import load_twitch_streams, twitch_checker, handle_twitch
-from contest import handle_giveaway
+from giveaway import handle_giveaway
+
 with open("config.json", "r") as f:
     config = json.load(f)
 
