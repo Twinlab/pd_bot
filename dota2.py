@@ -165,13 +165,23 @@ def convert_average_rank_to_medal(average_rank):
         8: "Immortal",
     }
 
+    star = {
+        1: "I",
+        2: "II",
+        3: "III",
+        4: "IV",
+        5: "V",
+    }
+
+
     medal_number = int(str(average_rank)[0])
     stars = int(str(average_rank)[1])
 
     if medal_number == 8:
         stars = ''
-
-    return f"{medals[medal_number]} {stars}"
+        return f"{medals[medal_number]}"                  
+    else:
+        return f"{medals[medal_number]} {star[stars]}"
 
 async def handle_link(ctx, player_id: int, user_links: dict):
     if ctx.author.id not in user_links:
@@ -264,12 +274,12 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     match_date = datetime.datetime.fromtimestamp(start_time)
     formatted_date = match_date.strftime("%d/%m/%Y")
     duration_string = f"{duration // 60}:{duration % 60}"
-    #game_mode_id = latest_match["game_mode"]
-    #game_mode = GAME_MODES.get(game_mode_id, "Неизвестный режим")
+    game_mode_id = latest_match["game_mode"]
+    game_mode = GAME_MODES.get(game_mode_id, "Неизвестный режим")
     match_history = await fetch_player_matches(player_id)
-    #daily_wl, weekly_wl = calculate_win_lose_stats(match_history, player_id)
-    #daily_wl_str = f"{daily_wl['wins']}-{daily_wl['losses']}"
-    #weekly_wl_str = f"{weekly_wl['wins']}-{weekly_wl['losses']}"
+    daily_wl, weekly_wl = calculate_win_lose_stats(match_history, player_id)
+    daily_wl_str = f"{daily_wl['wins']}-{daily_wl['losses']}"
+    weekly_wl_str = f"{weekly_wl['wins']}-{weekly_wl['losses']}"
     average_rank = latest_match["average_rank"]
     rank = convert_average_rank_to_medal(average_rank)
 
@@ -295,8 +305,8 @@ async def handle_lastmatch(ctx, user_links: dict, mentioned_user: discord.Member
     embed.add_field(name="Дата:", value=formatted_date, inline=True)
     embed.add_field(name="Длительность:", value=duration_string, inline=True)
     embed.add_field(name="Роль:", value=role, inline=True)
-    #embed.add_field(name="Ranked Daily W-L:", value=daily_wl_str, inline=True)
-    #embed.add_field(name="Ranked Weekly W-L:", value=weekly_wl_str, inline=True)
+    embed.add_field(name="Daily W-L:", value=daily_wl_str, inline=True)
+    embed.add_field(name="Weekly W-L:", value=weekly_wl_str, inline=True)
 
     if kda_comment:
         embed.add_field(name="Комментарий:", value=kda_comment, inline=False)
