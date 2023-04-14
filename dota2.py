@@ -133,7 +133,10 @@ def get_player_role(player_id, masked_match_id):
     response = requests.post(url, json={'query': query, 'variables': variables}, headers=headers)
     data = response.json()
 
-    role_value = data['data']['match']['players'][0]['position']
+    try:
+        role_value = data['data']['match']['players'][0]['position']
+    except IndexError:
+        return "Unknown"
 
     role_dict = {
         "POSITION_1": "Carry",
@@ -145,8 +148,12 @@ def get_player_role(player_id, masked_match_id):
 
     role = role_dict.get(role_value, "Unknown")
     return role
+
     
 def convert_average_rank_to_medal(average_rank):
+    if not str(average_rank).isdigit():
+        return "Неизвестна"
+
     medals = {
         1: "Herald",
         2: "Guardian",
@@ -162,7 +169,7 @@ def convert_average_rank_to_medal(average_rank):
     stars = int(str(average_rank)[1])
 
     if medal_number == 8:
-        stars = 0
+        stars = ''
 
     return f"{medals[medal_number]} {stars}"
 
