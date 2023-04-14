@@ -3,6 +3,7 @@ import json
 import os
 from discord import Intents
 from discord.ext import commands
+from discord import app_commands
 from on_message import handle_message
 from snipe import on_message_delete as handle_message_delete, handle_snipe
 from dota2 import handle_link, handle_unlink, handle_links, handle_lastmatch, save_user_links, user_links_file
@@ -21,6 +22,7 @@ intents.messages = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 user_links = {}
+guild_id = 159347891989643264
 
 def load_user_links():
     if not os.path.exists(user_links_file):
@@ -50,80 +52,81 @@ async def on_message(message):
 async def on_message_delete(message):
     await handle_message_delete(message)
 
-@bot.command()
+@bot.hybrid_command()
 async def snipe(ctx):
     await handle_snipe(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def avatar(ctx, mentioned_user: discord.Member = None):
     await handle_avatar(ctx, mentioned_user)
 
-@bot.command()
+@bot.hybrid_command()
 async def link(ctx, player_id: int):
     user_links = load_user_links()
     await handle_link(ctx, player_id, user_links)
 
-@bot.command()
+@bot.hybrid_command()
 async def unlink(ctx, player_id: int = None):
     user_links = load_user_links()
     await handle_unlink(ctx, user_links, player_id)
 
-@bot.command()
+@bot.hybrid_command()
 async def links(ctx):
     user_links = load_user_links()
     await handle_links(ctx, user_links)
 
-@bot.command()
+@bot.hybrid_command()
 async def lastmatch(ctx, mentioned_user: discord.Member = None):
     user_links = load_user_links()
     await handle_lastmatch(ctx, user_links, mentioned_user)
 
-@bot.command()
+@bot.hybrid_command()
 async def join(ctx, *, channel: discord.VoiceChannel = None):
     if channel is None:
         channel = ctx.author.voice.channel
     await join_channel(ctx, channel=channel)
 
-@bot.command()
+@bot.hybrid_command()
 async def play(ctx, *, query):
     await play_music(ctx, query=query)
     await auto_leave(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def pause(ctx):
     await pause_music(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def resume(ctx):
     await resume_music(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def stop(ctx):
     await stop_music(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def leave(ctx):
     await leave_channel(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def queue(ctx):
     await show_queue(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def skip(ctx):
     await skip_song(ctx)
 
-@bot.command()
+@bot.hybrid_command()
 async def twitch(ctx, stream_link: str, announcement_channel: discord.TextChannel = None):
     await handle_twitch(ctx, stream_link, announcement_channel)
 
-@bot.command()
+@bot.hybrid_command()
 async def giveaway(ctx, duration: str, *, description: str):
     await handle_giveaway(ctx, duration, description=description)
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
+    await bot.tree.sync()
     await bot.change_presence(activity=discord.Game(name="Делаю милые вещи и пью чай"))
     bot.loop.create_task(twitch_checker(bot, config["TWITCH_CLIENT_ID"], config["TWITCH_CLIENT_SECRET"])) 
 
