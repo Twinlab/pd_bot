@@ -1,3 +1,4 @@
+import asyncio
 import discord
 import json
 import os
@@ -77,6 +78,7 @@ async def links(ctx):
 @bot.hybrid_command()
 async def lastmatch(ctx, mentioned_user: discord.Member = None):
     user_links = load_user_links()
+    await ctx.defer()
     await handle_lastmatch(ctx, user_links, mentioned_user)
 
 @bot.hybrid_command()
