@@ -22,7 +22,6 @@ intents.messages = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 user_links = {}
-guild_id = 159347891989643264
 
 def load_user_links():
     if not os.path.exists(user_links_file):
@@ -78,6 +77,7 @@ async def links(ctx):
 @bot.hybrid_command()
 async def lastmatch(ctx, mentioned_user: discord.Member = None):
     user_links = load_user_links()
+    await ctx.defer(ephemeral=True)    
     await handle_lastmatch(ctx, user_links, mentioned_user)
 
 @bot.hybrid_command()
