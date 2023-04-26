@@ -1,6 +1,7 @@
 import discord
 import json
 import os
+from typing import Optional
 from discord.ext import commands
 from discord import Intents, app_commands
 from on_message import handle_message
@@ -62,7 +63,7 @@ async def on_member_remove(member: discord.Member):
     await channel.send(f"**{member.name}#{member.discriminator}** ббак")
 
 @bot.hybrid_command(name='deathbattle', description='Запускает дезбаттл между двумя пользователями')
-async def deathbattle_command(ctx, member1: discord.Member = None, member2: discord.Member = None):
+async def deathbattle(ctx, member1: Optional[discord.Member] = None, member2: Optional[discord.Member] = None):
     await handle_deathbattle(ctx, member1, member2)
 
 @bot.hybrid_command()

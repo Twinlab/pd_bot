@@ -6,6 +6,7 @@ from discord.ext.commands import Cog, Context
 import requests
 from PIL import Image, ImageDraw, ImageOps
 from io import BytesIO
+from typing import Optional
 
 event_group_1 = [
     "**{attacker}** бьёт кулаком **{defender}** и наносит **{damage}** урона!",
@@ -73,16 +74,12 @@ async def create_deathbattle_image(member1, member2):
     image_buffer.seek(0)
     return image_buffer
 
-async def handle_deathbattle(ctx: Context, member1=None, member2=None):
+async def handle_deathbattle(ctx: Context, member1: Optional[discord.Member] = None, member2: Optional[discord.Member] = None):
     if member1 is None and member2 is None:
-        author = ctx.author
-        member1 = author
-        member2 = random.choice([m for m in ctx.guild.members])
-    elif member2 is None or isinstance(member2, str):
-        author = ctx.author
+        member1 = ctx.author
+        member2 = random.choice([m for m in ctx.guild.members if m != ctx.author])
+    elif member2 is None:
         member2 = member1
-        member1 = author
-    elif member1 is None:
         member1 = ctx.author
 
     # Создание изображения смертельной битвы с аватарками участников
