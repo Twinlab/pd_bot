@@ -37,6 +37,7 @@ def convert_average_rank_to_medal(average_rank):
         8: 'Immortal'
     }
     roman_numerals = {
+        0: '',
         1: 'I',
         2: 'II',
         3: 'III',
