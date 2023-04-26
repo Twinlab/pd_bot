@@ -74,7 +74,6 @@ async def skip_song(ctx):
     if ctx.author.guild_permissions.administrator:
         if not queue:
             ctx.voice_client.stop()
-            await ctx.send("Очередь пуста.")
         else:
             await play_next_song(ctx)
     else:
@@ -125,7 +124,7 @@ async def add_reactions(message):
 
 async def play_music(ctx, *, query):
     if ctx.author.voice is None:
-        await ctx.send("сначала зайди в войс")
+        await ctx.send("Cначала зайди в войс")
         return
 
     voice_channel = ctx.author.voice.channel
@@ -143,7 +142,7 @@ async def play_music(ctx, *, query):
         if not ctx.voice_client.is_playing():
             ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next_song(ctx), ctx.bot.loop) if not e else None)
             ctx.current_requester = ctx.author
-            await ctx.send(f"Сейчас играет: {song.title}, заказал {ctx.author.display_name}")
+            await ctx.send(f"Сейчас играет: {song.title}, заказал {song.requester}")
             await update_bot_status(ctx, song.title)
         else:
             queue.append(song)
@@ -185,7 +184,7 @@ async def play_next_song(ctx):
         ctx.voice_client.stop()
         ctx.voice_client.play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next_song(ctx), ctx.bot.loop) if not e else None)
         ctx.current_requester = song.requester
-        await ctx.send(f"Следующий трек начинается: {song.title}, заказал {ctx.author.display_name}")
+        await ctx.send(f"Следующий трек начинается: {song.title}, заказал {song.requester}")
         await update_bot_status(ctx, song.title)  # Добавлено
     else:
         await ctx.send("Очередь пуста.")

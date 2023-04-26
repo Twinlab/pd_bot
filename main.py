@@ -1,17 +1,20 @@
-import asyncio
 import discord
 import json
 import os
-from discord import Intents
 from discord.ext import commands
-from discord import app_commands
+from discord import Intents, app_commands
 from on_message import handle_message
 from snipe import on_message_delete as handle_message_delete, handle_snipe
-from dota2 import handle_link, handle_unlink, handle_links, handle_lastmatch, save_user_links, user_links_file
+from jokes import handle_penis
+from links import handle_link, handle_unlink, handle_links, save_user_links, user_links_file
 from avatar import handle_avatar
-from music import join_channel, play_music, pause_music, resume_music, stop_music, leave_channel, skip_song, show_queue, auto_leave
-from twitch import load_twitch_streams, twitch_checker, handle_twitch
+from music import (join_channel, play_music, pause_music, resume_music, stop_music,
+                  leave_channel, skip_song, show_queue, auto_leave)
+from twitch import load_twitch_streams, twitch_checker, handle_twitch, remove_stream
 from giveaway import handle_giveaway
+from deathbattle import handle_deathbattle
+from admin import clear_messages
+from lastmatch import handle_lastmatch
 
 with open("config.json", "r") as f:
     config = json.load(f)
@@ -19,6 +22,7 @@ with open("config.json", "r") as f:
 intents = Intents.default()
 intents.message_content = True
 intents.messages = True
+intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -52,9 +56,22 @@ async def on_message(message):
 async def on_message_delete(message):
     await handle_message_delete(message)
 
+@bot.event
+async def on_member_remove(member: discord.Member):
+    channel = discord.utils.get(member.guild.text_channels, name='general')
+    await channel.send(f"**{member.name}#{member.discriminator}** ббак")
+
+@bot.hybrid_command(name='deathbattle', description='Запускает дезбаттл между двумя пользователями')
+async def deathbattle_command(ctx, member1: discord.Member = None, member2: discord.Member = None):
+    await handle_deathbattle(ctx, member1, member2)
+
 @bot.hybrid_command()
 async def snipe(ctx):
     await handle_snipe(ctx)
+
+@bot.hybrid_command()
+async def penis(ctx):
+    await handle_penis(ctx)
 
 @bot.hybrid_command()
 async def avatar(ctx, mentioned_user: discord.Member = None):
@@ -76,10 +93,10 @@ async def links(ctx):
     await handle_links(ctx, user_links)
 
 @bot.hybrid_command()
-async def lastmatch(ctx, mentioned_user: discord.Member = None):
+async def lastmatch(ctx, member: discord.Member = None):
     user_links = load_user_links()
     await ctx.defer()
-    await handle_lastmatch(ctx, user_links, mentioned_user)
+    await handle_lastmatch(ctx, user_links, member)
 
 @bot.hybrid_command()
 async def join(ctx, *, channel: discord.VoiceChannel = None):
@@ -121,8 +138,26 @@ async def twitch(ctx, stream_link: str, announcement_channel: discord.TextChanne
     await handle_twitch(ctx, stream_link, announcement_channel)
 
 @bot.hybrid_command()
+@commands.has_permissions(administrator=True)
+async def twitch_remove(ctx, streamer_name):
+    await remove_stream(ctx, streamer_name)
+
+@bot.hybrid_command()
 async def giveaway(ctx, duration: str, *, description: str):
     await handle_giveaway(ctx, duration, description=description)
+
+@bot.hybrid_command()
+@commands.has_permissions(administrator=True)
+async def clear(ctx, count: int = None, user: discord.Member = None):
+    if count is None:
+        await clear_messages(ctx)
+    elif isinstance(count, int) and user is None:
+        await clear_messages(ctx, count=count)
+    elif isinstance(count, discord.Member) and user is None:
+        await clear_messages(ctx, user=count)
+    else:
+        await clear_messages(ctx, count=count, user=user)
+    await ctx.defer()
 
 @bot.event
 async def on_ready():
