@@ -78,7 +78,7 @@ async def handle_deathbattle(ctx: Context, member1=None, member2=None):
         author = ctx.author
         member1 = author
         member2 = random.choice([m for m in ctx.guild.members])
-    elif member2 is None:
+    elif member2 is None or isinstance(member2, str):
         author = ctx.author
         member2 = member1
         member1 = author
@@ -95,8 +95,8 @@ async def handle_deathbattle(ctx: Context, member1=None, member2=None):
 
     first_attacker = random.choice([True, False])
 
-    battle_embed.add_field(name=f"**{member1.display_name}**", value=f"{hp1}/100", inline=True)
-    battle_embed.add_field(name=f"**{member2.display_name}**", value=f"{hp2}/100", inline=True)
+    battle_embed.add_field(name=f"**{member1.name}**", value=f"{hp1}/100", inline=True)
+    battle_embed.add_field(name=f"**{member2.name}**", value=f"{hp2}/100", inline=True)
     
     file = discord.File(deathbattle_image, filename="deathbattle.png")
     battle_embed.set_image(url="attachment://deathbattle.png")
@@ -113,25 +113,25 @@ async def handle_deathbattle(ctx: Context, member1=None, member2=None):
 
         if first_attacker:
             hp2 -= damage
-            event_text = event.format(attacker=member1.display_name, defender=member2.display_name, damage=damage)
+            event_text = event.format(attacker=member1.name, defender=member2.name, damage=damage)
             event_log.append(event_text)
             first_attacker = False
         else:
             hp1 -= damage
-            event_text = event.format(attacker=member2.display_name, defender=member1.display_name, damage=damage)
+            event_text = event.format(attacker=member2.name, defender=member1.name, damage=damage)
             event_log.append(event_text)
             first_attacker = True
 
         battle_embed = Embed(title=":crossed_swords: Смертельная битва!", description='\n'.join(event_log), color=0xFF0000)
-        battle_embed.add_field(name=f"**{member1.display_name}**", value=f"{max(0, hp1)}/100", inline=True)
-        battle_embed.add_field(name=f"**{member2.display_name}**", value=f"{max(0, hp2)}/100", inline=True)
+        battle_embed.add_field(name=f"**{member1.name}**", value=f"{max(0, hp1)}/100", inline=True)
+        battle_embed.add_field(name=f"**{member2.name}**", value=f"{max(0, hp2)}/100", inline=True)
         await battle_message.edit(embed=battle_embed)
 
-    winner = member1.display_name if hp1 > hp2 else member2.display_name
+    winner = member1.name if hp1 > hp2 else member2.name
     event_log.append(f":trophy: **{winner}** разъебал!")
 
     battle_embed = Embed(title=":crossed_swords: Смертельная битва!", description='\n'.join(event_log), color=0xFF0000)
-    battle_embed.add_field(name=f"{member1.display_name}", value=f"{max(0, hp1)}/100", inline=True)
-    battle_embed.add_field(name=f"{member2.display_name}", value=f"{max(0, hp2)}/100", inline=True)
+    battle_embed.add_field(name=f"{member1.name}", value=f"{max(0, hp1)}/100", inline=True)
+    battle_embed.add_field(name=f"{member2.name}", value=f"{max(0, hp2)}/100", inline=True)
     await battle_message.edit(embed=battle_embed)
 
