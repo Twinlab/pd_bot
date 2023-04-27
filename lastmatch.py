@@ -26,6 +26,9 @@ def get_role(player_role):
 
 # Function to convert an average rank to a medal
 def convert_average_rank_to_medal(average_rank):
+    if average_rank == 0:
+      return 'Unknown'
+    
     medals = {
         1: 'Herald',
         2: 'Guardian',
@@ -96,21 +99,31 @@ async def handle_lastmatch(ctx, user_links: dict, member: discord.Member = None)
     latest_match = {'id': None, 'startDateTime': 0}
 
     for player_id in player_ids:
-        query_matches = '''
-        query ($player_id: Long!) {
-          player(steamAccountId: $player_id) {
-            matches(request: {take: 1}) {
-              id
-              startDateTime
-            }
-          }
+      query_matches = '''
+    query ($player_id: Long!) {
+      player(steamAccountId: $player_id) {
+        matches(request: {take: 1}) {
+          id
+          startDateTime
         }
-        '''
-        match = query_api(query_matches, url, headers, {'player_id': player_id})['player']['matches'][0]
+      }
+    }
+    '''
+      response = query_api(query_matches, url, headers, {'player_id': player_id})
+      matches = response['player']['matches']
+    
+      if not matches:  # Если список матчей пуст, пропускаем текущую итерацию
+        continue
 
-        if match['startDateTime'] > latest_match['startDateTime']:
-            latest_match = match
-            latest_player_id = player_id
+      match = matches[0]
+      if match['startDateTime'] > latest_match['startDateTime']:
+        latest_match = match
+        latest_player_id = player_id
+
+# Добавьте проверку на наличие последнего матча
+    if latest_match['id'] is None:
+      await ctx.send("Не найдено ни одного доступного матча, скорее всего нужно включить доступность истории матчей в клиенте игры.")
+      return
 
     query_match = '''
     query ($player_id: Long!, $match_id: Long!) {
