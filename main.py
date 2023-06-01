@@ -11,7 +11,7 @@ from links import handle_link, handle_unlink, handle_links, save_user_links, use
 from avatar import handle_avatar
 from music import (join_channel, play_music, pause_music, resume_music, stop_music,
                   leave_channel, skip_song, show_queue, auto_leave)
-from twitch import load_twitch_streams, twitch_checker, handle_twitch, remove_stream
+from twitch import handle_twitch, remove_stream, check_streams
 from giveaway import handle_giveaway
 from deathbattle import handle_deathbattle
 from admin import clear_messages
@@ -135,15 +135,16 @@ async def skip(ctx):
     await skip_song(ctx)
 
 @bot.hybrid_command()
-async def twitch(ctx, stream_link: str, announcement_channel: discord.TextChannel = None):
-    await handle_twitch(ctx, stream_link, announcement_channel)
+async def twitch(ctx, streamer_name: str):
+    await handle_twitch(ctx, streamer_name)
 
 @bot.hybrid_command()
 @commands.has_permissions(administrator=True)
-async def twitch_remove(ctx, streamer_name):
+async def twitch_remove(ctx, streamer_name: str):
     await remove_stream(ctx, streamer_name)
 
 @bot.hybrid_command()
+@commands.has_permissions(administrator=True)
 async def giveaway(ctx, duration: str, *, description: str):
     await handle_giveaway(ctx, duration, description=description)
 
@@ -165,7 +166,7 @@ async def on_ready():
     print(f"Logged in as {bot.user.name}")
     await bot.tree.sync()
     await bot.change_presence(activity=discord.Game(name="Делаю милые вещи и пью чай"))
-    bot.loop.create_task(twitch_checker(bot, config["TWITCH_CLIENT_ID"], config["TWITCH_CLIENT_SECRET"])) 
+    bot.loop.create_task(check_streams(bot))
 
 if __name__ == "__main__":
     bot.run(config["BOT_TOKEN"])
