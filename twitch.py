@@ -89,9 +89,13 @@ async def post_stream_live_notification(bot, stream):
 
 async def handle_twitch(ctx, streamer_name):
     if streamer_name not in twitch_data:
-        stream = twitch_api.get_stream_by_name(streamer_name)
-        if stream and stream["data"]:
-            twitch_data[streamer_name] = stream
+        user_info = await twitch_api.get_user_info(streamer_name)
+        if user_info and user_info['data']:
+            stream = twitch_api.get_stream_by_name(streamer_name)
+            if stream and stream["data"]:
+                twitch_data[streamer_name] = stream["data"][0]
+            else:
+                twitch_data[streamer_name] = {'user_name': streamer_name}
             with open(TWITCH_STREAMS_JSON, "w") as f:
                 json.dump(twitch_data, f, indent=4)
             await ctx.send(f"Добавила {streamer_name} в список.")
@@ -99,6 +103,7 @@ async def handle_twitch(ctx, streamer_name):
             await ctx.send("Нет такого стримера.")
     else:
         await ctx.send("Такой стример уже есть в списке.")
+
 
 async def remove_stream(ctx, streamer_name):
     if streamer_name in twitch_data:
