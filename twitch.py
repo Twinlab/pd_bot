@@ -121,18 +121,12 @@ async def check_streams(bot):
             if stream and stream["data"]:
                 # Streamer is online.
                 if streamer_name not in online_streamers:
-                    print(f"Streamer {streamer_name} has just gone online.")
                     online_streamers.add(streamer_name)
                     await post_stream_live_notification(bot, stream)
-                else:
-                    print(f"Streamer {streamer_name} is still online.")
             else:
                 # Streamer is offline.
                 if streamer_name in online_streamers:
-                    print(f"Streamer {streamer_name} has just gone offline.")
                     online_streamers.remove(streamer_name)
-                else:
-                    print(f"Streamer {streamer_name} is still offline.")
         await asyncio.sleep(60)  # Check every minute.
 
 
