@@ -43,3 +43,4 @@ twitch_streams.json
 __pycache__
 test.py
 output*
+twitch.py
