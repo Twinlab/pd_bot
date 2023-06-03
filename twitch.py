@@ -36,7 +36,7 @@ class Twitch:
             "client_secret": self.client_secret,
             "grant_type": "client_credentials"
         }
-        response = requests.post(url, params=params).json()
+        response = requests.post(url, params=params, timeout=5.0).json()  # Added timeout
         if "access_token" in response:
             return response["access_token"]
         else:
@@ -46,17 +46,17 @@ class Twitch:
     async def get_user_info(self, streamer_name):
         url = f"https://api.twitch.tv/helix/users?login={streamer_name}"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=self.headers, timeout=5.0) as resp:  # Added timeout
+            async with session.get(url, headers=self.headers, timeout=5.0) as resp:
                 user_info = await resp.json()
         return user_info
 
     def get_stream_by_name(self, streamer_name):
-        response = requests.get(TWITCH_USER_API_ENDPOINT.format(streamer_name), headers=self.headers)
+        response = requests.get(TWITCH_USER_API_ENDPOINT.format(streamer_name), headers=self.headers, timeout=5.0)  # Added timeout
         try:
             user_data = response.json()
             if user_data["data"]:
                 user_id = user_data["data"][0]["id"]
-                stream_response = requests.get(TWITCH_STREAM_API_ENDPOINT.format(user_id), headers=self.headers)
+                stream_response = requests.get(TWITCH_STREAM_API_ENDPOINT.format(user_id), headers=self.headers, timeout=5.0)  # Added timeout
                 return stream_response.json()
         except json.JSONDecodeError:
             print(f"Failed to parse JSON from response: {response.text}")
@@ -117,18 +117,12 @@ async def check_streams(bot):
                 if stream and stream["data"]:
                     # Streamer is online.
                     if streamer_name not in online_streamers:
-                        print(f"Streamer {streamer_name} has just gone online.")
                         online_streamers.add(streamer_name)
                         await post_stream_live_notification(bot, stream)
-                    else:
-                        print(f"Streamer {streamer_name} is still online.")
                 else:
                     # Streamer is offline.
                     if streamer_name in online_streamers:
-                        print(f"Streamer {streamer_name} has just gone offline.")
                         online_streamers.remove(streamer_name)
-                    else:
-                        print(f"Streamer {streamer_name} is still offline.")
             except Exception as e:
                 print(f"Error while checking streamer {streamer_name}: {e}")
-        await asyncio.sleep(60)  # Check every minute.
+        await asyncio.sleep(180)  # Check every 3 minute.
