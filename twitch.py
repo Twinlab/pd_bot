@@ -46,7 +46,7 @@ class Twitch:
     async def get_user_info(self, streamer_name):
         url = f"https://api.twitch.tv/helix/users?login={streamer_name}"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=self.headers) as resp:
+            async with session.get(url, headers=self.headers, timeout=5.0) as resp:  # Added timeout
                 user_info = await resp.json()
         return user_info
 
@@ -89,21 +89,16 @@ async def post_stream_live_notification(bot, stream):
 
 async def handle_twitch(ctx, streamer_name):
     if streamer_name not in twitch_data:
-        user_info = await twitch_api.get_user_info(streamer_name)
-        if user_info and user_info['data']:
-            stream = twitch_api.get_stream_by_name(streamer_name)
-            if stream and stream["data"]:
-                twitch_data[streamer_name] = stream["data"][0]
-            else:
-                twitch_data[streamer_name] = {'user_name': streamer_name}
+        stream = twitch_api.get_stream_by_name(streamer_name)
+        if stream and stream["data"]:
+            twitch_data[streamer_name] = stream
             with open(TWITCH_STREAMS_JSON, "w") as f:
                 json.dump(twitch_data, f, indent=4)
             await ctx.send(f"Добавила {streamer_name} в список.")
         else:
             await ctx.send("Нет такого стримера.")
     else:
-        await ctx.send("Такой стример уже есть в списке.")
-
+        await ctx.send("Такой стример уже естьв списке.")
 
 async def remove_stream(ctx, streamer_name):
     if streamer_name in twitch_data:
@@ -117,17 +112,23 @@ async def remove_stream(ctx, streamer_name):
 async def check_streams(bot):
     while True:
         for streamer_name in twitch_data.keys():
-            stream = twitch_api.get_stream_by_name(streamer_name)
-            if stream and stream["data"]:
-                # Streamer is online.
-                if streamer_name not in online_streamers:
-                    online_streamers.add(streamer_name)
-                    await post_stream_live_notification(bot, stream)
-            else:
-                # Streamer is offline.
-                if streamer_name in online_streamers:
-                    online_streamers.remove(streamer_name)
+            try:  # Wrapped with try except
+                stream = twitch_api.get_stream_by_name(streamer_name)
+                if stream and stream["data"]:
+                    # Streamer is online.
+                    if streamer_name not in online_streamers:
+                        print(f"Streamer {streamer_name} has just gone online.")
+                        online_streamers.add(streamer_name)
+                        await post_stream_live_notification(bot, stream)
+                    else:
+                        print(f"Streamer {streamer_name} is still online.")
+                else:
+                    # Streamer is offline.
+                    if streamer_name in online_streamers:
+                        print(f"Streamer {streamer_name} has just gone offline.")
+                        online_streamers.remove(streamer_name)
+                    else:
+                        print(f"Streamer {streamer_name} is still offline.")
+            except Exception as e:
+                print(f"Error while checking streamer {streamer_name}: {e}")
         await asyncio.sleep(60)  # Check every minute.
-
-
-
