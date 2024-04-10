@@ -29,24 +29,8 @@ def convert_average_rank_to_medal(average_rank):
     if average_rank == 0:
       return 'Unknown'
     
-    medals = {
-        1: 'Herald',
-        2: 'Guardian',
-        3: 'Crusader',
-        4: 'Archon',
-        5: 'Legend',
-        6: 'Ancient',
-        7: 'Divine',
-        8: 'Immortal'
-    }
-    roman_numerals = {
-        0: '',
-        1: 'I',
-        2: 'II',
-        3: 'III',
-        4: 'IV',
-        5: 'V'
-    }
+    medals = ['Herald', 'Guardian', 'Crusader', 'Archon', 'Legend', 'Ancient', 'Divine', 'Immortal']
+    roman_numerals = ['', 'I', 'II', 'III', 'IV', 'V']
     medal_number = int(str(average_rank)[0])
     stars_number = int(str(average_rank)[1])
     roman_stars = roman_numerals[stars_number]
