@@ -60,7 +60,7 @@ async def on_message_delete(message):
 @bot.event
 async def on_member_remove(member: discord.Member):
     channel = discord.utils.get(member.guild.text_channels, name='general')
-    await channel.send(f"**{member.name}#{member.discriminator}** ббак")
+    await channel.send(f"**{member.name}** ббак")
 
 @bot.hybrid_command(name='deathbattle', description='Запускает дезбаттл между двумя пользователями')
 async def deathbattle(ctx, member1: Optional[discord.Member] = None, member2: Optional[discord.Member] = None):
