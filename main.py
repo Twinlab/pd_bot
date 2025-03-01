@@ -17,6 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bot")
 
+
 # Импорты функций из модулей
 from on_message import handle_message
 from snipe import on_message_delete as handle_message_delete, handle_snipe
@@ -27,7 +28,7 @@ from giveaway import handle_giveaway
 from deathbattle import handle_deathbattle
 from admin import clear_messages
 from lastmatch import handle_lastmatch
-from music import handle_play, handle_skip, handle_stop, handle_pause, handle_resume, handle_queue, handle_remove
+from music import handle_play, handle_skip, handle_stop, handle_pause, handle_resume, handle_remove
 
 # Функция загрузки конфигурации
 def load_config():
