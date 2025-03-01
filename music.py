@@ -24,6 +24,7 @@ ytdl_format_options = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
+    'proxy': "socks5://discord:pdroom@2.59.183.197:10808",
     # Увеличиваем качество аудио
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
@@ -34,7 +35,7 @@ ytdl_format_options = {
 
 # Улучшенные настройки FFmpeg для лучшего качества звука
 ffmpeg_options = {
-    'options': '-vn -af "loudnorm=I=-16:LRA=11:TP=-1.5" -b:a 192k',
+    'options': '-vn',
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5'
 }
 
@@ -109,45 +110,85 @@ class YTDLSource(discord.PCMVolumeTransformer):
         # Для потоковой передачи можно возвращать данные без создания аудио источника
         # Это позволит отложить создание аудио до момента воспроизведения
         return {'data': data, 'requester': requester}
-    
+        
     @classmethod
     async def create_audio_source(cls, data_dict, *, loop=None):
-        """Создает аудио источник из данных трека"""
+        """Создает аудио источник из данных трека: сначала скачивает и конвертирует, потом воспроизводит"""
         loop = loop or asyncio.get_event_loop()
         data = data_dict['data']
         requester = data_dict['requester']
         
-        # Находим лучший аудио формат
-        audio_formats = [f for f in data['formats'] if f.get('acodec', 'none') != 'none']
-        
-        # Ищем предпочтительные форматы
-        preferred_format_ids = ['251', '140', '250', '249']
-        best_format = None
-        
-        for fmt_id in preferred_format_ids:
-            for fmt in audio_formats:
-                if fmt.get('format_id') == fmt_id:
-                    best_format = fmt
-                    break
-            if best_format:
-                break
-        
-        # Если предпочтительные форматы не найдены, берем лучший доступный
-        if not best_format and audio_formats:
-            for fmt in audio_formats:
-                if 'abr' in fmt:  # audio bitrate
-                    if not best_format or fmt['abr'] > best_format.get('abr', 0):
-                        best_format = fmt
+        try:
+            # Шаг 1: Получаем информацию о треке
+            video_id = data.get('id', 'unknown')
+            video_title = data.get('title', 'Unknown')
+            logger.info(f"Подготовка трека: {video_title} (ID: {video_id})")
             
-            # Если форматы без bitrate, берем первый
-            if not best_format:
-                best_format = audio_formats[0]
-        
-        if best_format:
-            source = discord.FFmpegPCMAudio(best_format['url'], **ffmpeg_options)
+            # Шаг 2: Скачиваем файл если нужно
+            download_opts = ytdl_format_options.copy()
+            download_opts['format'] = 'bestaudio/best'
+            download_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',  # Всегда используем MP3 для совместимости
+                'preferredquality': '192',
+            }]
+            
+            ytdl = yt_dlp.YoutubeDL(download_opts)
+            
+            # Скачиваем файл
+            await loop.run_in_executor(None, lambda: ytdl.process_ie_result(data, download=True))
+            
+            # Шаг 3: Определяем путь к файлу
+            base_filename = ytdl.prepare_filename(data)
+            base_filename = os.path.splitext(base_filename)[0]  # Удаляем расширение
+            mp3_filename = base_filename + '.mp3'
+            
+            # Шаг 4: Проверяем существование MP3 файла
+            if not os.path.exists(mp3_filename):
+                logger.warning(f"MP3 файл не найден: {mp3_filename}, ищем альтернативы")
+                
+                # Ищем любой аудиофайл
+                found_file = None
+                for ext in ['.mp3', '.opus', '.m4a', '.webm', '.ogg']:
+                    check_file = base_filename + ext
+                    if os.path.exists(check_file):
+                        found_file = check_file
+                        logger.info(f"Найден файл: {found_file}")
+                        break
+                        
+                if found_file and not found_file.endswith('.mp3'):
+                    # Если найденный файл не MP3, конвертируем его
+                    logger.info(f"Конвертирую {found_file} в MP3")
+                    try:
+                        import subprocess
+                        # Запускаем FFmpeg напрямую для конвертации
+                        result = subprocess.run([
+                            'ffmpeg', '-i', found_file, '-vn', '-ar', '44100', '-ac', '2', 
+                            '-b:a', '192k', mp3_filename
+                        ], capture_output=True)
+                        
+                        if result.returncode == 0 and os.path.exists(mp3_filename):
+                            logger.info(f"Успешно сконвертировано в MP3: {mp3_filename}")
+                        else:
+                            logger.error(f"Ошибка при конвертации: {result.stderr.decode('utf-8', errors='ignore')}")
+                            # Используем найденный файл, если конвертация не удалась
+                            mp3_filename = found_file
+                    except Exception as e:
+                        logger.error(f"Ошибка при запуске конвертации: {e}")
+                        mp3_filename = found_file
+                elif not found_file:
+                    raise FileNotFoundError(f"Не найден аудиофайл для {video_title}")
+            
+            # Шаг 5: Создаем аудиоисточник
+            logger.info(f"Воспроизвожу файл: {mp3_filename}")
+            
+            # Используем самые базовые настройки для FFmpeg
+            source = discord.FFmpegPCMAudio(mp3_filename, options='-vn')
             return cls(source, data=data, volume=0.5, requester=requester)
-        else:
-            raise Exception("Не удалось найти подходящий аудио формат")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при создании аудио источника: {e}", exc_info=True)
+            raise
 
     @staticmethod
     def format_duration(duration) -> str:
