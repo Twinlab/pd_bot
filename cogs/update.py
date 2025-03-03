@@ -3,7 +3,6 @@ import discord
 from discord.ext import commands
 import subprocess
 import asyncio
-import sys
 import os
 
 class Update(commands.Cog):
@@ -14,10 +13,10 @@ class Update(commands.Cog):
         name="update",
         description="Обновляет бота с GitHub и перезапускает его"
     )
-    @commands.is_owner()  # Ограничение команды только для владельца бота
+    @commands.is_owner()
     async def update(self, ctx):
         """Обновляет бота с GitHub и перезапускает."""
-        await ctx.defer()  # Отложенный ответ для slash-команд, чтобы дать время на выполнение
+        await ctx.defer()
         
         message = await ctx.send("🔄 Проверка обновлений...")
         
@@ -36,17 +35,21 @@ class Update(commands.Cog):
             # Успешное обновление
             await message.edit(content=f"✅ Обновление получено!\n```{result.stdout}```\n🔄 Перезапуск бота...")
             
-            # Перезапуск бота
-            await asyncio.sleep(1)
-            if os.path.exists("/bin/systemctl") or os.path.exists("/usr/bin/systemctl"):
-                # Если используется systemd
-                subprocess.Popen(["systemctl", "--user", "restart", "discord-bot.service"])
-                # Альтернативный вариант, если требуются права sudo
-                # subprocess.Popen(["sudo", "systemctl", "restart", "discord-bot.service"])
-            else:
-                # Альтернативный способ перезапуска через Python
-                subprocess.Popen([sys.executable, "main.py"])
-                await self.bot.close()
+            # Создаем очень простой скрипт для перезапуска
+            with open("restart.sh", "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write("sleep 1\n")  # Ждем 1 секунду
+                f.write("sudo systemctl restart discord-bot\n")  # Перезапускаем сервис с sudo
+            
+            # Делаем скрипт исполняемым
+            os.chmod("restart.sh", 0o755)
+            
+            # Запускаем скрипт в фоновом режиме
+            subprocess.Popen(["bash", "restart.sh"], start_new_session=True)
+            
+            # Закрываем бота
+            await asyncio.sleep(0.5)
+            await self.bot.close()
             
         except Exception as e:
             await message.edit(content=f"❌ Ошибка при обновлении: {str(e)}")
