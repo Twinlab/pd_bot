@@ -16,13 +16,12 @@ class ActivityTracker(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
-        if not self.bot.intents.presences:
-            logger.warning("Интент presences не включен! ActivityTracker не будет работать!")
+        
         # Используем абсолютный путь к файлу
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.data_file = os.path.join(base_dir, "data", "user_activities.json")
         
-        logger.info(f"Инициализация ActivityTracker, файл данных: {self.data_file}")
+        logger.info(f"Инициализация ActivityTracker")
         
         # Создаем директорию при инициализации
         os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
@@ -32,12 +31,59 @@ class ActivityTracker(commands.Cog):
         
         self.load_data()
         
-        # Принудительно сохраняем данные в начале для проверки доступа к файлу
-        self.save_data()
-        
         # Запуск задач
         self.daily_report.start()
         self.periodic_save.start()
+        
+        # Задача для сканирования активности всех пользователей после запуска
+        self.bot.loop.create_task(self.scan_all_users_activity())
+    
+    async def scan_all_users_activity(self):
+        """Сканирует активность всех пользователей при запуске бота"""
+        await self.bot.wait_until_ready()
+        logger.info("Начинаем сканирование активности всех пользователей")
+        
+        try:
+            now = datetime.now(pytz.UTC)
+            
+            # Получаем список всех серверов, к которым подключен бот
+            for guild in self.bot.guilds:
+                # Получаем список всех участников
+                for member in guild.members:
+                    # Пропускаем ботов и приложения
+                    if member.bot or self.is_application(member):
+                        continue
+                    
+                    # Проверяем, играет ли пользователь в игру
+                    if member.activity and member.activity.type == discord.ActivityType.playing:
+                        game_name = member.activity.name
+                        logger.info(f"Обнаружена активная игра у пользователя {member.name}: {game_name}")
+                        
+                        # Добавляем в текущие активности
+                        self.current_activities[member.id] = (game_name, now)
+            
+            logger.info(f"Сканирование завершено. Обнаружено {len(self.current_activities)} активных игроков.")
+            
+            # Сохраняем данные после сканирования
+            if self.current_activities:
+                self.save_data()
+        
+        except Exception as e:
+            logger.error(f"Ошибка при сканировании активности пользователей: {e}", exc_info=True)
+    
+    def is_application(self, member):
+        """Проверяет, является ли участник приложением (например, minecraft bot)"""
+        # Проверяем по имени (можно настроить список имен)
+        app_names = ["minecraft bot"]
+        if member.name in app_names:
+            return True
+        
+        # Проверяем по ID роли или другим признакам приложений
+        app_role_names = ["BOT", "APP", "Application"]
+        if any(role.name in app_role_names for role in member.roles):
+            return True
+        
+        return False
     
     def cog_unload(self):
         """Останавливает задачи при выгрузке кога"""
@@ -55,7 +101,7 @@ class ActivityTracker(commands.Cog):
             if os.path.exists(self.data_file):
                 # Проверяем, что файл не пустой
                 if os.path.getsize(self.data_file) > 0:
-                    logger.info(f"Файл данных об активности найден, загружаем")
+                    logger.info(f"Загрузка данных об активности из файла")
                     with open(self.data_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     
@@ -68,8 +114,13 @@ class ActivityTracker(commands.Cog):
                     logger.info(f"Файл данных пустой, создаем пустой словарь")
                     self.user_activities = {}
             else:
-                logger.info(f"Файл данных об активности {self.data_file} не найден, создан пустой словарь")
+                logger.info(f"Файл данных об активности не найден, создан пустой словарь")
                 self.user_activities = {}
+                
+                # Создаем пустой файл
+                with open(self.data_file, "w", encoding="utf-8") as f:
+                    json.dump({}, f)
+                
         except Exception as e:
             logger.error(f"Ошибка при загрузке данных об активности: {e}", exc_info=True)
             self.user_activities = {}
@@ -77,11 +128,6 @@ class ActivityTracker(commands.Cog):
     def save_data(self):
         """Сохраняет данные об активности в файл"""
         try:
-            # Проверяем, есть ли данные для сохранения
-            if not self.user_activities and not self.current_activities:
-                logger.info(f"Нет данных для сохранения, пропускаем")
-                return
-            
             # Создаем директорию, если не существует
             directory = os.path.dirname(self.data_file)
             os.makedirs(directory, exist_ok=True)
@@ -98,7 +144,7 @@ class ActivityTracker(commands.Cog):
                 os.replace(temp_file, self.data_file)
                 logger.info(f"Данные об активности пользователей успешно сохранены")
             else:
-                logger.warning(f"Временный файл {temp_file} пустой, не переименовываем")
+                logger.warning(f"Временный файл пустой, не переименовываем")
                 os.remove(temp_file)
                 
         except Exception as e:
@@ -151,9 +197,8 @@ class ActivityTracker(commands.Cog):
         """
         Отслеживает изменения статуса пользователей для учета игровой активности
         """
-        logger.info(f"Обнаружено изменение присутствия для {after.name} - активность: {after.activity}")
-        # Пропускаем ботов
-        if after.bot:
+        # Пропускаем ботов и приложения
+        if after.bot or self.is_application(after):
             return
         
         try:
@@ -171,7 +216,11 @@ class ActivityTracker(commands.Cog):
             if after.activity and after.activity.type == discord.ActivityType.playing:
                 after_game = after.activity.name
             
-            # Логируем изменение для отладки если оно есть
+            # Если статус игры не изменился, пропускаем
+            if before_game == after_game:
+                return
+                
+            # Логируем изменение только при реальных изменениях статуса игры
             if before_game != after_game:
                 logger.debug(f"Изменение активности пользователя {after.name}: {before_game} -> {after_game}")
             
@@ -245,13 +294,6 @@ class ActivityTracker(commands.Cog):
             self.save_data()
         except Exception as e:
             logger.error(f"Ошибка при периодическом сохранении: {e}", exc_info=True)
-    
-    @periodic_save.before_loop
-    async def before_periodic_save(self):
-        """Ожидает готовности бота перед запуском задачи"""
-        await self.bot.wait_until_ready()
-        logger.info("Запущена задача периодического сохранения данных об активности")
-    
     @tasks.loop(time=time(hour=21, minute=0))  # 00:00 по МСК (UTC+3)
     async def daily_report(self):
         """Отправляет ежедневный отчет об активности пользователей"""
@@ -286,8 +328,8 @@ class ActivityTracker(commands.Cog):
                 try:
                     # Получаем объект пользователя
                     user = channel.guild.get_member(user_id)
-                    if not user:
-                        # Пропускаем пользователей, которых нет на сервере
+                    if not user or user.bot or self.is_application(user):
+                        # Пропускаем пользователей, которых нет на сервере или ботов/приложения
                         continue
                     
                     # Формируем строку с играми
@@ -306,16 +348,23 @@ class ActivityTracker(commands.Cog):
                     logger.error(f"Ошибка при обработке пользователя {user_id}: {e}", exc_info=True)
             
             # Добавляем общую статистику
-            total_users = len(self.user_activities)
+            total_users = len([uid for uid in self.user_activities if channel.guild.get_member(uid) and 
+                              not channel.guild.get_member(uid).bot and 
+                              not self.is_application(channel.guild.get_member(uid))])
+            
             all_games = set()
-            for activities in self.user_activities.values():
-                all_games.update(activities.keys())
+            for uid, activities in self.user_activities.items():
+                user = channel.guild.get_member(uid)
+                if user and not user.bot and not self.is_application(user):
+                    all_games.update(activities.keys())
             
             # Находим самую популярную игру
             game_counts = defaultdict(int)
-            for activities in self.user_activities.values():
-                for game in activities:
-                    game_counts[game] += 1
+            for uid, activities in self.user_activities.items():
+                user = channel.guild.get_member(uid)
+                if user and not user.bot and not self.is_application(user):
+                    for game in activities:
+                        game_counts[game] += 1
             
             most_popular_game = max(game_counts.items(), key=lambda x: x[1], default=(None, 0))
             
@@ -370,8 +419,8 @@ class ActivityTracker(commands.Cog):
                 try:
                     # Получаем объект пользователя
                     user = ctx.guild.get_member(user_id)
-                    if not user:
-                        # Пропускаем пользователей, которых нет на сервере
+                    if not user or user.bot or self.is_application(user):
+                        # Пропускаем пользователей, которых нет на сервере или ботов/приложения
                         continue
                     
                     # Формируем строку с играми
