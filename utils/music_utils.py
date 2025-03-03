@@ -1,3 +1,4 @@
+# utils/music_utils.py
 import discord
 import asyncio
 import logging
@@ -7,7 +8,7 @@ import yt_dlp
 import json
 from collections import deque
 import glob
-from enum import Enum
+from typing import Dict, List, Optional, Set, Any, Union, Callable
 
 # Настройка логирования
 logger = logging.getLogger("music")
@@ -17,24 +18,22 @@ DOWNLOADS_DIR = 'downloads'
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 
 # Цвета для эмбедов
-COLORS = {
-    'DEFAULT': 0x3498db,
-    'ERROR': 0xe74c3c,
-    'SUCCESS': 0x2ecc71
-}
+COLORS = {'DEFAULT': 0x3498db, 'ERROR': 0xe74c3c, 'SUCCESS': 0x2ecc71}
 
 # Загрузка конфигурации
 def load_config():
     try:
-        with open("config.json", "r") as f:
+        with open("data/config.json", "r") as f:
             return json.load(f)
     except Exception as e:
         logger.error(f"Ошибка при загрузке конфигурации: {e}")
         return {}
 
-config = load_config()
+# Глобальный экземпляр плеера
+_player = None
 
 # Настройки для yt-dlp
+_config = load_config()
 YDL_OPTS = {
     'format': 'bestaudio/best',
     'outtmpl': f'{DOWNLOADS_DIR}/%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -46,7 +45,7 @@ YDL_OPTS = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'proxy': config.get("PROXY_URL", None),
+    'proxy': _config.get("PROXY_URL", None),
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
@@ -54,28 +53,12 @@ YDL_OPTS = {
     }],
 }
 
-# Состояния трека
-class TrackState(Enum):
-    PLAYING = 1
-    PAUSED = 2
-    STOPPED = 3
-
-# Единый экземпляр плеера
-player = None
-
-def get_player(bot):
-    """Получает или создает экземпляр музыкального плеера"""
-    global player
-    if player is None:
-        player = MusicPlayer(bot)
-    return player
-
 def create_embed(title, description, color=COLORS['DEFAULT'], **kwargs):
     """Создает эмбед-сообщение с заданными параметрами"""
     embed = discord.Embed(title=title, description=description, color=color)
     
     for name, value in kwargs.items():
-        if not value:  # Пропускаем пустые значения
+        if not value:
             continue
             
         if name == 'thumbnail':
@@ -93,7 +76,7 @@ def create_embed(title, description, color=COLORS['DEFAULT'], **kwargs):
 def format_duration(duration):
     """Форматирует продолжительность из секунд в MM:SS или HH:MM:SS"""
     if not duration:
-        return "∞"  # Для стримов
+        return "∞"
     
     try:
         duration = int(float(duration))
@@ -102,31 +85,26 @@ def format_duration(duration):
         
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
     except (ValueError, TypeError):
-        return "?:??"  # Неизвестная продолжительность
+        return "?:??"
 
 class MusicPlayer:
-    """Класс для управления музыкой на сервере"""
+    """Компактный класс для управления музыкой на сервере"""
 
     def __init__(self, bot):
         self.bot = bot
-        self.queue = deque()  # Очередь треков
-        self.current = None   # Текущий трек
-        self.volume = 0.5     # Громкость (0.0 - 1.0)
-        self.text_channel = None  # Текстовый канал для сообщений
-        self.now_playing_message = None  # Сообщение "Сейчас играет"
-        self.skip_votes = set()  # Голоса за пропуск
-        self.loop = asyncio.get_event_loop()  # Event loop для асинхронных задач
-        self.is_playing_next = False  # Флаг для предотвращения одновременного запуска play_next
-        self.cache = {}  # Кеш для поиска
-
-    def clear_votes(self):
-        """Очищает голоса за пропуск"""
-        self.skip_votes.clear()
+        self.queue = deque()
+        self.current = None
+        self.volume = 0.5
+        self.text_channel = None
+        self.now_playing_message = None
+        self.skip_votes = set()
+        self.loop = asyncio.get_event_loop()
+        self.is_playing_next = False
+        self.is_paused = False
 
     async def send_embed(self, ctx, title, description, color=COLORS['DEFAULT'], **kwargs):
         """Отправляет эмбед в контекст"""
-        embed = create_embed(title, description, color, **kwargs)
-        return await ctx.send(embed=embed)
+        return await ctx.send(embed=create_embed(title, description, color, **kwargs))
 
     async def add_track(self, ctx, url_or_search):
         """Добавляет трек в очередь"""
@@ -135,8 +113,6 @@ class MusicPlayer:
         try:
             # Скачиваем трек
             track = await self._download_track(url_or_search, ctx.author)
-            
-            # Добавляем в очередь
             self.queue.append(track)
             
             # Обновляем сообщение
@@ -158,8 +134,6 @@ class MusicPlayer:
             )
             
             await loading_message.edit(embed=embed)
-            
-            # Сохраняем текстовый канал
             self.text_channel = ctx.channel
             
             # Начинаем воспроизведение если нужно
@@ -180,9 +154,7 @@ class MusicPlayer:
         ytdl = yt_dlp.YoutubeDL(YDL_OPTS)
         
         # Скачиваем информацию и файл
-        info = await self.loop.run_in_executor(
-            None, lambda: ytdl.extract_info(url, download=True)
-        )
+        info = await self.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=True))
         
         # Обрабатываем результаты поиска
         if 'entries' in info:
@@ -200,7 +172,7 @@ class MusicPlayer:
                 break
         
         # Проверяем существование файла
-        if not audio_file or not os.path.exists(audio_file):
+        if not audio_file:
             # Ищем с помощью glob в случае изменения имени
             matching_files = glob.glob(f"{base_filename}.*")
             audio_file = matching_files[0] if matching_files else None
@@ -208,11 +180,10 @@ class MusicPlayer:
         if not audio_file:
             raise FileNotFoundError(f"Скачанный файл не найден: {base_filename}.*")
         
-        # Проверяем размер файла
         if os.path.getsize(audio_file) == 0:
             raise ValueError(f"Файл имеет нулевой размер: {audio_file}")
         
-        # Создаем трек
+        # Создаем трек с минимумом данных
         return {
             'file': audio_file,
             'title': info.get('title', 'Unknown title'),
@@ -227,7 +198,6 @@ class MusicPlayer:
 
     async def play_next(self, guild):
         """Воспроизводит следующий трек из очереди"""
-        # Предотвращаем параллельный запуск
         if self.is_playing_next:
             return
         
@@ -235,7 +205,7 @@ class MusicPlayer:
         
         try:
             # Сбрасываем голоса и проверяем подключение
-            self.clear_votes()
+            self.skip_votes.clear()
             voice_client = guild.voice_client
             
             if not voice_client:
@@ -296,8 +266,6 @@ class MusicPlayer:
             
             # Отправляем сообщение
             if self.text_channel:
-                embed = self._create_now_playing_embed()
-                
                 # Удаляем старое сообщение
                 if self.now_playing_message:
                     try:
@@ -305,6 +273,8 @@ class MusicPlayer:
                     except:
                         pass
                 
+                # Создаем эмбед с информацией о треке
+                embed = self._create_now_playing_embed()
                 self.now_playing_message = await self.text_channel.send(embed=embed)
                 
         except Exception as e:
@@ -333,17 +303,16 @@ class MusicPlayer:
             ("Запросил", track['requester'].mention, True)
         ]
         
-        # Добавляем информацию о авторе
+        # Добавляем информацию об авторе
         if track['uploader']:
             uploader_text = f"[{track['uploader']}]({track['uploader_url']})" if track['uploader_url'] else track['uploader']
             fields.append(("Автор", uploader_text, True))
         
         # Добавляем информацию о следующем треке
         if self.queue:
-            next_track = self.queue[0]
             fields.append((
                 f"Следующий трек (очередь: {len(self.queue)})",
-                f"**{next_track['title']}**",
+                f"**{self.queue[0]['title']}**",
                 False
             ))
         
@@ -380,8 +349,7 @@ class MusicPlayer:
         # Если уже голосовал
         if ctx.author.id in self.skip_votes:
             await self.send_embed(
-                ctx,
-                "⏭️ Голосование", 
+                ctx, "⏭️ Голосование", 
                 f"Вы уже голосовали!\nГолосов: {len(self.skip_votes)}/{required_votes}",
                 COLORS['DEFAULT']
             )
@@ -393,8 +361,7 @@ class MusicPlayer:
         # Проверяем достаточно ли голосов
         if len(self.skip_votes) >= required_votes:
             await self.send_embed(
-                ctx,
-                "⏭️ Трек пропущен", 
+                ctx, "⏭️ Трек пропущен", 
                 f"Трек пропущен по голосованию ({len(self.skip_votes)}/{required_votes})",
                 COLORS['SUCCESS']
             )
@@ -402,8 +369,7 @@ class MusicPlayer:
             return True
         else:
             await self.send_embed(
-                ctx,
-                "⏭️ Голосование", 
+                ctx, "⏭️ Голосование", 
                 f"{ctx.author.mention} проголосовал за пропуск\nГолосов: {len(self.skip_votes)}/{required_votes}",
                 COLORS['DEFAULT']
             )
@@ -419,6 +385,7 @@ class MusicPlayer:
         
         # Останавливаем и очищаем
         self.queue.clear()
+        self.is_paused = False
         if voice_client.is_playing() or voice_client.is_paused():
             voice_client.stop()
         
@@ -435,8 +402,7 @@ class MusicPlayer:
         self.current = None
         
         await self.send_embed(
-            ctx,
-            "⏹️ Остановлено", 
+            ctx, "⏹️ Остановлено", 
             "Воспроизведение остановлено, очередь очищена",
             COLORS['SUCCESS']
         )
@@ -462,9 +428,11 @@ class MusicPlayer:
         # Ставим на паузу или возобновляем
         if pause:
             voice_client.pause()
+            self.is_paused = True
             await self.send_embed(ctx, "⏸️ Пауза", "Воспроизведение приостановлено", COLORS['DEFAULT'])
         else:
             voice_client.resume()
+            self.is_paused = False
             await self.send_embed(ctx, "▶️ Продолжение", "Воспроизведение возобновлено", COLORS['SUCCESS'])
             
         return True
@@ -476,32 +444,31 @@ class MusicPlayer:
             return
         
         # Строим описание
-        description = ""
+        description = []
         
         # Текущий трек
         if self.current:
             requester = self.current['requester'].mention
             duration = format_duration(self.current['duration'])
-            description += f"**🎵 Сейчас играет:**\n[{self.current['title']}]({self.current['url']}) | {duration} | {requester}\n\n"
+            description.append(f"**🎵 Сейчас играет:**\n[{self.current['title']}]({self.current['url']}) | {duration} | {requester}\n")
         
         # Треки в очереди
         if self.queue:
-            description += "**⏱️ В очереди:**\n"
+            description.append("**⏱️ В очереди:**")
             
             for i, track in enumerate(list(self.queue)[:items_per_page], 1):
                 requester = track['requester'].mention
                 duration = format_duration(track['duration'])
-                description += f"{i}. [{track['title']}]({track['url']}) | {duration} | {requester}\n"
+                description.append(f"{i}. [{track['title']}]({track['url']}) | {duration} | {requester}")
             
             # Если есть еще треки
             if len(self.queue) > items_per_page:
                 remaining = len(self.queue) - items_per_page
-                description += f"\n*...и еще {remaining} трек(ов)*"
+                description.append(f"\n*...и еще {remaining} трек(ов)*")
         
         await self.send_embed(
-            ctx,
-            f"🎵 Очередь воспроизведения",
-            description,
+            ctx, "🎵 Очередь воспроизведения",
+            "\n".join(description),
             footer=f"Всего треков: {len(self.queue) + (1 if self.current else 0)}"
         )
     
@@ -514,8 +481,7 @@ class MusicPlayer:
             
         if not (1 <= position <= len(self.queue)):
             await self.send_embed(
-                ctx, 
-                "❌ Ошибка", 
+                ctx, "❌ Ошибка", 
                 f"Позиция должна быть от 1 до {len(self.queue)}", 
                 COLORS['ERROR']
             )
@@ -530,8 +496,7 @@ class MusicPlayer:
         
         if not (is_dj or is_requester):
             await self.send_embed(
-                ctx,
-                "❌ Ошибка",
+                ctx, "❌ Ошибка",
                 "Вы можете удалить только запрошенный вами трек или иметь роль DJ",
                 COLORS['ERROR']
             )
@@ -541,8 +506,7 @@ class MusicPlayer:
         del self.queue[position - 1]
         
         await self.send_embed(
-            ctx,
-            "🗑️ Трек удален",
+            ctx, "🗑️ Трек удален",
             f"Трек **{track['title']}** удален из очереди",
             COLORS['SUCCESS']
         )
@@ -550,7 +514,6 @@ class MusicPlayer:
     
     async def search_tracks(self, ctx, query, max_results=5):
         """Ищет треки и позволяет пользователю выбрать из результатов"""
-        # Отправляем начальное сообщение
         loading_message = await self.send_embed(ctx, "🔍 Поиск", f"Ищу `{query}` на YouTube...")
         
         try:
@@ -605,38 +568,34 @@ class MusicPlayer:
                 )
             )
             
-            # Ожидаем ответ
-            def check_response(m):
-                if m.author != ctx.author or m.channel != ctx.channel:
-                    return False
-                if m.content.lower() in ['отмена', 'cancel']:
-                    return True
-                return m.content.isdigit() and 1 <= int(m.content) <= len(valid_entries)
-            
+            # Ожидаем ответ пользователя
             try:
-                response = await self.bot.wait_for('message', check=check_response, timeout=30)
+                response = await self.bot.wait_for(
+                    'message', 
+                    check=lambda m: (
+                        m.author == ctx.author and 
+                        m.channel == ctx.channel and 
+                        (m.content.lower() in ['отмена', 'cancel'] or 
+                        (m.content.isdigit() and 1 <= int(m.content) <= len(valid_entries)))
+                    ),
+                    timeout=30
+                )
                 
-                # Отмена
+                # Обработка отмены
                 if response.content.lower() in ['отмена', 'cancel']:
                     await self.send_embed(ctx, "🚫 Отменено", "Поиск отменен", COLORS['DEFAULT'])
                     return
                 
                 # Получаем выбранный трек
-                choice = int(response.content)
-                selected = valid_entries[choice - 1]
+                choice = int(response.content) - 1
+                selected = valid_entries[choice]
                 
-                # Ищем URL
+                # Получаем URL и добавляем трек
                 url = selected.get('url', selected.get('webpage_url'))
                 if not url:
-                    await self.send_embed(
-                        ctx, 
-                        "❌ Ошибка", 
-                        "Не удалось получить URL для выбранного трека", 
-                        COLORS['ERROR']
-                    )
+                    await self.send_embed(ctx, "❌ Ошибка", "Не удалось получить URL для выбранного трека", COLORS['ERROR'])
                     return
                 
-                # Добавляем трек
                 await self.add_track(ctx, url)
                 
             except asyncio.TimeoutError:
@@ -644,18 +603,20 @@ class MusicPlayer:
                 
         except Exception as e:
             logger.error(f"Ошибка при поиске: {e}", exc_info=True)
-            await loading_message.edit(
-                embed=create_embed("❌ Ошибка", f"Ошибка при поиске: {str(e)[:900]}", COLORS['ERROR'])
-            )
+            await loading_message.edit(embed=create_embed("❌ Ошибка", f"Ошибка при поиске: {str(e)[:900]}", COLORS['ERROR']))
 
+# Функции управления плеером и голосовым подключением
+def get_player(bot):
+    """Получает или создает экземпляр музыкального плеера"""
+    global _player
+    if _player is None and bot is not None:
+        _player = MusicPlayer(bot)
+    return _player
 
-# Экспортируемые функции для внешнего использования
 async def ensure_voice(ctx):
     """Проверяет и обеспечивает голосовое подключение"""
     if not ctx.author.voice:
-        await ctx.send(
-            embed=create_embed("❌ Ошибка", "Вы должны быть в голосовом канале", COLORS['ERROR'])
-        )
+        await ctx.send(embed=create_embed("❌ Ошибка", "Вы должны быть в голосовом канале", COLORS['ERROR']))
         return False
     
     # Подключаемся или перемещаемся
@@ -667,59 +628,65 @@ async def ensure_voice(ctx):
     
     return True
 
+# Обработчики команд
 async def handle_play(ctx, query):
     """Обрабатывает команду воспроизведения"""
+    # Базовые проверки
     if not query:
-        await ctx.send(
-            embed=create_embed("❌ Ошибка", "Укажите запрос или ссылку для воспроизведения", COLORS['ERROR'])
-        )
+        await ctx.send(embed=create_embed("❌ Ошибка", "Укажите запрос или ссылку для воспроизведения", COLORS['ERROR']))
         return
     
     # Проверяем голосовое подключение
     if not await ensure_voice(ctx):
         return
     
-    # Получаем плеер
+    # Добавляем трек или запускаем поиск
     player = get_player(ctx.bot)
-    
-    # URL или поиск
     if query.startswith(('http://', 'https://')):
         await player.add_track(ctx, query)
     else:
         await player.search_tracks(ctx, query)
 
 async def handle_skip(ctx):
-    """Обрабатывает команду пропуска трека"""
+    """Пропускает текущий трек"""
     player = get_player(ctx.bot)
     await player.skip_track(ctx)
 
 async def handle_stop(ctx):
-    """Обрабатывает команду остановки воспроизведения"""
+    """Останавливает воспроизведение и очищает очередь"""
     player = get_player(ctx.bot)
     await player.stop_playback(ctx)
 
 async def handle_pause(ctx):
-    """Обрабатывает команду паузы"""
+    """Ставит воспроизведение на паузу"""
     player = get_player(ctx.bot)
     await player.pause_resume(ctx, pause=True)
 
 async def handle_resume(ctx):
-    """Обрабатывает команду возобновления"""
+    """Возобновляет воспроизведение"""
     player = get_player(ctx.bot)
-    await player.pause_
+    await player.pause_resume(ctx, pause=False)
 
 async def handle_remove(ctx, position):
-    """Обрабатывает команду удаления трека из очереди"""
+    """Удаляет трек из очереди по позиции"""
     player = get_player(ctx.bot)
     await player.remove_from_queue(ctx, position)
 
+async def handle_queue(ctx):
+    """Показывает очередь воспроизведения"""
+    player = get_player(ctx.bot)
+    await player.show_queue(ctx)
+
 async def cleanup_player(guild):
     """Очищает состояние плеера после отключения бота"""
-    player = get_player(None)  # Только получение существующего плеера
+    player = get_player(None)
+    if not player:
+        return
     
     # Очищаем состояние
     player.queue.clear()
     player.current = None
+    player.is_paused = False
     
     # Удаляем сообщение "сейчас играет"
     if player.now_playing_message:
@@ -733,7 +700,9 @@ async def cleanup_player(guild):
 
 async def auto_disconnect(guild, voice_channel):
     """Автоматически отключает бота, когда все пользователи вышли из канала"""
-    player = get_player(None)  # Только получение существующего плеера
+    player = get_player(None)
+    if not player:
+        return
     
     # Отправляем сообщение
     if player.text_channel:

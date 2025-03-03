@@ -1,0 +1,353 @@
+import discord
+from discord.ext import commands, tasks
+import asyncio
+import logging
+import json
+import os
+from datetime import datetime, timedelta, time
+import pytz
+from collections import defaultdict
+from typing import Dict, Set, List, Tuple, DefaultDict, Optional
+
+logger = logging.getLogger("bot")
+
+class ActivityTracker(commands.Cog):
+    """Отслеживает игровую активность пользователей на сервере"""
+    
+    def __init__(self, bot):
+        self.bot = bot
+        self.user_activities = {}  # user_id -> {game_name: total_seconds}
+        self.current_activities = {}  # user_id -> (game_name, start_time)
+        self.data_file = "data/user_activities.json"
+        self.load_data()
+        
+        # Запуск задачи отправки отчета
+        self.daily_report.start()
+    
+    def cog_unload(self):
+        """Останавливает задачи при выгрузке кога"""
+        self.daily_report.cancel()
+        # Сохраняем данные при выгрузке кога
+        self.save_data()
+    
+    def load_data(self):
+        """Загружает данные об активности из файла"""
+        if os.path.exists(self.data_file):
+            try:
+                with open(self.data_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    
+                # Преобразуем строковые ключи обратно в числа
+                self.user_activities = {int(user_id): activities 
+                                      for user_id, activities in data.items()}
+                
+                logger.info(f"Загружены данные об активности пользователей: {len(self.user_activities)} пользователей")
+            except Exception as e:
+                logger.error(f"Ошибка при загрузке данных об активности: {e}")
+                self.user_activities = {}
+        else:
+            logger.info("Файл данных об активности не найден, создан пустой словарь")
+            self.user_activities = {}
+    
+    def save_data(self):
+        """Сохраняет данные об активности в файл"""
+        try:
+            # Создаем директорию, если не существует
+            os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
+            
+            # Сначала записываем во временный файл
+            temp_file = f"{self.data_file}.tmp"
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(self.user_activities, f, indent=2)
+            
+            # Затем безопасно переименовываем
+            os.replace(temp_file, self.data_file)
+            
+            logger.info(f"Данные об активности пользователей сохранены")
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении данных об активности: {e}")
+    
+    def reset_daily_data(self):
+        """Сбрасывает данные об активности на текущий день"""
+        self.user_activities = {}
+        self.save_data()
+        logger.info("Данные об активности сброшены")
+    
+    def format_time(self, seconds: int) -> str:
+        """Форматирует время в секундах в удобочитаемую строку"""
+        hours, remainder = divmod(seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        
+        if hours > 0:
+            if minutes > 0:
+                return f"{hours} час{'ов' if hours >= 5 or hours == 0 else 'а' if hours >= 2 else ''} и {minutes} минут{'а' if minutes == 1 else '' if minutes >= 5 or minutes == 0 else 'ы'}"
+            else:
+                return f"{hours} час{'ов' if hours >= 5 or hours == 0 else 'а' if hours >= 2 else ''}"
+        else:
+            return f"{minutes} минут{'а' if minutes == 1 else '' if minutes >= 5 or minutes == 0 else 'ы'}"
+    
+    @commands.Cog.listener()
+    async def on_presence_update(self, before: discord.Member, after: discord.Member):
+        """
+        Отслеживает изменения статуса пользователей для учета игровой активности
+        """
+        # Пропускаем ботов
+        if after.bot:
+            return
+        
+        # Получаем текущее время
+        now = datetime.now(pytz.UTC)
+        user_id = after.id
+        
+        # Игра до обновления
+        before_game = None
+        if before.activity and before.activity.type == discord.ActivityType.playing:
+            before_game = before.activity.name
+        
+        # Игра после обновления
+        after_game = None
+        if after.activity and after.activity.type == discord.ActivityType.playing:
+            after_game = after.activity.name
+        
+        # Обрабатываем начало игры
+        if before_game is None and after_game is not None:
+            # Пользователь начал играть в игру
+            self.current_activities[user_id] = (after_game, now)
+            logger.debug(f"Пользователь {after.name} начал играть в {after_game}")
+        
+        # Обрабатываем изменение игры
+        elif before_game is not None and after_game is not None and before_game != after_game:
+            # Пользователь сменил игру
+            if user_id in self.current_activities:
+                game_name, start_time = self.current_activities[user_id]
+                
+                # Вычисляем проведенное время
+                elapsed_seconds = int((now - start_time).total_seconds())
+                
+                # Обновляем статистику
+                if user_id not in self.user_activities:
+                    self.user_activities[user_id] = {}
+                
+                if game_name not in self.user_activities[user_id]:
+                    self.user_activities[user_id][game_name] = elapsed_seconds
+                else:
+                    self.user_activities[user_id][game_name] += elapsed_seconds
+                
+                logger.debug(f"Пользователь {after.name} играл в {game_name} {self.format_time(elapsed_seconds)}")
+            
+            # Обновляем текущую активность
+            self.current_activities[user_id] = (after_game, now)
+            logger.debug(f"Пользователь {after.name} начал играть в {after_game}")
+        
+        # Обрабатываем завершение игры
+        elif before_game is not None and after_game is None:
+            # Пользователь перестал играть
+            if user_id in self.current_activities:
+                game_name, start_time = self.current_activities[user_id]
+                
+                # Вычисляем проведенное время
+                elapsed_seconds = int((now - start_time).total_seconds())
+                
+                # Обновляем статистику
+                if user_id not in self.user_activities:
+                    self.user_activities[user_id] = {}
+                
+                if game_name not in self.user_activities[user_id]:
+                    self.user_activities[user_id][game_name] = elapsed_seconds
+                else:
+                    self.user_activities[user_id][game_name] += elapsed_seconds
+                
+                # Удаляем текущую активность
+                del self.current_activities[user_id]
+                
+                logger.debug(f"Пользователь {after.name} закончил играть в {game_name}, общее время: {self.format_time(elapsed_seconds)}")
+                
+                # Периодически сохраняем данные
+                if len(self.user_activities) % 10 == 0:
+                    self.save_data()
+    
+    @tasks.loop(time=time(hour=21, minute=0))  # 00:00 по МСК (UTC+3)
+    async def daily_report(self):
+        """Отправляет ежедневный отчет об активности пользователей"""
+        try:
+            # Обновляем данные для текущих активностей
+            now = datetime.now(pytz.UTC)
+            for user_id, (game_name, start_time) in list(self.current_activities.items()):
+                # Вычисляем проведенное время
+                elapsed_seconds = int((now - start_time).total_seconds())
+                
+                # Обновляем статистику
+                if user_id not in self.user_activities:
+                    self.user_activities[user_id] = {}
+                
+                if game_name not in self.user_activities[user_id]:
+                    self.user_activities[user_id][game_name] = elapsed_seconds
+                else:
+                    self.user_activities[user_id][game_name] += elapsed_seconds
+                
+                # Обновляем время начала
+                self.current_activities[user_id] = (game_name, now)
+            
+            # Формируем отчет
+            channel = self.bot.get_channel(573665353327181824)  # канал cybersport
+            
+            if not channel:
+                logger.error(f"Канал cybersport (ID: 573665353327181824) не найден")
+                return
+            
+            # Если нет данных, отправляем короткое сообщение
+            if not self.user_activities:
+                await channel.send("Сегодня никто не играл в игры 😢")
+                return
+            
+            # Создаем эмбед для отчета
+            embed = discord.Embed(
+                title="📊 Ежедневный отчет об игровой активности",
+                description=f"Статистика за {datetime.now().strftime('%d.%m.%Y')}",
+                color=discord.Color.blue()
+            )
+            
+            # Добавляем данные по каждому пользователю
+            for user_id, activities in self.user_activities.items():
+                try:
+                    # Получаем объект пользователя
+                    user = channel.guild.get_member(user_id)
+                    if not user:
+                        # Пропускаем пользователей, которых нет на сервере
+                        continue
+                    
+                    # Формируем строку с играми
+                    activities_str = []
+                    for game_name, seconds in sorted(activities.items(), key=lambda x: x[1], reverse=True):
+                        activities_str.append(f"{game_name}: {self.format_time(seconds)}")
+                    
+                    # Если есть активность, добавляем в эмбед
+                    if activities_str:
+                        embed.add_field(
+                            name=user.display_name,
+                            value="\n".join(activities_str),
+                            inline=True
+                        )
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+            
+            # Добавляем общую статистику
+            total_users = len(self.user_activities)
+            all_games = set()
+            for activities in self.user_activities.values():
+                all_games.update(activities.keys())
+            
+            # Находим самую популярную игру
+            game_counts = defaultdict(int)
+            for activities in self.user_activities.values():
+                for game in activities:
+                    game_counts[game] += 1
+            
+            most_popular_game = max(game_counts.items(), key=lambda x: x[1], default=(None, 0))
+            
+            embed.add_field(
+                name="📈 Общая статистика",
+                value=f"Всего игроков: {total_users}\n"
+                      f"Уникальных игр: {len(all_games)}\n"
+                      f"Самая популярная игра: {most_popular_game[0]} ({most_popular_game[1]} игроков)" if most_popular_game[0] else "Нет данных",
+                inline=False
+            )
+            
+            embed.set_footer(text="Статистика сбрасывается каждый день в 00:00 по МСК")
+            
+            # Отправляем отчет
+            await channel.send(embed=embed)
+            logger.info(f"Отправлен ежедневный отчет об активности пользователей")
+            
+            # Сбрасываем данные на новый день
+            self.reset_daily_data()
+            
+        except Exception as e:
+            logger.error(f"Ошибка при отправке ежедневного отчета: {e}", exc_info=True)
+    
+    @daily_report.before_loop
+    async def before_daily_report(self):
+        """Ожидает готовности бота перед запуском задачи"""
+        await self.bot.wait_until_ready()
+        logger.info("Запущена задача ежедневного отчета об активности")
+    
+    @commands.hybrid_command(description='Показать текущую статистику игровой активности')
+    @commands.has_permissions(administrator=True)  # Только для администраторов
+    async def activity(self, ctx):
+        """Показывает текущую статистику игровой активности"""
+        try:
+            # Обновляем данные для текущих активностей
+            now = datetime.now(pytz.UTC)
+            for user_id, (game_name, start_time) in list(self.current_activities.items()):
+                # Вычисляем проведенное время
+                elapsed_seconds = int((now - start_time).total_seconds())
+                
+                # Обновляем статистику
+                if user_id not in self.user_activities:
+                    self.user_activities[user_id] = {}
+                
+                if game_name not in self.user_activities[user_id]:
+                    self.user_activities[user_id][game_name] = elapsed_seconds
+                else:
+                    self.user_activities[user_id][game_name] += elapsed_seconds
+            
+            # Если нет данных, отправляем короткое сообщение
+            if not self.user_activities:
+                await ctx.send("Сегодня пока никто не играл в игры 😢")
+                return
+            
+            # Создаем эмбед для отчета
+            embed = discord.Embed(
+                title="📊 Статистика игровой активности",
+                description=f"Данные на {datetime.now().strftime('%d.%m.%Y %H:%M')}",
+                color=discord.Color.blue()
+            )
+
+            # Добавляем данные по каждому пользователю
+            for user_id, activities in self.user_activities.items():
+                try:
+                    # Получаем объект пользователя
+                    user = ctx.guild.get_member(user_id)
+                    if not user:
+                        # Пропускаем пользователей, которых нет на сервере
+                        continue
+                    # Формируем строку с играми
+                    activities_str = []
+                    for game_name, seconds in sorted(activities.items(), key=lambda x: x[1], reverse=True):
+                        activities_str.append(f"{game_name}: {self.format_time(seconds)}")
+                    
+                    # Если есть активность, добавляем в эмбед
+                    if activities_str:
+                        embed.add_field(
+                            name=user.display_name,
+                            value="\n".join(activities_str),
+                            inline=True
+                        )
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
+            
+            # Добавляем инфо о текущем отчете
+            embed.set_footer(text="Используйте /activity для просмотра текущей статистики (только для администраторов)")
+            
+            # Отправляем отчет
+            await ctx.send(embed=embed)
+            logger.info(f"Показана текущая статистика активности по запросу администратора {ctx.author}")
+            
+        except discord.Forbidden:
+            await ctx.send("У меня нет прав для отправки сообщений в этот канал.")
+        except Exception as e:
+            logger.error(f"Ошибка при показе статистики активности: {e}", exc_info=True)
+            await ctx.send(f"Произошла ошибка при получении статистики: {e}")
+    
+    # Обработчик ошибки отсутствия прав доступа
+    @activity.error
+    async def activity_error(self, ctx, error):
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("У вас недостаточно прав для использования этой команды. Требуются права администратора.", ephemeral=True)
+        else:
+            logger.error(f"Ошибка в команде activity: {error}", exc_info=True)
+            await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
+
+async def setup(bot):
+    """Загружает ког ActivityTracker"""
+    await bot.add_cog(ActivityTracker(bot))
