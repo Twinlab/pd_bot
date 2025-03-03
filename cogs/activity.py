@@ -31,13 +31,20 @@ class ActivityTracker(commands.Cog):
         
         self.load_data()
         
+        # Планируем сканирование активности на потом
+        self.scan_scheduled = False
+        
         # Запуск задач
         self.daily_report.start()
         self.periodic_save.start()
-        
-        # Задача для сканирования активности всех пользователей после запуска
-        self.bot.loop.create_task(self.scan_all_users_activity())
-    
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Запускает сканирование активности после загрузки бота"""
+        if not self.scan_scheduled:
+            self.scan_scheduled = True
+            await self.scan_all_users_activity()
+
     async def scan_all_users_activity(self):
         """Сканирует активность всех пользователей при запуске бота"""
         await self.bot.wait_until_ready()
