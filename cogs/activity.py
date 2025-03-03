@@ -294,9 +294,15 @@ class ActivityTracker(commands.Cog):
             self.save_data()
         except Exception as e:
             logger.error(f"Ошибка при периодическом сохранении: {e}", exc_info=True)
-
+    
+    @periodic_save.before_loop
+    async def before_periodic_save(self):
+        """Ожидает готовности бота перед запуском задачи"""
+        await self.bot.wait_until_ready()
+        logger.info("Запущена задача периодического сохранения данных об активности")
+    
     @tasks.loop(time=time(hour=21, minute=0))  # 00:00 по МСК (UTC+3)
-    async def daily_report(self)
+    async def daily_report(self):
         """Отправляет ежедневный отчет об активности пользователей"""
         try:
             logger.info("Начинаем формирование ежедневного отчета")
