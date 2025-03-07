@@ -16,7 +16,7 @@ class ActivityView(ui.View):
     """Интерактивное представление статистики активности с кнопками"""
     
     def __init__(self, cog, data, ctx=None, report_type="daily"):
-        super().__init__(timeout=300)  # 5 минут таймаут
+        super().__init__(timeout=1800)  # 30 минут таймаут (увеличено с 5 минут)
         self.cog = cog
         self.data = data  # Все данные о активности
         self.ctx = ctx
@@ -303,13 +303,17 @@ class ActivityTracker(commands.Cog):
                     if member.bot or self.is_application(member):
                         continue
                     
-                    # Проверяем, играет ли пользователь в игру
-                    if member.activity and member.activity.type == discord.ActivityType.playing:
-                        game_name = member.activity.name
-                        logger.info(f"Обнаружена активная игра у пользователя {member.name}: {game_name}")
-                        
-                        # Добавляем в текущие активности
-                        self.current_activities[member.id] = (game_name, now)
+                    # Проверяем все активности пользователя вместо только одной
+                    playing_games = []
+                    for activity in member.activities:
+                        if activity.type == discord.ActivityType.playing:
+                            playing_games.append(activity.name)
+                            logger.info(f"Обнаружена активная игра у пользователя {member.name}: {activity.name}")
+                    
+                    # Если пользователь играет, записываем его текущую активность
+                    if playing_games:
+                        # Берем первую активную игру как текущую
+                        self.current_activities[member.id] = (playing_games[0], now)
             
             logger.info(f"Сканирование завершено. Обнаружено {len(self.current_activities)} активных игроков.")
             
@@ -469,35 +473,39 @@ class ActivityTracker(commands.Cog):
             now = datetime.now(pytz.UTC)
             user_id = after.id
             
-            # Игра до обновления
-            before_game = None
-            if before.activity and before.activity.type == discord.ActivityType.playing:
-                before_game = before.activity.name
+            # Получаем все игровые активности до и после обновления
+            before_games = {}
+            after_games = {}
             
-            # Игра после обновления
-            after_game = None
-            if after.activity and after.activity.type == discord.ActivityType.playing:
-                after_game = after.activity.name
+            # Проверяем все активности до обновления
+            for activity in before.activities:
+                if activity.type == discord.ActivityType.playing:
+                    before_games[activity.name] = activity
             
-            # Если статус игры не изменился, пропускаем
-            if before_game == after_game:
+            # Проверяем все активности после обновления
+            for activity in after.activities:
+                if activity.type == discord.ActivityType.playing:
+                    after_games[activity.name] = activity
+            
+            # Если не было изменений в игровых активностях, пропускаем
+            if before_games.keys() == after_games.keys():
                 return
                 
-            # Логируем изменение только при реальных изменениях статуса игры
-            if before_game != after_game:
-                logger.debug(f"Изменение активности пользователя {after.name}: {before_game} -> {after_game}")
+            # Логируем изменения
+            logger.debug(f"Изменение игровых активностей пользователя {after.name}: {list(before_games.keys())} -> {list(after_games.keys())}")
             
-            # Обрабатываем начало игры
-            if before_game is None and after_game is not None:
-                # Пользователь начал играть в игру
-                self.current_activities[user_id] = (after_game, now)
-                logger.debug(f"Пользователь {after.name} начал играть в {after_game}")
+            # Обрабатываем новые игры (появились в after, но не было в before)
+            for game_name in after_games.keys() - before_games.keys():
+                # Пользователь начал играть в новую игру
+                self.current_activities[user_id] = (game_name, now)
+                logger.debug(f"Пользователь {after.name} начал играть в {game_name}")
             
-            # Обрабатываем изменение игры
-            elif before_game is not None and after_game is not None and before_game != after_game:
-                # Пользователь сменил игру
-                if user_id in self.current_activities:
-                    game_name, start_time = self.current_activities[user_id]
+            # Обрабатываем завершенные игры (были в before, но нет в after)
+            for game_name in before_games.keys() - after_games.keys():
+                # Пользователь перестал играть в какую-то игру
+                if user_id in self.current_activities and self.current_activities[user_id][0] == game_name:
+                    # Извлекаем время начала
+                    start_time = self.current_activities[user_id][1]
                     
                     # Вычисляем проведенное время
                     elapsed_seconds = int((now - start_time).total_seconds())
@@ -511,36 +519,18 @@ class ActivityTracker(commands.Cog):
                     else:
                         self.user_activities[user_id][game_name] += elapsed_seconds
                     
-                    logger.debug(f"Пользователь {after.name} играл в {game_name} {self.format_time(elapsed_seconds)}")
-                
-                # Обновляем текущую активность
-                self.current_activities[user_id] = (after_game, now)
-                logger.debug(f"Пользователь {after.name} начал играть в {after_game}")
-            
-            # Обрабатываем завершение игры
-            elif before_game is not None and after_game is None:
-                # Пользователь перестал играть
-                if user_id in self.current_activities:
-                    game_name, start_time = self.current_activities[user_id]
-                    
-                    # Вычисляем проведенное время
-                    elapsed_seconds = int((now - start_time).total_seconds())
-                    
-                    # Обновляем статистику
-                    if user_id not in self.user_activities:
-                        self.user_activities[user_id] = {}
-                    
-                    if game_name not in self.user_activities[user_id]:
-                        self.user_activities[user_id][game_name] = elapsed_seconds
+                    # Удаляем текущую активность, если это была единственная игра
+                    # Или обновляем на другую активную игру, если такие есть
+                    if not after_games:
+                        del self.current_activities[user_id]
+                        logger.debug(f"Пользователь {after.name} закончил играть в {game_name}, общее время: {self.format_time(elapsed_seconds)}")
                     else:
-                        self.user_activities[user_id][game_name] += elapsed_seconds
+                        # Выбираем другую активную игру как текущую
+                        next_game = next(iter(after_games.keys()))
+                        self.current_activities[user_id] = (next_game, now)
+                        logger.debug(f"Пользователь {after.name} закончил играть в {game_name} и продолжает играть в {next_game}")
                     
-                    # Удаляем текущую активность
-                    del self.current_activities[user_id]
-                    
-                    logger.debug(f"Пользователь {after.name} закончил играть в {game_name}, общее время: {self.format_time(elapsed_seconds)}")
-                    
-                    # Сохраняем данные при завершении игры
+                    # Сохраняем данные
                     self.save_data()
         
         except Exception as e:
