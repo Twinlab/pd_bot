@@ -249,14 +249,23 @@ class ActivityTracker(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         
-        # Используем абсолютный путь к файлу
+        # Базовая директория для данных
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.data_file = os.path.join(base_dir, "data", "user_activities.json")
+        self.data_dir = os.path.join(base_dir, "data")
+        self.archive_dir = os.path.join(self.data_dir, "activity_archives")
+        
+        # Создаем директории
+        os.makedirs(self.data_dir, exist_ok=True)
+        os.makedirs(self.archive_dir, exist_ok=True)
+        
+        # Путь к текущему файлу данных
+        self.data_file = os.path.join(self.data_dir, "user_activities.json")
+        
+        # Отслеживаем текущий месяц и год для архивирования
+        self.current_month = datetime.now().month
+        self.current_year = datetime.now().year
         
         logger.info(f"Инициализация ActivityTracker")
-        
-        # Создаем директорию при инициализации
-        os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
         
         self.user_activities = {}  # user_id -> {game_name: total_seconds}
         self.current_activities = {}  # user_id -> (game_name, start_time)
@@ -267,6 +276,7 @@ class ActivityTracker(commands.Cog):
         self.scan_scheduled = False
         
         # Запуск задач
+        self.month_checker.start()
         self.daily_report.start()
         self.periodic_save.start()
 
@@ -326,6 +336,7 @@ class ActivityTracker(commands.Cog):
     
     def cog_unload(self):
         """Останавливает задачи при выгрузке кога"""
+        self.month_checker.cancel()
         self.daily_report.cancel()
         self.periodic_save.cancel()
         
@@ -553,6 +564,77 @@ class ActivityTracker(commands.Cog):
         await self.bot.wait_until_ready()
         logger.info("Запущена задача периодического сохранения данных об активности")
     
+    @tasks.loop(hours=12)  # Проверяем дважды в день
+    async def month_checker(self):
+        """Проверяет, не наступил ли новый месяц для архивирования данных"""
+        now = datetime.now()
+        if now.month != self.current_month or now.year != self.current_year:
+            await self.archive_monthly_data()
+            self.current_month = now.month
+            self.current_year = now.year
+            logger.info(f"Начат новый месяц: {self.current_month}/{self.current_year}")
+    
+    @month_checker.before_loop
+    async def before_month_checker(self):
+        """Ожидает готовности бота перед запуском задачи проверки месяца"""
+        await self.bot.wait_until_ready()
+        logger.info("Запущена задача ежемесячной проверки")
+    
+    async def archive_monthly_data(self):
+        """Архивирует данные за текущий месяц и создает новый пустой файл"""
+        try:
+            # Обновляем текущие активности
+            self.update_current_activities()
+            self.save_data()
+            
+            # Определяем имя архивного файла (для завершившегося месяца)
+            prev_month = self.current_month
+            prev_year = self.current_year
+            
+            # Формируем имя файла в формате YYYY_MM.json
+            archive_filename = f"activity_{prev_year}_{prev_month:02d}.json"
+            archive_path = os.path.join(self.archive_dir, archive_filename)
+            
+            # Копируем текущий файл данных в архив
+            if os.path.exists(self.data_file) and os.path.getsize(self.data_file) > 0:
+                import shutil
+                shutil.copy2(self.data_file, archive_path)
+                logger.info(f"Данные за {prev_month}/{prev_year} успешно архивированы: {archive_path}")
+                
+                # Сбрасываем текущие данные
+                self.user_activities = {}
+                self.save_data()
+                logger.info("Данные текущего месяца сброшены")
+            else:
+                logger.warning(f"Не удалось архивировать данные - текущий файл пуст или не существует")
+                
+        except Exception as e:
+            logger.error(f"Ошибка при архивировании данных: {e}", exc_info=True)
+    
+    def load_archived_data(self, year, month):
+        """Загружает архивные данные за указанный месяц и год"""
+        try:
+            archive_filename = f"activity_{year}_{month:02d}.json"
+            archive_path = os.path.join(self.archive_dir, archive_filename)
+            
+            if os.path.exists(archive_path) and os.path.getsize(archive_path) > 0:
+                with open(archive_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                
+                # Преобразуем строковые ключи обратно в числа
+                archived_activities = {int(user_id): activities 
+                                    for user_id, activities in data.items()}
+                
+                logger.info(f"Загружены архивные данные за {month}/{year}: {len(archived_activities)} пользователей")
+                return archived_activities
+            else:
+                logger.warning(f"Архивные данные за {month}/{year} не найдены или пусты")
+                return {}
+                
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке архивных данных: {e}", exc_info=True)
+            return {}
+    
     @tasks.loop(time=time(hour=21, minute=0))  # 00:00 по МСК (UTC+3)
     async def daily_report(self):
         """Отправляет ежедневный отчет об активности пользователей"""
@@ -584,8 +666,8 @@ class ActivityTracker(commands.Cog):
             
             logger.info(f"Отправлен ежедневный отчет об активности пользователей")
             
-            # Сбрасываем данные на новый день
-            self.reset_daily_data()
+            # Данные не сбрасываем, так как теперь это месячная статистика
+            # Сбрасываем только при смене месяца
             
         except Exception as e:
             logger.error(f"Ошибка при отправке ежедневного отчета: {e}", exc_info=True)
@@ -619,6 +701,122 @@ class ActivityTracker(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка при показе статистики активности: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
+    
+    @commands.hybrid_command(description='Показать статистику игровой активности пользователя')
+    async def mystats(self, ctx, user: discord.Member = None):
+        """Показывает статистику игровой активности конкретного пользователя или вашу собственную"""
+        try:
+            # Если пользователь не указан, используем автора команды
+            target_user = user if user else ctx.author
+            user_id = target_user.id
+            
+            # Обновляем данные для текущих активностей
+            self.update_current_activities()
+            
+            # Создаем эмбед
+            embed = discord.Embed(
+                title=f"📊 Статистика игрока {target_user.display_name}",
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            
+            # Устанавливаем аватар пользователя
+            embed.set_thumbnail(url=target_user.display_avatar.url)
+            
+            # Проверяем, есть ли данные для пользователя
+            if user_id not in self.user_activities or not self.user_activities[user_id]:
+                embed.description = "Пока нет игровой активности для отображения 😢"
+                await ctx.send(embed=embed)
+                return
+            
+            # Сортируем игры по времени (от большего к меньшему)
+            user_games = self.user_activities[user_id]
+            sorted_games = sorted(user_games.items(), key=lambda x: x[1], reverse=True)
+            
+            # Топ-5 игр
+            top_games_text = ""
+            for i, (game, time_spent) in enumerate(sorted_games[:5], 1):
+                top_games_text += f"{i}. **{game}** - {self.format_time(time_spent)}\n"
+            
+            if top_games_text:
+                embed.add_field(name="🏆 Топ игры", value=top_games_text, inline=False)
+            
+            # Общее игровое время
+            total_time = sum(user_games.values())
+            embed.add_field(name="⏱️ Всего в играх", value=self.format_time(total_time), inline=True)
+            
+            # Количество игр
+            games_count = len(user_games)
+            embed.add_field(name="🎮 Количество игр", value=str(games_count), inline=True)
+            
+            # Текущая активность
+            if user_id in self.current_activities:
+                game_name, start_time = self.current_activities[user_id]
+                now = datetime.now(pytz.UTC)
+                current_session = int((now - start_time).total_seconds())
+                embed.add_field(
+                    name="🔴 Сейчас играет",
+                    value=f"**{game_name}** ({self.format_time(current_session)})",
+                    inline=False
+                )
+            
+            # Подпись
+            embed.set_footer(text=f"Статистика за текущий месяц • Используйте /activity для просмотра общей статистики")
+            
+            await ctx.send(embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при отображении персональной статистики: {e}", exc_info=True)
+            await ctx.send(f"Произошла ошибка при получении статистики: {e}")
+
+    @commands.hybrid_command(description='Показать архивную статистику за предыдущий месяц')
+    @commands.has_permissions(administrator=True)  # Только для администраторов
+    async def archived_stats(self, ctx, year: int = None, month: int = None):
+        """Показывает архивную статистику за указанный месяц"""
+        try:
+            # Если год и месяц не указаны, берем предыдущий месяц
+            if year is None or month is None:
+                today = datetime.now()
+                if today.month == 1:
+                    year = today.year - 1
+                    month = 12
+                else:
+                    year = today.year
+                    month = today.month - 1
+            
+            # Проверка корректности даты
+            if not (1 <= month <= 12 and year >= 2020):
+                await ctx.send("Пожалуйста, укажите корректный месяц (1-12) и год (не ранее 2020)")
+                return
+            
+            # Загружаем архивные данные
+            archived_data = self.load_archived_data(year, month)
+            
+            if not archived_data:
+                await ctx.send(f"Архивные данные за {month:02d}/{year} не найдены или пусты")
+                return
+            
+            # Создаем интерактивное представление с архивными данными
+            view = ActivityView(self, archived_data, ctx=ctx, report_type="command")
+            
+            # Формируем месяц в текстовом виде
+            month_names = {
+                1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель", 
+                5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+                9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+            }
+            month_name = month_names.get(month, f"Месяц {month}")
+            
+            # Отправляем отчет с указанием периода
+            header = f"# 📊 Архивная статистика за {month_name} {year}\n\n"
+            content = view.get_current_content().replace("# 📊 Статистика", header)
+            
+            message = await ctx.send(content=content, view=view)
+            view.message = message
+            
+        except Exception as e:
+            logger.error(f"Ошибка при показе архивной статистики: {e}", exc_info=True)
+            await ctx.send(f"Произошла ошибка при получении архивной статистики: {e}")
 
     @commands.hybrid_command(description='Протестировать формат ежедневного отчета')
     @commands.has_permissions(administrator=True)  # Только для администраторов
@@ -681,6 +879,24 @@ class ActivityTracker(commands.Cog):
             await ctx.send("У вас недостаточно прав для использования этой команды. Требуются права администратора.", ephemeral=True)
         else:
             logger.error(f"Ошибка в команде activity: {error}", exc_info=True)
+            await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
+    
+    @mystats.error
+    async def mystats_error(self, ctx, error):
+        if isinstance(error, commands.UserNotFound):
+            await ctx.send("Не удалось найти указанного пользователя. Проверьте правильность имени или ID.", ephemeral=True)
+        else:
+            logger.error(f"Ошибка в команде mystats: {error}", exc_info=True)
+            await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
+    
+    @archived_stats.error
+    async def archived_stats_error(self, ctx, error):
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("У вас недостаточно прав для использования этой команды. Требуются права администратора.", ephemeral=True)
+        elif isinstance(error, commands.BadArgument):
+            await ctx.send("Неверный формат аргументов. Укажите год и месяц в числовом формате (например, 2023 12).", ephemeral=True)
+        else:
+            logger.error(f"Ошибка в команде archived_stats: {error}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
     
     @test_report.error
