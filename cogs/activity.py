@@ -29,7 +29,7 @@ class ActivityView(ui.View):
         self.prepare_data()
     
     def prepare_data(self):
-        """Подготавливает данные для отображения"""
+        """Подготавливает данные для отображения - фильтрует игры с нулевым временем"""
         # Отображение по пользователям
         self.users_data = {}
         for user_id, activities in self.data.items():
@@ -87,7 +87,7 @@ class ActivityView(ui.View):
             content = self._get_games_content()
         
         # Добавляем информацию о страницах
-        footer = f"\n\n*Страница {self.current_page + 1}/{self.max_pages} · "
+        footer = f"\n*Страница {self.current_page + 1}/{self.max_pages} · "
         footer += f"Режим: {'Пользователи' if self.view_mode == 'users' else 'Игры'}*"
         
         # Добавляем информацию о сбросе статистики для ежедневного отчета
@@ -98,7 +98,7 @@ class ActivityView(ui.View):
     
     def _get_users_content(self):
         """Получает содержимое для отображения пользователей"""
-        content = "## 👤 По пользователям\n\n"
+        content = "## 👤 По пользователям\n"
         
         # Получаем нужные ID пользователей для текущей страницы
         start_idx = self.current_page * self.max_items_per_page
@@ -110,12 +110,12 @@ class ActivityView(ui.View):
         
         # Формируем строки для каждого пользователя
         for user_id in current_user_ids:
-            # Получаем имя пользователя
+            # Получаем имя пользователя - используем глобальное имя, а не серверное
             guild = self.ctx.guild if self.ctx else next(iter(self.cog.bot.guilds))
             member = guild.get_member(user_id)
-            username = member.display_name if member else f"Пользователь {user_id}"
+            username = member.name if member else f"Пользователь {user_id}"
             
-            content += f"### {username}\n"
+            content += f"**{username}**: "
             
             # Отсортированные активности
             activities = sorted(
@@ -124,20 +124,18 @@ class ActivityView(ui.View):
                 reverse=True
             )
             
-            # Добавляем каждую игру
-            for game_name, time_spent in activities:
-                content += f"▫️ **{game_name}**: {self.format_time_short(time_spent)}\n"
-            
-            content += "\n"
+            # Добавляем каждую игру в одну строку
+            games_list = [f"{game_name} ({self.format_time_short(time_spent)})" for game_name, time_spent in activities]
+            content += ", ".join(games_list) + "\n"
         
         # Добавляем общую статистику
-        content += self._get_summary()
+        content += "\n" + self._get_summary()
         
         return content
     
     def _get_games_content(self):
         """Получает содержимое для отображения игр"""
-        content = "## 🎮 По играм\n\n"
+        content = "## 🎮 По играм\n"
         
         # Получаем нужные игры для текущей страницы
         start_idx = self.current_page * self.max_items_per_page
@@ -147,31 +145,16 @@ class ActivityView(ui.View):
         if not current_games:
             return content + "*Нет данных для отображения*"
         
-        # Формируем строки для каждой игры
+        # Формируем строки для каждой игры в более компактном формате
         for game_name in current_games:
             players = self.games_data[game_name]
             total_time = sum(players.values())
+            players_count = len(players)
             
-            content += f"### {game_name}\n"
-            content += f"▫️ **Игроков**: {len(players)}\n"
-            content += f"▫️ **Общее время**: {self.format_time_short(total_time)}\n"
-            
-            # Топ-3 игрока с наибольшим временем
-            top_players = sorted(players.items(), key=lambda x: x[1], reverse=True)[:3]
-            if top_players:
-                content += "▫️ **Топ игроки**:\n"
-                
-                for idx, (player_id, time_spent) in enumerate(top_players, 1):
-                    guild = self.ctx.guild if self.ctx else next(iter(self.cog.bot.guilds))
-                    member = guild.get_member(player_id)
-                    player_name = member.display_name if member else f"Пользователь {player_id}"
-                    
-                    content += f"  {idx}. {player_name}: {self.format_time_short(time_spent)}\n"
-            
-            content += "\n"
+            content += f"**{game_name}**: {players_count} игр. ⏱️ {self.format_time_short(total_time)}\n"
         
         # Добавляем общую статистику
-        content += self._get_summary()
+        content += "\n" + self._get_summary()
         
         return content
     
@@ -194,14 +177,13 @@ class ActivityView(ui.View):
         for user_data in self.users_data.values():
             total_time += sum(user_data.values())
         
-        summary = f"## 📊 Общая статистика\n\n"
-        summary += f"▫️ **Всего игроков**: {total_users}\n"
-        summary += f"▫️ **Уникальных игр**: {total_games}\n"
+        summary = f"## 📊 Общая статистика\n"
+        summary += f"Всего игроков: {total_users} | "
+        summary += f"Уникальных игр: {total_games} | "
+        summary += f"Общее время: {self.format_time_short(total_time)}"
         
         if most_popular_game:
-            summary += f"▫️ **Самая популярная игра**: {most_popular_game} ({max_players} игроков)\n"
-        
-        summary += f"▫️ **Общее игровое время**: {self.format_time_short(total_time)}"
+            summary += f"\nСамая популярная игра: **{most_popular_game}** ({max_players} игроков)"
         
         return summary
     
@@ -623,6 +605,7 @@ class ActivityTracker(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка при показе статистики активности: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
+
     @commands.hybrid_command(description='Протестировать формат ежедневного отчета')
     @commands.has_permissions(administrator=True)  # Только для администраторов
     async def test_report(self, ctx):
@@ -634,7 +617,12 @@ class ActivityTracker(commands.Cog):
             self.update_current_activities()
             
             # Если нет реальных данных, создаем тестовые данные
-            test_data = self.user_activities.copy()
+            test_data = {}
+            for user_id, activities in self.user_activities.items():
+                # Копируем только активности с ненулевым временем
+                filtered = {game: time for game, time in activities.items() if time > 0}
+                if filtered:
+                    test_data[user_id] = filtered
             
             if not test_data:
                 logger.info("Создание тестовых данных для отчета")
@@ -643,7 +631,6 @@ class ActivityTracker(commands.Cog):
                     ctx.author.id: {
                         "Genshin Impact": 3600 + 300,  # 1h5m
                         "Dota 2": 7200 + 1800,  # 2h30m
-                        "League of Legends": 0  # 0m (не должно отображаться)
                     }
                 }
                 
