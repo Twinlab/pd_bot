@@ -1,3 +1,17 @@
+import discord
+from discord.ext import commands, tasks
+import asyncio
+import logging
+import json
+import os
+from datetime import datetime, timedelta, time
+import pytz
+from collections import defaultdict
+from typing import Dict, Set, List, Tuple, DefaultDict, Optional
+from discord import ui, ButtonStyle, Interaction
+
+logger = logging.getLogger("bot")
+
 class ActivityView(ui.View):
     """Интерактивное представление статистики активности с кнопками"""
     
