@@ -8,8 +8,244 @@ from datetime import datetime, timedelta, time
 import pytz
 from collections import defaultdict
 from typing import Dict, Set, List, Tuple, DefaultDict, Optional
+from discord import ui, ButtonStyle, Interaction
 
 logger = logging.getLogger("bot")
+
+class ActivityView(ui.View):
+    """Интерактивное представление статистики активности с кнопками"""
+    
+    def __init__(self, cog, data, ctx=None, report_type="daily"):
+        super().__init__(timeout=300)  # 5 минут таймаут
+        self.cog = cog
+        self.data = data  # Все данные о активности
+        self.ctx = ctx
+        self.report_type = report_type  # "daily" или "command"
+        self.current_page = 0
+        self.view_mode = "users"  # "users" или "games"
+        self.max_items_per_page = 10
+        
+        # Подготавливаем данные для отображения
+        self.prepare_data()
+    
+    def prepare_data(self):
+        """Подготавливает данные для отображения"""
+        # Отображение по пользователям
+        self.users_data = {}
+        for user_id, activities in self.data.items():
+            # Отфильтровываем только активности с временем > 0
+            filtered_activities = {game: time for game, time in activities.items() if time > 0}
+            if filtered_activities:
+                self.users_data[user_id] = filtered_activities
+        
+        # Создаем список пользователей
+        self.user_ids = list(self.users_data.keys())
+        
+        # Отображение по играм
+        self.games_data = defaultdict(dict)
+        for user_id, activities in self.data.items():
+            for game, time in activities.items():
+                if time > 0:  # Только активности с временем > 0
+                    self.games_data[game][user_id] = time
+        
+        # Создаем список игр, отсортированный по популярности
+        self.games_list = sorted(
+            self.games_data.keys(),
+            key=lambda g: (len(self.games_data[g]), sum(self.games_data[g].values())),
+            reverse=True
+        )
+        
+        # Считаем общее количество страниц
+        if self.view_mode == "users":
+            self.max_pages = max(1, (len(self.user_ids) + self.max_items_per_page - 1) // self.max_items_per_page)
+        else:
+            self.max_pages = max(1, (len(self.games_list) + self.max_items_per_page - 1) // self.max_items_per_page)
+    
+    def format_time_short(self, seconds: int) -> str:
+        """Форматирует время в секундах в краткую строку (1h5m)"""
+        hours, remainder = divmod(seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        
+        if hours > 0:
+            if minutes > 0:
+                return f"{hours}h{minutes}m"
+            else:
+                return f"{hours}h"
+        else:
+            return f"{minutes}m"
+    
+    def get_current_content(self):
+        """Возвращает текущее содержимое для отображения"""
+        # Заголовок и дата
+        header = f"# 📊 {'Ежедневный отчет' if self.report_type == 'daily' else 'Статистика'} игровой активности\n"
+        date_str = f"**{datetime.now().strftime('%d.%m.%Y')}**\n\n"
+        
+        # Содержимое зависит от режима просмотра и текущей страницы
+        if self.view_mode == "users":
+            content = self._get_users_content()
+        else:
+            content = self._get_games_content()
+        
+        # Добавляем информацию о страницах
+        footer = f"\n\n*Страница {self.current_page + 1}/{self.max_pages} · "
+        footer += f"Режим: {'Пользователи' if self.view_mode == 'users' else 'Игры'}*"
+        
+        # Добавляем информацию о сбросе статистики для ежедневного отчета
+        if self.report_type == "daily":
+            footer += "\n*Статистика сбрасывается каждый день в 00:00 по МСК*"
+        
+        return header + date_str + content + footer
+    
+    def _get_users_content(self):
+        """Получает содержимое для отображения пользователей"""
+        content = "## 👤 По пользователям\n\n"
+        
+        # Получаем нужные ID пользователей для текущей страницы
+        start_idx = self.current_page * self.max_items_per_page
+        end_idx = min(start_idx + self.max_items_per_page, len(self.user_ids))
+        current_user_ids = self.user_ids[start_idx:end_idx]
+        
+        if not current_user_ids:
+            return content + "*Нет данных для отображения*"
+        
+        # Формируем строки для каждого пользователя
+        for user_id in current_user_ids:
+            # Получаем имя пользователя
+            guild = self.ctx.guild if self.ctx else next(iter(self.cog.bot.guilds))
+            member = guild.get_member(user_id)
+            username = member.display_name if member else f"Пользователь {user_id}"
+            
+            content += f"### {username}\n"
+            
+            # Отсортированные активности
+            activities = sorted(
+                self.users_data[user_id].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )
+            
+            # Добавляем каждую игру
+            for game_name, time_spent in activities:
+                content += f"▫️ **{game_name}**: {self.format_time_short(time_spent)}\n"
+            
+            content += "\n"
+        
+        # Добавляем общую статистику
+        content += self._get_summary()
+        
+        return content
+    
+    def _get_games_content(self):
+        """Получает содержимое для отображения игр"""
+        content = "## 🎮 По играм\n\n"
+        
+        # Получаем нужные игры для текущей страницы
+        start_idx = self.current_page * self.max_items_per_page
+        end_idx = min(start_idx + self.max_items_per_page, len(self.games_list))
+        current_games = self.games_list[start_idx:end_idx]
+        
+        if not current_games:
+            return content + "*Нет данных для отображения*"
+        
+        # Формируем строки для каждой игры
+        for game_name in current_games:
+            players = self.games_data[game_name]
+            total_time = sum(players.values())
+            
+            content += f"### {game_name}\n"
+            content += f"▫️ **Игроков**: {len(players)}\n"
+            content += f"▫️ **Общее время**: {self.format_time_short(total_time)}\n"
+            
+            # Топ-3 игрока с наибольшим временем
+            top_players = sorted(players.items(), key=lambda x: x[1], reverse=True)[:3]
+            if top_players:
+                content += "▫️ **Топ игроки**:\n"
+                
+                for idx, (player_id, time_spent) in enumerate(top_players, 1):
+                    guild = self.ctx.guild if self.ctx else next(iter(self.cog.bot.guilds))
+                    member = guild.get_member(player_id)
+                    player_name = member.display_name if member else f"Пользователь {player_id}"
+                    
+                    content += f"  {idx}. {player_name}: {self.format_time_short(time_spent)}\n"
+            
+            content += "\n"
+        
+        # Добавляем общую статистику
+        content += self._get_summary()
+        
+        return content
+    
+    def _get_summary(self):
+        """Возвращает общую статистику"""
+        total_users = len(self.users_data)
+        total_games = len(self.games_data)
+        
+        # Самая популярная игра
+        most_popular_game = None
+        max_players = 0
+        
+        for game, players in self.games_data.items():
+            if len(players) > max_players:
+                max_players = len(players)
+                most_popular_game = game
+        
+        # Общее время всех игроков
+        total_time = 0
+        for user_data in self.users_data.values():
+            total_time += sum(user_data.values())
+        
+        summary = f"## 📊 Общая статистика\n\n"
+        summary += f"▫️ **Всего игроков**: {total_users}\n"
+        summary += f"▫️ **Уникальных игр**: {total_games}\n"
+        
+        if most_popular_game:
+            summary += f"▫️ **Самая популярная игра**: {most_popular_game} ({max_players} игроков)\n"
+        
+        summary += f"▫️ **Общее игровое время**: {self.format_time_short(total_time)}"
+        
+        return summary
+    
+    @ui.button(label="⬅️ Назад", style=ButtonStyle.gray)
+    async def previous_button(self, interaction: Interaction, button: ui.Button):
+        """Переход на предыдущую страницу"""
+        if self.current_page > 0:
+            self.current_page -= 1
+            await interaction.response.edit_message(content=self.get_current_content(), view=self)
+        else:
+            await interaction.response.defer()
+    
+    @ui.button(label="Режим", style=ButtonStyle.blurple)
+    async def toggle_mode(self, interaction: Interaction, button: ui.Button):
+        """Переключение между режимами отображения"""
+        self.view_mode = "games" if self.view_mode == "users" else "users"
+        self.current_page = 0  # Сброс страницы при смене режима
+        self.prepare_data()  # Перерасчет данных для нового режима
+        
+        button.label = "По играм" if self.view_mode == "users" else "По пользователям"
+        
+        await interaction.response.edit_message(content=self.get_current_content(), view=self)
+    
+    @ui.button(label="Вперед ➡️", style=ButtonStyle.gray)
+    async def next_button(self, interaction: Interaction, button: ui.Button):
+        """Переход на следующую страницу"""
+        if self.current_page < self.max_pages - 1:
+            self.current_page += 1
+            await interaction.response.edit_message(content=self.get_current_content(), view=self)
+        else:
+            await interaction.response.defer()
+    
+    async def on_timeout(self):
+        """Обработка таймаута интерактивного сообщения"""
+        # Отключаем все кнопки
+        for item in self.children:
+            item.disabled = True
+        
+        # Обновляем сообщение, если оно еще доступно
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except:
+                pass
 
 class ActivityTracker(commands.Cog):
     """Отслеживает игровую активность пользователей на сервере"""
@@ -176,6 +412,19 @@ class ActivityTracker(commands.Cog):
         else:
             return f"{minutes} минут{'а' if minutes == 1 else '' if minutes >= 5 or minutes == 0 else 'ы'}"
     
+    def format_time_short(self, seconds: int) -> str:
+        """Форматирует время в секундах в краткую строку (1h5m)"""
+        hours, remainder = divmod(seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        
+        if hours > 0:
+            if minutes > 0:
+                return f"{hours}h{minutes}m"
+            else:
+                return f"{hours}h"
+        else:
+            return f"{minutes}m"
+    
     def update_current_activities(self):
         """Обновляет статистику для текущих активностей"""
         now = datetime.now(pytz.UTC)
@@ -330,70 +579,13 @@ class ActivityTracker(commands.Cog):
                 logger.info("Нет данных об активности для отчета")
                 return
             
-            # Создаем эмбед для отчета
-            embed = discord.Embed(
-                title="📊 Ежедневный отчет об игровой активности",
-                description=f"Статистика за {datetime.now().strftime('%d.%m.%Y')}",
-                color=discord.Color.blue()
-            )
-            
-            # Добавляем данные по каждому пользователю
-            for user_id, activities in self.user_activities.items():
-                try:
-                    # Получаем объект пользователя
-                    user = channel.guild.get_member(user_id)
-                    if not user or user.bot or self.is_application(user):
-                        # Пропускаем пользователей, которых нет на сервере или ботов/приложения
-                        continue
-                    
-                    # Формируем строку с играми
-                    activities_str = []
-                    for game_name, seconds in sorted(activities.items(), key=lambda x: x[1], reverse=True):
-                        activities_str.append(f"{game_name}: {self.format_time(seconds)}")
-                    
-                    # Если есть активность, добавляем в эмбед
-                    if activities_str:
-                        embed.add_field(
-                            name=user.display_name,
-                            value="\n".join(activities_str),
-                            inline=True
-                        )
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}", exc_info=True)
-            
-            # Добавляем общую статистику
-            total_users = len([uid for uid in self.user_activities if channel.guild.get_member(uid) and 
-                              not channel.guild.get_member(uid).bot and 
-                              not self.is_application(channel.guild.get_member(uid))])
-            
-            all_games = set()
-            for uid, activities in self.user_activities.items():
-                user = channel.guild.get_member(uid)
-                if user and not user.bot and not self.is_application(user):
-                    all_games.update(activities.keys())
-            
-            # Находим самую популярную игру
-            game_counts = defaultdict(int)
-            for uid, activities in self.user_activities.items():
-                user = channel.guild.get_member(uid)
-                if user and not user.bot and not self.is_application(user):
-                    for game in activities:
-                        game_counts[game] += 1
-            
-            most_popular_game = max(game_counts.items(), key=lambda x: x[1], default=(None, 0))
-            
-            embed.add_field(
-                name="📈 Общая статистика",
-                value=f"Всего игроков: {total_users}\n"
-                      f"Уникальных игр: {len(all_games)}\n"
-                      f"Самая популярная игра: {most_popular_game[0]} ({most_popular_game[1]} игроков)" if most_popular_game[0] else "Нет данных",
-                inline=False
-            )
-            
-            embed.set_footer(text="Статистика сбрасывается каждый день в 00:00 по МСК")
+            # Создаем интерактивное представление
+            view = ActivityView(self, self.user_activities, report_type="daily")
             
             # Отправляем отчет
-            await channel.send(embed=embed)
+            message = await channel.send(content=view.get_current_content(), view=view)
+            view.message = message
+            
             logger.info(f"Отправлен ежедневный отчет об активности пользователей")
             
             # Сбрасываем данные на новый день
@@ -421,48 +613,67 @@ class ActivityTracker(commands.Cog):
                 await ctx.send("Сегодня пока никто не играл в игры 😢")
                 return
             
-            # Создаем эмбед для отчета
-            embed = discord.Embed(
-                title="📊 Статистика игровой активности",
-                description=f"Данные на {datetime.now().strftime('%d.%m.%Y %H:%M')}",
-                color=discord.Color.blue()
-            )
-            
-            # Добавляем данные по каждому пользователю
-            for user_id, activities in self.user_activities.items():
-                try:
-                    # Получаем объект пользователя
-                    user = ctx.guild.get_member(user_id)
-                    if not user or user.bot or self.is_application(user):
-                        # Пропускаем пользователей, которых нет на сервере или ботов/приложения
-                        continue
-                    
-                    # Формируем строку с играми
-                    activities_str = []
-                    for game_name, seconds in sorted(activities.items(), key=lambda x: x[1], reverse=True):
-                        activities_str.append(f"{game_name}: {self.format_time(seconds)}")
-                    
-                    # Если есть активность, добавляем в эмбед
-                    if activities_str:
-                        embed.add_field(
-                            name=user.display_name,
-                            value="\n".join(activities_str),
-                            inline=True
-                        )
-                except Exception as e:
-                    logger.error(f"Ошибка при обработке пользователя {user_id}: {e}")
-            
-            # Добавляем инфо о текущем отчете
-            embed.set_footer(text="Используйте /activity для просмотра текущей статистики (только для администраторов)")
+            # Создаем интерактивное представление
+            view = ActivityView(self, self.user_activities, ctx=ctx, report_type="command")
             
             # Отправляем отчет
-            await ctx.send(embed=embed)
+            message = await ctx.send(content=view.get_current_content(), view=view)
+            view.message = message
             
         except Exception as e:
             logger.error(f"Ошибка при показе статистики активности: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
+    @commands.hybrid_command(description='Протестировать формат ежедневного отчета')
+    @commands.has_permissions(administrator=True)  # Только для администраторов
+    async def test_report(self, ctx):
+        """Тестирует формат ежедневного отчета"""
+        try:
+            logger.info("Запуск тестирования формата ежедневного отчета")
+            
+            # Обновляем данные для текущих активностей перед генерацией отчета
+            self.update_current_activities()
+            
+            # Если нет реальных данных, создаем тестовые данные
+            test_data = self.user_activities.copy()
+            
+            if not test_data:
+                logger.info("Создание тестовых данных для отчета")
+                # Создаем тестовые данные
+                test_data = {
+                    ctx.author.id: {
+                        "Genshin Impact": 3600 + 300,  # 1h5m
+                        "Dota 2": 7200 + 1800,  # 2h30m
+                        "League of Legends": 0  # 0m (не должно отображаться)
+                    }
+                }
+                
+                # Добавляем данные для нескольких других участников сервера
+                for i, member in enumerate(list(ctx.guild.members)[:5]):
+                    if member.id != ctx.author.id and not member.bot and not self.is_application(member):
+                        games = {
+                            "Minecraft": 1800 + 600 + i*300,  # 30m + 10m + variable
+                            "Fortnite": 3600 + i*600,  # 1h + variable
+                            "CS:GO": 5400 + i*300  # 1h30m + variable
+                        }
+                        test_data[member.id] = games
+            
+            # Создаем интерактивное представление с тестовыми данными
+            view = ActivityView(self, test_data, ctx=ctx, report_type="daily")
+            
+            # Отправляем тестовый отчет
+            message = await ctx.send(
+                content=f"**[ТЕСТ]** Так будет выглядеть ежедневный отчет:\n\n{view.get_current_content()}", 
+                view=view
+            )
+            view.message = message
+            
+            logger.info(f"Тестовый отчет об активности отправлен")
+            
+        except Exception as e:
+            logger.error(f"Ошибка при тестировании отчета: {e}", exc_info=True)
+            await ctx.send(f"Произошла ошибка при создании тестового отчета: {e}")
     
-    # Обработчик ошибки отсутствия прав доступа
+    # Обработчики ошибок команд
     @activity.error
     async def activity_error(self, ctx, error):
         if isinstance(error, commands.MissingPermissions):
@@ -470,7 +681,16 @@ class ActivityTracker(commands.Cog):
         else:
             logger.error(f"Ошибка в команде activity: {error}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
+    
+    @test_report.error
+    async def test_report_error(self, ctx, error):
+        if isinstance(error, commands.MissingPermissions):
+            await ctx.send("У вас недостаточно прав для использования этой команды. Требуются права администратора.", ephemeral=True)
+        else:
+            logger.error(f"Ошибка в команде test_report: {error}", exc_info=True)
+            await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
 
 async def setup(bot):
     """Загружает ког ActivityTracker"""
     await bot.add_cog(ActivityTracker(bot))
+
