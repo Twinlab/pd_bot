@@ -23,7 +23,7 @@ class ActivityView(ui.View):
         self.report_type = report_type  # "daily" или "command"
         self.current_page = 0
         self.view_mode = "users"  # "users" или "games"
-        self.max_items_per_page = 10
+        self.max_items_per_page = 20  # Увеличено до 20 элементов на страницу
         
         # Подготавливаем данные для отображения
         self.prepare_data()
@@ -38,8 +38,15 @@ class ActivityView(ui.View):
             if filtered_activities:
                 self.users_data[user_id] = filtered_activities
         
-        # Создаем список пользователей
-        self.user_ids = list(self.users_data.keys())
+        # Создаем список пользователей, отсортированный по алфавиту
+        guild = self.ctx.guild if self.ctx else next(iter(self.cog.bot.guilds))
+        
+        def get_username(user_id):
+            member = guild.get_member(user_id)
+            return member.name.lower() if member else f"user_{user_id}"
+        
+        # Сортируем пользователей по алфавиту
+        self.user_ids = sorted(self.users_data.keys(), key=get_username)
         
         # Отображение по играм
         self.games_data = defaultdict(dict)
@@ -62,13 +69,13 @@ class ActivityView(ui.View):
             self.max_pages = max(1, (len(self.games_list) + self.max_items_per_page - 1) // self.max_items_per_page)
     
     def format_time_short(self, seconds: int) -> str:
-        """Форматирует время в секундах в краткую строку (1h5m)"""
+        """Форматирует время в секундах в краткую строку (1h 5m)"""
         hours, remainder = divmod(seconds, 3600)
         minutes, _ = divmod(remainder, 60)
         
         if hours > 0:
             if minutes > 0:
-                return f"{hours}h{minutes}m"
+                return f"{hours}h {minutes}m"
             else:
                 return f"{hours}h"
         else:
@@ -76,9 +83,8 @@ class ActivityView(ui.View):
     
     def get_current_content(self):
         """Возвращает текущее содержимое для отображения"""
-        # Заголовок и дата
-        header = f"# 📊 {'Ежедневный отчет' if self.report_type == 'daily' else 'Статистика'} игровой активности\n"
-        date_str = f"**{datetime.now().strftime('%d.%m.%Y')}**\n\n"
+        # Заголовок
+        header = f"# 📊 {'Ежедневный отчет' if self.report_type == 'daily' else 'Статистика'} игровой активности\n\n"
         
         # Содержимое зависит от режима просмотра и текущей страницы
         if self.view_mode == "users":
@@ -86,15 +92,10 @@ class ActivityView(ui.View):
         else:
             content = self._get_games_content()
         
-        # Добавляем информацию о страницах
-        footer = f"\n*Страница {self.current_page + 1}/{self.max_pages} · "
-        footer += f"Режим: {'Пользователи' if self.view_mode == 'users' else 'Игры'}*"
+        # Добавляем информацию о страницах (упрощенная)
+        footer = f"\n*Страница {self.current_page + 1}/{self.max_pages}*"
         
-        # Добавляем информацию о сбросе статистики для ежедневного отчета
-        if self.report_type == "daily":
-            footer += "\n*Статистика сбрасывается каждый день в 00:00 по МСК*"
-        
-        return header + date_str + content + footer
+        return header + content + footer
     
     def _get_users_content(self):
         """Получает содержимое для отображения пользователей"""
