@@ -1,17 +1,3 @@
-import discord
-from discord.ext import commands, tasks
-import asyncio
-import logging
-import json
-import os
-from datetime import datetime, timedelta, time
-import pytz
-from collections import defaultdict
-from typing import Dict, Set, List, Tuple, DefaultDict, Optional
-from discord import ui, ButtonStyle, Interaction
-
-logger = logging.getLogger("bot")
-
 class ActivityView(ui.View):
     """Интерактивное представление статистики активности с кнопками"""
     
@@ -23,10 +9,16 @@ class ActivityView(ui.View):
         self.report_type = report_type  # "daily" или "command"
         self.current_page = 0
         self.view_mode = "users"  # "users" или "games"
-        self.max_items_per_page = 20  # Увеличено до 20 элементов на страницу
+        self.max_items_per_page = 20  # 20 элементов на страницу
         
         # Подготавливаем данные для отображения
         self.prepare_data()
+        
+        # Сразу устанавливаем правильную надпись на кнопке переключения режима
+        for item in self.children:
+            if isinstance(item, ui.Button) and item.label == "Режим":
+                item.label = "По играм"
+                break
     
     def prepare_data(self):
         """Подготавливает данные для отображения - фильтрует игры с нулевым временем"""
@@ -152,7 +144,14 @@ class ActivityView(ui.View):
             total_time = sum(players.values())
             players_count = len(players)
             
-            content += f"**{game_name}**: {players_count} игр. ⏱️ {self.format_time_short(total_time)}\n"
+            # Не показываем количество игроков, если игрок всего один
+            players_info = f"{players_count} players" if players_count > 1 else ""
+            
+            # Форматируем строку с информацией о игре
+            if players_info:
+                content += f"**{game_name}**: {players_info} ⏱️ {self.format_time_short(total_time)}\n"
+            else:
+                content += f"**{game_name}**: ⏱️ {self.format_time_short(total_time)}\n"
         
         # Добавляем общую статистику
         content += "\n" + self._get_summary()
@@ -184,7 +183,7 @@ class ActivityView(ui.View):
         summary += f"Общее время: {self.format_time_short(total_time)}"
         
         if most_popular_game:
-            summary += f"\nСамая популярная игра: **{most_popular_game}** ({max_players} игроков)"
+            summary += f"\nСамая популярная игра: **{most_popular_game}** ({max_players} players)" if max_players > 1 else f"\nСамая популярная игра: **{most_popular_game}**"
         
         return summary
     
@@ -197,7 +196,7 @@ class ActivityView(ui.View):
         else:
             await interaction.response.defer()
     
-    @ui.button(label="Режим", style=ButtonStyle.blurple)
+    @ui.button(label="По играм", style=ButtonStyle.blurple)
     async def toggle_mode(self, interaction: Interaction, button: ui.Button):
         """Переключение между режимами отображения"""
         self.view_mode = "games" if self.view_mode == "users" else "users"
