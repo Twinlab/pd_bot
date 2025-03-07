@@ -694,4 +694,3 @@ class ActivityTracker(commands.Cog):
 async def setup(bot):
     """Загружает ког ActivityTracker"""
     await bot.add_cog(ActivityTracker(bot))
-
