@@ -59,15 +59,16 @@ class Fun(commands.Cog):
             await ctx.send(f"Произошла ошибка: {e}")
     
     @commands.hybrid_command(description='Показывает размер пениса')
-    async def penis(self, ctx):
+    async def penis(self, ctx, mentioned_user: Optional[discord.Member] = None):
         """
         Генерирует случайный размер пениса.
         
         Args:
             ctx: Контекст команды
+            mentioned_user: Пользователь, чей аватар нужно показать (опционально)
         """
         try:
-            await measure_penis(ctx)
+            await measure_penis(ctx, mentioned_user)
         except Exception as e:
             logger.error(f"Ошибка в команде penis: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {e}")

@@ -1,33 +1,41 @@
-# utils/penis_utils.py
+
 import random
 import discord
 import logging
 
 logger = logging.getLogger("bot")
 
-async def measure_penis(ctx):
+async def measure_penis(ctx, target_user=None):
     """
     Генерирует случайный размер пениса и отправляет его в виде эмбеда.
     
     Args:
         ctx: Контекст команды
+        target_user: Пользователь, для которого генерируется размер (опционально)
     """
     try:
-        user = ctx.author
-        penis_length = random.randint(0, 15)
+        # Если пользователь не указан, используем автора сообщения
+        user = target_user if target_user else ctx.author
+        penis_length = random.randint(0, 25)
         penis_representation = "8" + "=" * penis_length + "D"
         
         # Определяем цвет в зависимости от размера
-        if penis_length >= 10:
+        if penis_length >= 15:
             color = discord.Color.green()
-        elif penis_length >= 5:
+        elif penis_length >= 10:
             color = discord.Color.gold()
         else:
             color = discord.Color.red()
 
+        # Разные сообщения в зависимости от того, кому измеряем
+        if user == ctx.author:
+            description = f"{user.mention}, твой пенис\n{penis_representation}"
+        else:
+            description = f"Пенис {user.mention}\n{penis_representation}"
+
         embed = discord.Embed(
             title="Измеритель пениса",
-            description=f"{user.mention}, твой пенис\n{penis_representation}",
+            description=description,
             color=color
         )
         
