@@ -39,7 +39,7 @@ class ActivityView(ui.View):
         # Отображение по пользователям
         self.users_data = {}
         for user_id, activities in self.data.items():
-            # Отфильтровываем только активности с временем > 0
+            # Отфильтровываем строго больше 0 (не менее или равно)
             filtered_activities = {game: time for game, time in activities.items() if time > 0}
             if filtered_activities:
                 self.users_data[user_id] = filtered_activities
@@ -56,9 +56,10 @@ class ActivityView(ui.View):
         
         # Отображение по играм
         self.games_data = defaultdict(dict)
-        for user_id, activities in self.data.items():
+        for user_id, activities in self.users_data.items():  # Используем уже отфильтрованные данные
             for game, time in activities.items():
-                if time > 0:  # Только активности с временем > 0
+                # Двойная проверка, что время > 0
+                if time > 0:
                     self.games_data[game][user_id] = time
         
         # Создаем список игр, отсортированный по популярности
@@ -76,6 +77,10 @@ class ActivityView(ui.View):
     
     def format_time_short(self, seconds: int) -> str:
         """Форматирует время в секундах в краткую строку (1h 5m)"""
+        # Принудительно проверяем, что секунды больше 0
+        if seconds <= 0:
+            return "0m"  # На всякий случай
+            
         hours, remainder = divmod(seconds, 3600)
         minutes, _ = divmod(remainder, 60)
         
@@ -131,8 +136,12 @@ class ActivityView(ui.View):
                 reverse=True
             )
             
-            # Добавляем каждую игру в одну строку
-            games_list = [f"{game_name} ({self.format_time_short(time_spent)})" for game_name, time_spent in activities]
+            # Добавляем только игры с ненулевым временем
+            games_list = [
+                f"{game_name} ({self.format_time_short(time_spent)})" 
+                for game_name, time_spent in activities 
+                if time_spent > 0  # Дополнительная проверка
+            ]
             content += ", ".join(games_list) + "\n"
         
         # Добавляем общую статистику
@@ -158,6 +167,10 @@ class ActivityView(ui.View):
             total_time = sum(players.values())
             players_count = len(players)
             
+            # Проверяем, что общее время > 0
+            if total_time <= 0:
+                continue
+                
             # Не показываем количество игроков, если игрок всего один
             players_info = f"{players_count} players" if players_count > 1 else ""
             
@@ -287,6 +300,15 @@ class ActivityTracker(commands.Cog):
         self.daily_report.start()
         self.periodic_save.start()
     
+    def filter_zero_values(self, data):
+        """Удаляет записи с нулевым временем из данных активности"""
+        filtered_data = {}
+        for user_id, games in data.items():
+            filtered_games = {game: time for game, time in games.items() if time > 0}
+            if filtered_games:
+                filtered_data[user_id] = filtered_games
+        return filtered_data
+    
     def check_data_migration(self):
         """Проверяет, нужна ли миграция данных из старого формата в новый"""
         try:
@@ -308,7 +330,7 @@ class ActivityTracker(commands.Cog):
                 
                 # Очищаем дневные данные
                 with open(self.data_file, "w", encoding="utf-8") as f:
-                    json.dump({}, f, indent=2)
+                    json.dump({}, f)
                     
                 logger.info("Миграция данных завершена: месячные данные сохранены, дневные данные сброшены")
                 
@@ -396,9 +418,13 @@ class ActivityTracker(commands.Cog):
                     with open(self.data_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     
-                    # Преобразуем строковые ключи обратно в числа
-                    self.user_activities = {int(user_id): activities 
-                                        for user_id, activities in data.items()}
+                    # Преобразуем строковые ключи обратно в числа и фильтруем нулевые значения
+                    self.user_activities = {}
+                    for user_id, activities in data.items():
+                        user_id = int(user_id)
+                        filtered_activities = {game: time for game, time in activities.items() if time > 0}
+                        if filtered_activities:
+                            self.user_activities[user_id] = filtered_activities
                     
                     logger.info(f"Загружены дневные данные: {len(self.user_activities)} пользователей")
                 else:
@@ -426,9 +452,13 @@ class ActivityTracker(commands.Cog):
                     with open(self.monthly_file, "r", encoding="utf-8") as f:
                         data = json.load(f)
                     
-                    # Преобразуем строковые ключи обратно в числа
-                    self.monthly_activities = {int(user_id): activities 
-                                           for user_id, activities in data.items()}
+                    # Преобразуем строковые ключи обратно в числа и фильтруем нулевые значения
+                    self.monthly_activities = {}
+                    for user_id, activities in data.items():
+                        user_id = int(user_id)
+                        filtered_activities = {game: time for game, time in activities.items() if time > 0}
+                        if filtered_activities:
+                            self.monthly_activities[user_id] = filtered_activities
                     
                     logger.info(f"Загружены месячные данные: {len(self.monthly_activities)} пользователей")
                 else:
@@ -453,11 +483,14 @@ class ActivityTracker(commands.Cog):
             directory = os.path.dirname(self.data_file)
             os.makedirs(directory, exist_ok=True)
             
+            # Фильтруем данные перед сохранением
+            filtered_data = self.filter_zero_values(self.user_activities)
+            
             # Сначала записываем во временный файл
             temp_file = f"{self.data_file}.tmp"
             
             with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(self.user_activities, f, indent=2)
+                json.dump(filtered_data, f, indent=2)
             
             # Проверяем, что файл не пустой
             if os.path.getsize(temp_file) > 0:
@@ -478,11 +511,14 @@ class ActivityTracker(commands.Cog):
             directory = os.path.dirname(self.monthly_file)
             os.makedirs(directory, exist_ok=True)
             
+            # Фильтруем данные перед сохранением
+            filtered_data = self.filter_zero_values(self.monthly_activities)
+            
             # Сначала записываем во временный файл
             temp_file = f"{self.monthly_file}.tmp"
             
             with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(self.monthly_activities, f, indent=2)
+                json.dump(filtered_data, f, indent=2)
             
             # Проверяем, что файл не пустой
             if os.path.getsize(temp_file) > 0:
@@ -504,6 +540,10 @@ class ActivityTracker(commands.Cog):
     
     def format_time(self, seconds: int) -> str:
         """Форматирует время в секундах в удобочитаемую строку"""
+        # Проверка на положительное значение
+        if seconds <= 0:
+            return "0 минут"
+            
         hours, remainder = divmod(seconds, 3600)
         minutes, _ = divmod(remainder, 60)
         
@@ -517,6 +557,10 @@ class ActivityTracker(commands.Cog):
     
     def format_time_short(self, seconds: int) -> str:
         """Форматирует время в секундах в краткую строку (1h5m)"""
+        # Проверка на положительное значение
+        if seconds <= 0:
+            return "0m"
+            
         hours, remainder = divmod(seconds, 3600)
         minutes, _ = divmod(remainder, 60)
         
@@ -535,8 +579,8 @@ class ActivityTracker(commands.Cog):
             # Вычисляем проведенное время
             elapsed_seconds = int((now - start_time).total_seconds())
             
-            # Обновляем статистику только если прошло некоторое время
-            if elapsed_seconds < 10:  # Минимальный порог в секундах
+            # Обновляем статистику только если прошло некоторое время и оно больше 0
+            if elapsed_seconds <= 10:  # Минимальный порог в секундах
                 continue
                 
             # Обновляем ДНЕВНУЮ статистику
@@ -700,10 +744,15 @@ class ActivityTracker(commands.Cog):
             archive_filename = f"activity_{prev_year}_{prev_month:02d}.json"
             archive_path = os.path.join(self.archive_dir, archive_filename)
             
-            # Копируем месячные данные в архив
+            # Копируем месячные данные в архив, при этом фильтруя нулевые значения
             if os.path.exists(self.monthly_file) and os.path.getsize(self.monthly_file) > 0:
-                import shutil
-                shutil.copy2(self.monthly_file, archive_path)
+                # Фильтруем данные перед архивацией
+                filtered_data = self.filter_zero_values(self.monthly_activities)
+                
+                # Сохраняем напрямую в архивный файл
+                with open(archive_path, "w", encoding="utf-8") as f:
+                    json.dump(filtered_data, f, indent=2)
+                
                 logger.info(f"Данные за {prev_month}/{prev_year} успешно архивированы: {archive_path}")
                 
                 # Сбрасываем месячные данные
@@ -726,9 +775,13 @@ class ActivityTracker(commands.Cog):
                 with open(archive_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 
-                # Преобразуем строковые ключи обратно в числа
-                archived_activities = {int(user_id): activities 
-                                    for user_id, activities in data.items()}
+                # Преобразуем строковые ключи обратно в числа и фильтруем нулевые значения
+                archived_activities = {}
+                for user_id, activities in data.items():
+                    user_id = int(user_id)
+                    filtered_activities = {game: time for game, time in activities.items() if time > 0}
+                    if filtered_activities:
+                        archived_activities[user_id] = filtered_activities
                 
                 logger.info(f"Загружены архивные данные за {month}/{year}: {len(archived_activities)} пользователей")
                 return archived_activities
@@ -756,21 +809,16 @@ class ActivityTracker(commands.Cog):
                 logger.error(f"Канал cybersport (ID: 573665353327181824) не найден")
                 return
             
-            # Если нет ДНЕВНЫХ данных, отправляем короткое сообщение
-            if not self.user_activities:
+            # Фильтруем данные перед созданием представления
+            daily_data = self.filter_zero_values(self.user_activities)
+            
+            # Если нет ДНЕВНЫХ данных после фильтрации, отправляем короткое сообщение
+            if not daily_data:
                 await channel.send("Сегодня никто не играл в игры 😢")
                 logger.info("Нет данных об активности для отчета")
                 return
             
-            # Создаем копию данных перед очисткой
-            daily_data = {}
-            for user_id, games in self.user_activities.items():
-                # Копируем только ненулевые активности
-                filtered_games = {game: time for game, time in games.items() if time > 0}
-                if filtered_games:
-                    daily_data[user_id] = filtered_games
-            
-            # Создаем интерактивное представление с ДНЕВНЫМИ данными
+            # Создаем интерактивное представление с отфильтрованными данными
             view = ActivityView(self, daily_data, report_type="daily")
             
             # Отправляем отчет
@@ -796,31 +844,46 @@ class ActivityTracker(commands.Cog):
         await self.bot.wait_until_ready()
         logger.info("Запущена задача ежедневного отчета об активности")
     
-    @commands.hybrid_command(description='Показать текущую статистику игровой активности')
+    @commands.hybrid_command(description='Показать текущую статистику игровой активности или тест отчета')
     @commands.has_permissions(administrator=True)  # Только для администраторов
-    async def activity(self, ctx):
-        """Показывает текущую статистику игровой активности"""
+    async def activity(self, ctx, test_mode: bool = False):
+        """Показывает текущую статистику игровой активности с опцией тестового режима"""
         try:
             # Обновляем данные для текущих активностей
             self.update_current_activities()
             
-            # Если нет ДНЕВНЫХ данных, отправляем короткое сообщение
-            if not self.user_activities:
+            # Фильтруем данные
+            filtered_data = self.filter_zero_values(self.user_activities)
+            
+            # Если нет данных и включен тестовый режим, создаем тестовые данные
+            if not filtered_data and test_mode:
+                # Создаем тестовые данные
+                filtered_data = {
+                    ctx.author.id: {
+                        "Genshin Impact": 3600 + 300,  # 1h5m
+                        "Dota 2": 7200 + 1800,  # 2h30m
+                    }
+                }
+                
+                # Добавляем данные для нескольких других участников сервера
+                for i, member in enumerate(list(ctx.guild.members)[:5]):
+                    if member.id != ctx.author.id and not member.bot and not self.is_application(member):
+                        games = {
+                            "Minecraft": 1800 + 600 + i*300,  # 30m + 10m + variable
+                            "Fortnite": 3600 + i*600,  # 1h + variable
+                            "CS:GO": 5400 + i*300  # 1h30m + variable
+                        }
+                        filtered_data[member.id] = games
+            elif not filtered_data:
                 await ctx.send("Сегодня пока никто не играл в игры 😢")
                 return
             
-            # Создаем копию данных с фильтрацией нулевых значений
-            filtered_data = {}
-            for user_id, games in self.user_activities.items():
-                filtered_games = {game: time for game, time in games.items() if time > 0}
-                if filtered_games:
-                    filtered_data[user_id] = filtered_games
-            
-            # Создаем интерактивное представление с ДНЕВНЫМИ данными
-            view = ActivityView(self, filtered_data, ctx=ctx, report_type="command")
+            # Создаем представление
+            view = ActivityView(self, filtered_data, ctx=ctx, report_type="daily" if test_mode else "command")
             
             # Отправляем отчет
-            message = await ctx.send(content=view.get_current_content(), view=view)
+            prefix = "**[ТЕСТ]** Так будет выглядеть ежедневный отчет:\n\n" if test_mode else ""
+            message = await ctx.send(content=f"{prefix}{view.get_current_content()}", view=view)
             view.message = message
             
         except Exception as e:
@@ -843,7 +906,7 @@ class ActivityTracker(commands.Cog):
             else:
                 # Иначе используем текущие месячные данные
                 self.update_current_activities()  # Обновляем текущие активности
-                data = self.monthly_activities
+                data = self.filter_zero_values(self.monthly_activities)
                 data_type = "за текущий месяц"
             
             # Создаем эмбед
@@ -862,11 +925,9 @@ class ActivityTracker(commands.Cog):
                 await ctx.send(embed=embed)
                 return
             
-            # Сортируем игры по времени (от большего к меньшему)
+            # Берем уже отфильтрованные данные
             user_games = data[user_id]
-            # Фильтруем только ненулевые значения
-            filtered_games = {game: time for game, time in user_games.items() if time > 0}
-            sorted_games = sorted(filtered_games.items(), key=lambda x: x[1], reverse=True)
+            sorted_games = sorted(user_games.items(), key=lambda x: x[1], reverse=True)
             
             # Топ-5 игр
             top_games_text = ""
@@ -877,11 +938,11 @@ class ActivityTracker(commands.Cog):
                 embed.add_field(name="🏆 Топ игры", value=top_games_text, inline=False)
             
             # Общее игровое время
-            total_time = sum(filtered_games.values())
+            total_time = sum(user_games.values())
             embed.add_field(name="⏱️ Всего в играх", value=self.format_time(total_time), inline=True)
             
             # Количество игр
-            games_count = len(filtered_games)
+            games_count = len(user_games)
             embed.add_field(name="🎮 Количество игр", value=str(games_count), inline=True)
             
             # Текущая активность (если смотрим текущий месяц)
@@ -889,11 +950,12 @@ class ActivityTracker(commands.Cog):
                 game_name, start_time = self.current_activities[user_id]
                 now = datetime.now(pytz.UTC)
                 current_session = int((now - start_time).total_seconds())
-                embed.add_field(
-                    name="🔴 Сейчас играет",
-                    value=f"**{game_name}** ({self.format_time(current_session)})",
-                    inline=False
-                )
+                if current_session > 0:  # Проверяем, что время > 0
+                    embed.add_field(
+                        name="🔴 Сейчас играет",
+                        value=f"**{game_name}** ({self.format_time(current_session)})",
+                        inline=False
+                    )
             
             # Подпись
             embed.set_footer(text=f"Статистика {data_type} • Для общей статистики: /activity")
@@ -924,22 +986,15 @@ class ActivityTracker(commands.Cog):
                 await ctx.send("Пожалуйста, укажите корректный месяц (1-12) и год (не ранее 2020)")
                 return
             
-            # Загружаем архивные данные
+            # Загружаем архивные данные (уже отфильтрованные)
             archived_data = self.load_archived_data(year, month)
             
             if not archived_data:
                 await ctx.send(f"Архивные данные за {month:02d}/{year} не найдены или пусты")
                 return
             
-            # Фильтруем данные (убираем нулевые значения)
-            filtered_data = {}
-            for user_id, games in archived_data.items():
-                filtered_games = {game: time for game, time in games.items() if time > 0}
-                if filtered_games:
-                    filtered_data[user_id] = filtered_games
-            
             # Создаем интерактивное представление с архивными данными
-            view = ActivityView(self, filtered_data, ctx=ctx, report_type="command")
+            view = ActivityView(self, archived_data, ctx=ctx, report_type="command")
             
             # Формируем месяц в текстовом виде
             month_names = {
@@ -959,60 +1014,6 @@ class ActivityTracker(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка при показе архивной статистики: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении архивной статистики: {e}")
-
-    @commands.hybrid_command(description='Протестировать формат ежедневного отчета')
-    @commands.has_permissions(administrator=True)  # Только для администраторов
-    async def test_report(self, ctx):
-        """Тестирует формат ежедневного отчета на основе текущей дневной статистики"""
-        try:
-            logger.info("Запуск тестирования формата ежедневного отчета")
-            
-            # Обновляем данные для текущих активностей перед генерацией отчета
-            self.update_current_activities()
-            
-            # Фильтруем дневные данные (убираем записи с нулевым временем)
-            filtered_data = {}
-            for user_id, games in self.user_activities.items():
-                filtered_games = {game: time for game, time in games.items() if time > 0}
-                if filtered_games:
-                    filtered_data[user_id] = filtered_games
-            
-            # Если нет реальных данных, создаем тестовые данные
-            if not filtered_data:
-                logger.info("Создание тестовых данных для отчета")
-                # Создаем тестовые данные
-                filtered_data = {
-                    ctx.author.id: {
-                        "Genshin Impact": 3600 + 300,  # 1h5m
-                        "Dota 2": 7200 + 1800,  # 2h30m
-                    }
-                }
-                
-                # Добавляем данные для нескольких других участников сервера
-                for i, member in enumerate(list(ctx.guild.members)[:5]):
-                    if member.id != ctx.author.id and not member.bot and not self.is_application(member):
-                        games = {
-                            "Minecraft": 1800 + 600 + i*300,  # 30m + 10m + variable
-                            "Fortnite": 3600 + i*600,  # 1h + variable
-                            "CS:GO": 5400 + i*300  # 1h30m + variable
-                        }
-                        filtered_data[member.id] = games
-            
-            # Создаем интерактивное представление с данными
-            view = ActivityView(self, filtered_data, ctx=ctx, report_type="daily")
-            
-            # Отправляем тестовый отчет
-            message = await ctx.send(
-                content=f"**[ТЕСТ]** Так будет выглядеть ежедневный отчет:\n\n{view.get_current_content()}", 
-                view=view
-            )
-            view.message = message
-            
-            logger.info(f"Тестовый отчет об активности отправлен")
-            
-        except Exception as e:
-            logger.error(f"Ошибка при тестировании отчета: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при создании тестового отчета: {e}")
     
     # Обработчики ошибок команд
     @activity.error
@@ -1039,14 +1040,6 @@ class ActivityTracker(commands.Cog):
             await ctx.send("Неверный формат аргументов. Укажите год и месяц в числовом формате (например, 2023 12).", ephemeral=True)
         else:
             logger.error(f"Ошибка в команде archived_stats: {error}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
-    
-    @test_report.error
-    async def test_report_error(self, ctx, error):
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("У вас недостаточно прав для использования этой команды. Требуются права администратора.", ephemeral=True)
-        else:
-            logger.error(f"Ошибка в команде test_report: {error}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
 
 async def setup(bot):
