@@ -77,9 +77,9 @@ class ActivityView(ui.View):
     
     def format_time_short(self, seconds: int) -> str:
         """Форматирует время в секундах в краткую строку (1h 5m)"""
-        # Принудительно проверяем, что секунды больше 0
+        # Проверка на положительное значение
         if seconds <= 0:
-            return "0m"  # На всякий случай
+            return "0m"
             
         hours, remainder = divmod(seconds, 3600)
         minutes, _ = divmod(remainder, 60)
@@ -261,7 +261,7 @@ class ActivityView(ui.View):
 class StatsView(ui.View):
     """Интерактивное представление для пагинации статистики"""
     
-    def __init__(self, cog, title, games_data, user=None, items_per_page=5):
+    def __init__(self, cog, title, games_data, user=None, items_per_page=5, all_time=False):
         super().__init__(timeout=86400)  # 24 часа таймаут
         self.cog = cog
         self.title = title
@@ -269,6 +269,7 @@ class StatsView(ui.View):
         self.user = user
         self.items_per_page = items_per_page
         self.current_page = 0
+        self.all_time = all_time  # Флаг для отображения "за все время"
         
         # Рассчитываем количество страниц
         self.max_pages = max(1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page)
@@ -278,7 +279,7 @@ class StatsView(ui.View):
         # Создаем эмбед
         embed = discord.Embed(
             title=self.title,
-            color=discord.Color.blue() if self.user else discord.Color.gold(),
+            color=discord.Color.blue(),
             timestamp=datetime.now()
         )
         
@@ -291,34 +292,33 @@ class StatsView(ui.View):
         end_idx = min(start_idx + self.items_per_page, len(self.games_data))
         current_games = self.games_data[start_idx:end_idx]
         
-        # Добавляем игры в эмбед
+        # Создаем одно поле с описанием вместо отдельных полей для каждой игры
+        description = ""
         for i, (game_name, time_spent) in enumerate(current_games, start_idx + 1):
-            # Используем подробный формат времени для лучшей читаемости
-            formatted_time = self.cog.format_time(time_spent)
-            embed.add_field(
-                name=f"{i}. {game_name}",
-                value=f"⏱️ {formatted_time}",
-                inline=False
-            )
+            # Используем краткий формат времени
+            formatted_time = self.cog.format_time_short(time_spent)
+            description += f"{i}. {game_name} - {formatted_time}\n"
+        
+        if description:
+            embed.description = description
         
         # Добавляем общую статистику
         total_time = sum(game[1] for game in self.games_data)
-        unique_games = len(self.games_data)
         
-        # Если это последняя страница или всего одна страница, добавляем общую статистику
-        if self.current_page == self.max_pages - 1 or self.max_pages == 1:
-            embed.add_field(
-                name="📊 Общая статистика",
-                value=f"Всего уникальных игр: **{unique_games}**\n"
-                     f"Общее игровое время: **{self.cog.format_time(total_time)}**",
-                inline=False
-            )
+        # Добавляем общее игровое время как поле
+        embed.add_field(
+            name="📊 Общее игровое время",
+            value=f"{self.cog.format_time_short(total_time)}",
+            inline=False
+        )
         
         # Добавляем информацию о страницах
         if self.max_pages > 1:
-            embed.set_footer(text=f"Страница {self.current_page + 1}/{self.max_pages}")
+            footer_text = f"Всего игр: {len(self.games_data)} • Страница {self.current_page + 1}/{self.max_pages}"
         else:
-            embed.set_footer(text=f"Всего игр: {unique_games}")
+            footer_text = f"Всего игр: {len(self.games_data)}"
+        
+        embed.set_footer(text=footer_text)
         
         return embed
     
@@ -352,7 +352,6 @@ class StatsView(ui.View):
                 await self.message.edit(view=self)
             except:
                 pass
-
 
 class ActivityTracker(commands.Cog):
     """Отслеживает игровую активность пользователей на сервере"""
@@ -1189,7 +1188,7 @@ class ActivityTracker(commands.Cog):
             # Проверяем, есть ли данные для пользователя
             if user_id not in data or not data[user_id]:
                 embed = discord.Embed(
-                    title=f"📊 Статистика игрока {target_user.display_name}",
+                    title=f"📊 Статистика {target_user.name}",  # Используем глобальное имя
                     description=f"Нет данных об активности {data_type} 😢",
                     color=discord.Color.blue(),
                     timestamp=datetime.now()
@@ -1202,8 +1201,8 @@ class ActivityTracker(commands.Cog):
             user_games = data[user_id]
             sorted_games = sorted(user_games.items(), key=lambda x: x[1], reverse=True)
             
-            # Создаем заголовок
-            title = f"📊 Статистика игрока {target_user.display_name} {data_type}"
+            # Создаем заголовок - используем глобальное имя вместо серверного
+            title = f"📊 Статистика {target_user.name} {data_type}"
             
             # Создаем представление для пагинации (5 игр на страницу)
             view = StatsView(self, title, sorted_games, user=target_user, items_per_page=5)
@@ -1219,7 +1218,7 @@ class ActivityTracker(commands.Cog):
                 current_session = int((now - start_time).total_seconds())
                 if current_session > 0:  # Проверяем, что время > 0
                     # Отправляем отдельным сообщением информацию о текущей сессии
-                    current_info = f"🔴 **{target_user.display_name}** сейчас играет в **{game_name}** ({self.format_time(current_session)})"
+                    current_info = f"🔴 **{target_user.name}** сейчас играет в **{game_name}** ({self.format_time_short(current_session)})"
                     await ctx.send(current_info)
         
         except Exception as e:
@@ -1227,25 +1226,29 @@ class ActivityTracker(commands.Cog):
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
     
     # НОВАЯ КОМАНДА: mystatsall
-    @commands.hybrid_command(name="mystatsall", description="Показывает игры по времени за всё время")
-    async def mystatsall(self, ctx):
-        """Показывает подробную статистику игровой активности за всё время с пагинацией (10 игр на страницу)"""
+    @commands.hybrid_command(name="mystatsall", description="Показывает статистику пользователя за всё время")
+    async def mystatsall(self, ctx, user: discord.Member = None):
+        """Показывает статистику игровой активности пользователя за всё время с пагинацией"""
         try:
+            # Если пользователь не указан, используем автора команды
+            target_user = user if user else ctx.author
+            user_id = target_user.id
+            
             # Обновляем данные для текущих активностей
             self.update_current_activities()
             
-            # Объединяем данные из месячного файла и всех архивов
-            all_games_stats = {}
+            # Объединяем данные из текущего месяца и всех архивов для конкретного пользователя
+            all_user_games = {}
             
             # 1. Добавляем данные из текущего месяца
             current_month_data = self.filter_zero_values(self.monthly_activities)
-            for user_id, games in current_month_data.items():
-                for game_name, time_spent in games.items():
-                    if game_name not in all_games_stats:
-                        all_games_stats[game_name] = 0
-                    all_games_stats[game_name] += time_spent
+            if user_id in current_month_data:
+                for game_name, time_spent in current_month_data[user_id].items():
+                    if game_name not in all_user_games:
+                        all_user_games[game_name] = 0
+                    all_user_games[game_name] += time_spent
             
-            # 2. Сканируем архивную директорию и добавляем данные из всех архивов
+            # 2. Сканируем архивную директорию и добавляем данные пользователя из всех архивов
             for filename in os.listdir(self.archive_dir):
                 if filename.endswith('.json') and filename.startswith('activity_'):
                     try:
@@ -1258,33 +1261,40 @@ class ActivityTracker(commands.Cog):
                             # Загружаем архивные данные
                             archived_data = self.load_archived_data(year, month)
                             
-                            # Объединяем данные
-                            for user_id, games in archived_data.items():
-                                for game_name, time_spent in games.items():
-                                    if game_name not in all_games_stats:
-                                        all_games_stats[game_name] = 0
-                                    all_games_stats[game_name] += time_spent
+                            # Добавляем данные пользователя, если они есть
+                            if user_id in archived_data:
+                                for game_name, time_spent in archived_data[user_id].items():
+                                    if game_name not in all_user_games:
+                                        all_user_games[game_name] = 0
+                                    all_user_games[game_name] += time_spent
                     except Exception as e:
                         logger.error(f"Ошибка при обработке архивного файла {filename}: {e}", exc_info=True)
             
             # Сортируем игры по времени (убывание)
-            sorted_games = sorted(all_games_stats.items(), key=lambda x: x[1], reverse=True)
+            sorted_games = sorted(all_user_games.items(), key=lambda x: x[1], reverse=True)
             
             # Если данных нет, сообщаем об этом
             if not sorted_games:
-                await ctx.send("Нет данных об игровой активности за всё время.")
+                embed = discord.Embed(
+                    title=f"📊 Статистика {target_user.name}",  # Используем глобальное имя
+                    description=f"Нет данных об активности за всё время 😢",
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now()
+                )
+                embed.set_thumbnail(url=target_user.display_avatar.url)
+                await ctx.send(embed=embed)
                 return
             
-            # Создаем заголовок
-            title = "🏆 Топ игр на сервере за всё время"
+            # Создаем заголовок - используем глобальное имя
+            title = f"📊 Статистика {target_user.name} за всё время"
             
-            # Создаем представление для пагинации (10 игр на страницу)
-            view = StatsView(self, title, sorted_games, user=None, items_per_page=10)
+            # Создаем представление для пагинации (5 игр на страницу)
+            view = StatsView(self, title, sorted_games, user=target_user, items_per_page=5, all_time=True)
             
             # Отправляем первую страницу
             message = await ctx.send(embed=view.get_current_embed(), view=view)
             view.message = message
-        
+            
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды mystatsall: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
@@ -1306,12 +1316,14 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка в команде mystats: {error}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
     
-    # НОВЫЙ ОБРАБОТЧИК ОШИБОК: для mystatsall
     @mystatsall.error
     async def mystatsall_error(self, ctx, error):
         """Обработчик ошибок для команды mystatsall"""
-        logger.error(f"Ошибка в команде mystatsall: {error}", exc_info=True)
-        await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
+        if isinstance(error, commands.UserNotFound):
+            await ctx.send("Не удалось найти указанного пользователя. Проверьте правильность имени или ID.", ephemeral=True)
+        else:
+            logger.error(f"Ошибка в команде mystatsall: {error}", exc_info=True)
+            await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
 
 async def setup(bot):
     """Загружает ког ActivityTracker"""
