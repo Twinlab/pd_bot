@@ -1296,7 +1296,7 @@ class ActivityTracker(commands.Cog):
             
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды mystatsall: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при получении статистики: {e}"
+            await ctx.send(f"Произошла ошибка при получении статистики: {e}")
     
     # Обработчики ошибок команд
     @activity.error
