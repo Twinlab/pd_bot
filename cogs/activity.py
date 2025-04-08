@@ -16,7 +16,7 @@ class ActivityView(ui.View):
     """Интерактивное представление статистики активности с кнопками"""
     
     def __init__(self, cog, data, ctx=None, report_type="daily"):
-        super().__init__(timeout=1800)  # 30 минут таймаут
+        super().__init__(timeout=86400)  # 24 часа таймаут (увеличен с 1800 до 86400)
         self.cog = cog
         self.data = data  # Все данные о активности
         self.ctx = ctx
@@ -256,6 +256,104 @@ class ActivityView(ui.View):
             except:
                 pass
 
+
+# НОВЫЙ КЛАСС: Представление для пагинации статистики
+class StatsView(ui.View):
+    """Интерактивное представление для пагинации статистики"""
+    
+    def __init__(self, cog, title, games_data, user=None, items_per_page=5):
+        super().__init__(timeout=86400)  # 24 часа таймаут
+        self.cog = cog
+        self.title = title
+        self.games_data = games_data  # Должен быть список кортежей (game_name, time_spent)
+        self.user = user
+        self.items_per_page = items_per_page
+        self.current_page = 0
+        
+        # Рассчитываем количество страниц
+        self.max_pages = max(1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page)
+    
+    def get_current_embed(self):
+        """Возвращает текущий эмбед для отображения"""
+        # Создаем эмбед
+        embed = discord.Embed(
+            title=self.title,
+            color=discord.Color.blue() if self.user else discord.Color.gold(),
+            timestamp=datetime.now()
+        )
+        
+        # Если это статистика пользователя, добавляем аватар
+        if self.user:
+            embed.set_thumbnail(url=self.user.display_avatar.url)
+        
+        # Получаем игры для текущей страницы
+        start_idx = self.current_page * self.items_per_page
+        end_idx = min(start_idx + self.items_per_page, len(self.games_data))
+        current_games = self.games_data[start_idx:end_idx]
+        
+        # Добавляем игры в эмбед
+        for i, (game_name, time_spent) in enumerate(current_games, start_idx + 1):
+            # Используем подробный формат времени для лучшей читаемости
+            formatted_time = self.cog.format_time(time_spent)
+            embed.add_field(
+                name=f"{i}. {game_name}",
+                value=f"⏱️ {formatted_time}",
+                inline=False
+            )
+        
+        # Добавляем общую статистику
+        total_time = sum(game[1] for game in self.games_data)
+        unique_games = len(self.games_data)
+        
+        # Если это последняя страница или всего одна страница, добавляем общую статистику
+        if self.current_page == self.max_pages - 1 or self.max_pages == 1:
+            embed.add_field(
+                name="📊 Общая статистика",
+                value=f"Всего уникальных игр: **{unique_games}**\n"
+                     f"Общее игровое время: **{self.cog.format_time(total_time)}**",
+                inline=False
+            )
+        
+        # Добавляем информацию о страницах
+        if self.max_pages > 1:
+            embed.set_footer(text=f"Страница {self.current_page + 1}/{self.max_pages}")
+        else:
+            embed.set_footer(text=f"Всего игр: {unique_games}")
+        
+        return embed
+    
+    @ui.button(label="⬅️ Назад", style=ButtonStyle.gray)
+    async def previous_button(self, interaction: Interaction, button: ui.Button):
+        """Переход на предыдущую страницу"""
+        if self.current_page > 0:
+            self.current_page -= 1
+            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        else:
+            await interaction.response.defer()
+    
+    @ui.button(label="Вперед ➡️", style=ButtonStyle.gray)
+    async def next_button(self, interaction: Interaction, button: ui.Button):
+        """Переход на следующую страницу"""
+        if self.current_page < self.max_pages - 1:
+            self.current_page += 1
+            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        else:
+            await interaction.response.defer()
+    
+    async def on_timeout(self):
+        """Обработка таймаута интерактивного сообщения"""
+        # Отключаем все кнопки
+        for item in self.children:
+            item.disabled = True
+        
+        # Обновляем сообщение, если оно еще доступно
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except:
+                pass
+
+
 class ActivityTracker(commands.Cog):
     """Отслеживает игровую активность пользователей на сервере"""
     
@@ -298,6 +396,7 @@ class ActivityTracker(commands.Cog):
         # Запуск задач
         self.month_checker.start()
         self.daily_report.start()
+        self.monthly_report.start()  # НОВАЯ ЗАДАЧА: ежемесячный отчет
         self.periodic_save.start()
     
     def filter_zero_values(self, data):
@@ -400,6 +499,7 @@ class ActivityTracker(commands.Cog):
         """Останавливает задачи при выгрузке кога"""
         self.month_checker.cancel()
         self.daily_report.cancel()
+        self.monthly_report.cancel()  # Останавливаем новую задачу
         self.periodic_save.cancel()
         
         # Сохраняем данные при выгрузке кога
@@ -793,6 +893,182 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка при загрузке архивных данных: {e}", exc_info=True)
             return {}
     
+    # НОВАЯ ЗАДАЧА: ежемесячный отчет
+    @tasks.loop(time=time(hour=9, minute=0))  # 12:00 по МСК (UTC+3)
+    async def monthly_report(self):
+        """Отправляет ежемесячный отчет об активности всех пользователей за предыдущий месяц"""
+        try:
+            # Проверяем, что сегодня первое число месяца
+            today = datetime.now()
+            if today.day != 1:
+                return
+                
+            logger.info("Начинаем формирование ежемесячного отчета за предыдущий месяц")
+            
+            # Определяем предыдущий месяц и год
+            if today.month == 1:
+                prev_month = 12
+                prev_year = today.year - 1
+            else:
+                prev_month = today.month - 1
+                prev_year = today.year
+                
+            # Проверяем существование архивного файла
+            archive_filename = f"activity_{prev_year}_{prev_month:02d}.json"
+            archive_path = os.path.join(self.archive_dir, archive_filename)
+            
+            if not os.path.exists(archive_path) or os.path.getsize(archive_path) == 0:
+                logger.warning(f"Архивный файл за {prev_month}/{prev_year} не найден или пуст")
+                return
+                
+            # Загружаем архивные данные
+            with open(archive_path, "r", encoding="utf-8") as f:
+                archived_data = json.load(f)
+                
+            # Проверяем, что есть данные
+            if not archived_data:
+                logger.warning(f"Нет данных об активности за {prev_month}/{prev_year}")
+                return
+                
+            # Получаем месяц в текстовом виде
+            month_names = {
+                1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель", 
+                5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
+                9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+            }
+            month_name = month_names.get(prev_month, f"Месяц {prev_month}")
+            
+            # Формируем канал для отправки
+            channel = self.bot.get_channel(573665353327181824)  # канал cybersport
+            
+            if not channel:
+                logger.error(f"Канал cybersport (ID: 573665353327181824) не найден")
+                return
+                
+            # Подготавливаем данные - преобразуем строковые ключи в целые числа
+            data = {}
+            for user_id_str, activities in archived_data.items():
+                user_id = int(user_id_str)
+                filtered_activities = {game: time for game, time in activities.items() if time > 0}
+                if filtered_activities:
+                    data[user_id] = filtered_activities
+                    
+            # Если нет данных после фильтрации, прекращаем
+            if not data:
+                await channel.send(f"Нет данных об активности за {month_name} {prev_year} 😢")
+                return
+                
+            # Формируем заголовок сообщения
+            header = f"# 📊 Ежемесячный отчет за {month_name} {prev_year}\n\n"
+            
+            # Формируем содержимое по пользователям
+            content = "## 👤 Активность всех пользователей\n"
+            
+            # Получаем сервер
+            guild = channel.guild
+            
+            # Сортируем пользователей по игровому времени (общему)
+            def get_total_time(user_data):
+                return sum(user_data.values())
+                
+            sorted_users = sorted(data.items(), key=lambda x: get_total_time(x[1]), reverse=True)
+            
+            # Формируем строки для каждого пользователя
+            for user_id, activities in sorted_users:
+                # Получаем имя пользователя
+                member = guild.get_member(user_id)
+                username = member.name if member else f"Пользователь {user_id}"
+                
+                # Общее время пользователя
+                total_time = get_total_time(activities)
+                
+                content += f"**{username}** (всего: {self.format_time(total_time)}): "
+                
+                # Сортируем активности по времени
+                sorted_activities = sorted(activities.items(), key=lambda x: x[1], reverse=True)
+                
+                # Добавляем только игры с ненулевым временем
+                games_list = [
+                    f"{game_name} ({self.format_time_short(time_spent)})" 
+                    for game_name, time_spent in sorted_activities 
+                    if time_spent > 0
+                ]
+                
+                content += ", ".join(games_list) + "\n\n"  # Двойной перенос для лучшей читаемости
+            
+            # Добавляем общую статистику
+            content += self._get_monthly_summary(data, prev_month, prev_year)
+            
+            # Разбиваем сообщение, если оно слишком длинное (лимит Discord - 2000 символов)
+            if len(header + content) <= 2000:
+                await channel.send(header + content)
+            else:
+                # Отправляем заголовок отдельно
+                await channel.send(header)
+                
+                # Разбиваем контент на части по 2000 символов
+                chunks = [content[i:i+1990] for i in range(0, len(content), 1990)]
+                for chunk in chunks:
+                    await channel.send(chunk)
+                    # Небольшая задержка между сообщениями, чтобы избежать рейт-лимитов
+                    await asyncio.sleep(1)
+            
+            logger.info(f"Отправлен ежемесячный отчет за {month_name} {prev_year}")
+                
+        except Exception as e:
+            logger.error(f"Ошибка при отправке ежемесячного отчета: {e}", exc_info=True)
+            
+    @monthly_report.before_loop
+    async def before_monthly_report(self):
+        """Ожидает готовности бота перед запуском задачи"""
+        await self.bot.wait_until_ready()
+        logger.info("Запущена задача ежемесячного отчета об активности")
+        
+    # НОВЫЙ МЕТОД: для ежемесячных отчетов
+    def _get_monthly_summary(self, data, month, year):
+        """Возвращает общую статистику для месячного отчета"""
+        # Общее количество активных пользователей
+        total_users = len(data)
+        
+        # Общее количество уникальных игр
+        all_games = set()
+        for user_data in data.values():
+            all_games.update(user_data.keys())
+        total_games = len(all_games)
+        
+        # Самая популярная игра (по количеству игроков)
+        game_players = defaultdict(int)
+        game_time = defaultdict(int)
+        
+        for user_data in data.values():
+            for game, time_spent in user_data.items():
+                game_players[game] += 1
+                game_time[game] += time_spent
+        
+        # Найти самую популярную игру по количеству игроков
+        most_played_game = max(game_players.items(), key=lambda x: x[1], default=("Нет данных", 0))
+        
+        # Найти игру с наибольшим временем
+        most_time_game = max(game_time.items(), key=lambda x: x[1], default=("Нет данных", 0))
+        
+        # Общее время всех игроков
+        total_time = sum(sum(user_data.values()) for user_data in data.values())
+        
+        # Формируем текст общей статистики
+        summary = f"## 📊 Общая статистика за {month}/{year}\n"
+        summary += f"👥 Всего активных игроков: **{total_users}**\n"
+        summary += f"🎮 Уникальных игр: **{total_games}**\n"
+        summary += f"⏱️ Общее время в играх: **{self.format_time(total_time)}**\n\n"
+        
+        # Добавляем информацию о популярных играх
+        if most_played_game[0] != "Нет данных":
+            summary += f"🏆 Самая популярная игра: **{most_played_game[0]}** ({most_played_game[1]} игроков)\n"
+            
+        if most_time_game[0] != "Нет данных" and most_time_game[0] != most_played_game[0]:
+            summary += f"⭐ Игра с наибольшим временем: **{most_time_game[0]}** ({self.format_time(most_time_game[1])})\n"
+        
+        return summary
+    
     @tasks.loop(time=time(hour=21, minute=0))  # 00:00 по МСК (UTC+3)
     async def daily_report(self):
         """Отправляет ежедневный отчет об активности пользователей"""
@@ -890,9 +1166,10 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка при показе статистики активности: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
     
+    # ОБНОВЛЕННАЯ КОМАНДА: mystats с пагинацией
     @commands.hybrid_command(description='Показать статистику игровой активности пользователя')
     async def mystats(self, ctx, user: discord.Member = None, month: int = None, year: int = None):
-        """Показывает статистику игровой активности пользователя за месяц"""
+        """Показывает статистику игровой активности пользователя за месяц с пагинацией"""
         try:
             # Если пользователь не указан, используем автора команды
             target_user = user if user else ctx.author
@@ -909,111 +1186,108 @@ class ActivityTracker(commands.Cog):
                 data = self.filter_zero_values(self.monthly_activities)
                 data_type = "за текущий месяц"
             
-            # Создаем эмбед
-            embed = discord.Embed(
-                title=f"📊 Статистика игрока {target_user.display_name}",
-                color=discord.Color.blue(),
-                timestamp=datetime.now()
-            )
-            
-            # Устанавливаем аватар пользователя
-            embed.set_thumbnail(url=target_user.display_avatar.url)
-            
             # Проверяем, есть ли данные для пользователя
             if user_id not in data or not data[user_id]:
-                embed.description = f"Нет данных об активности {data_type} 😢"
+                embed = discord.Embed(
+                    title=f"📊 Статистика игрока {target_user.display_name}",
+                    description=f"Нет данных об активности {data_type} 😢",
+                    color=discord.Color.blue(),
+                    timestamp=datetime.now()
+                )
+                embed.set_thumbnail(url=target_user.display_avatar.url)
                 await ctx.send(embed=embed)
                 return
             
-            # Берем уже отфильтрованные данные
+            # Берем уже отфильтрованные данные и сортируем
             user_games = data[user_id]
             sorted_games = sorted(user_games.items(), key=lambda x: x[1], reverse=True)
             
-            # Топ-5 игр
-            top_games_text = ""
-            for i, (game, time_spent) in enumerate(sorted_games[:5], 1):
-                top_games_text += f"{i}. **{game}** - {self.format_time(time_spent)}\n"
+            # Создаем заголовок
+            title = f"📊 Статистика игрока {target_user.display_name} {data_type}"
             
-            if top_games_text:
-                embed.add_field(name="🏆 Топ игры", value=top_games_text, inline=False)
+            # Создаем представление для пагинации (5 игр на страницу)
+            view = StatsView(self, title, sorted_games, user=target_user, items_per_page=5)
             
-            # Общее игровое время
-            total_time = sum(user_games.values())
-            embed.add_field(name="⏱️ Всего в играх", value=self.format_time(total_time), inline=True)
+            # Отправляем первую страницу
+            message = await ctx.send(embed=view.get_current_embed(), view=view)
+            view.message = message
             
-            # Количество игр
-            games_count = len(user_games)
-            embed.add_field(name="🎮 Количество игр", value=str(games_count), inline=True)
-            
-            # Текущая активность (если смотрим текущий месяц)
+            # Добавляем информацию о текущей активности, если она есть
             if month is None and year is None and user_id in self.current_activities:
                 game_name, start_time = self.current_activities[user_id]
                 now = datetime.now(pytz.UTC)
                 current_session = int((now - start_time).total_seconds())
                 if current_session > 0:  # Проверяем, что время > 0
-                    embed.add_field(
-                        name="🔴 Сейчас играет",
-                        value=f"**{game_name}** ({self.format_time(current_session)})",
-                        inline=False
-                    )
-            
-            # Подпись
-            embed.set_footer(text=f"Статистика {data_type} • Для общей статистики: /activity")
-            
-            await ctx.send(embed=embed)
-            
+                    # Отправляем отдельным сообщением информацию о текущей сессии
+                    current_info = f"🔴 **{target_user.display_name}** сейчас играет в **{game_name}** ({self.format_time(current_session)})"
+                    await ctx.send(current_info)
+        
         except Exception as e:
             logger.error(f"Ошибка при отображении персональной статистики: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
-
-    @commands.hybrid_command(description='Показать архивную статистику за предыдущий месяц')
-    @commands.has_permissions(administrator=True)  # Только для администраторов
-    async def archived_stats(self, ctx, year: int = None, month: int = None):
-        """Показывает архивную статистику за указанный месяц"""
+    
+    # НОВАЯ КОМАНДА: mystatsall
+    @commands.hybrid_command(name="mystatsall", description="Показывает игры по времени за всё время")
+    async def mystatsall(self, ctx):
+        """Показывает подробную статистику игровой активности за всё время с пагинацией (10 игр на страницу)"""
         try:
-            # Если год и месяц не указаны, берем предыдущий месяц
-            if year is None or month is None:
-                today = datetime.now()
-                if today.month == 1:
-                    year = today.year - 1
-                    month = 12
-                else:
-                    year = today.year
-                    month = today.month - 1
+            # Обновляем данные для текущих активностей
+            self.update_current_activities()
             
-            # Проверка корректности даты
-            if not (1 <= month <= 12 and year >= 2020):
-                await ctx.send("Пожалуйста, укажите корректный месяц (1-12) и год (не ранее 2020)")
+            # Объединяем данные из месячного файла и всех архивов
+            all_games_stats = {}
+            
+            # 1. Добавляем данные из текущего месяца
+            current_month_data = self.filter_zero_values(self.monthly_activities)
+            for user_id, games in current_month_data.items():
+                for game_name, time_spent in games.items():
+                    if game_name not in all_games_stats:
+                        all_games_stats[game_name] = 0
+                    all_games_stats[game_name] += time_spent
+            
+            # 2. Сканируем архивную директорию и добавляем данные из всех архивов
+            for filename in os.listdir(self.archive_dir):
+                if filename.endswith('.json') and filename.startswith('activity_'):
+                    try:
+                        # Извлекаем год и месяц из имени файла
+                        parts = filename[:-5].split('_')  # Отрезаем .json
+                        if len(parts) >= 3:
+                            year = int(parts[1])
+                            month = int(parts[2])
+                            
+                            # Загружаем архивные данные
+                            archived_data = self.load_archived_data(year, month)
+                            
+                            # Объединяем данные
+                            for user_id, games in archived_data.items():
+                                for game_name, time_spent in games.items():
+                                    if game_name not in all_games_stats:
+                                        all_games_stats[game_name] = 0
+                                    all_games_stats[game_name] += time_spent
+                    except Exception as e:
+                        logger.error(f"Ошибка при обработке архивного файла {filename}: {e}", exc_info=True)
+            
+            # Сортируем игры по времени (убывание)
+            sorted_games = sorted(all_games_stats.items(), key=lambda x: x[1], reverse=True)
+            
+            # Если данных нет, сообщаем об этом
+            if not sorted_games:
+                await ctx.send("Нет данных об игровой активности за всё время.")
                 return
             
-            # Загружаем архивные данные (уже отфильтрованные)
-            archived_data = self.load_archived_data(year, month)
+            # Создаем заголовок
+            title = "🏆 Топ игр на сервере за всё время"
             
-            if not archived_data:
-                await ctx.send(f"Архивные данные за {month:02d}/{year} не найдены или пусты")
-                return
+            # Создаем представление для пагинации (10 игр на страницу)
+            view = StatsView(self, title, sorted_games, user=None, items_per_page=10)
             
-            # Создаем интерактивное представление с архивными данными
-            view = ActivityView(self, archived_data, ctx=ctx, report_type="command")
-            
-            # Формируем месяц в текстовом виде
-            month_names = {
-                1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель", 
-                5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-                9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
-            }
-            month_name = month_names.get(month, f"Месяц {month}")
-            
-            # Отправляем отчет с указанием периода
-            header = f"# 📊 Архивная статистика за {month_name} {year}\n\n"
-            content = view.get_current_content().replace("# 📊 Статистика", header)
-            
-            message = await ctx.send(content=content, view=view)
+            # Отправляем первую страницу
+            message = await ctx.send(embed=view.get_current_embed(), view=view)
             view.message = message
-            
+        
         except Exception as e:
-            logger.error(f"Ошибка при показе архивной статистики: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при получении архивной статистики: {e}")
+            logger.error(f"Ошибка при выполнении команды mystatsall: {e}", exc_info=True)
+            await ctx.send(f"Произошла ошибка при получении статистики: {e}")
     
     # Обработчики ошибок команд
     @activity.error
@@ -1032,15 +1306,12 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка в команде mystats: {error}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
     
-    @archived_stats.error
-    async def archived_stats_error(self, ctx, error):
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("У вас недостаточно прав для использования этой команды. Требуются права администратора.", ephemeral=True)
-        elif isinstance(error, commands.BadArgument):
-            await ctx.send("Неверный формат аргументов. Укажите год и месяц в числовом формате (например, 2023 12).", ephemeral=True)
-        else:
-            logger.error(f"Ошибка в команде archived_stats: {error}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
+    # НОВЫЙ ОБРАБОТЧИК ОШИБОК: для mystatsall
+    @mystatsall.error
+    async def mystatsall_error(self, ctx, error):
+        """Обработчик ошибок для команды mystatsall"""
+        logger.error(f"Ошибка в команде mystatsall: {error}", exc_info=True)
+        await ctx.send(f"Произошла ошибка: {error}", ephemeral=True)
 
 async def setup(bot):
     """Загружает ког ActivityTracker"""
