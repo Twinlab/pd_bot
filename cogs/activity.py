@@ -655,7 +655,7 @@ class ActivityTracker(commands.Cog):
             return f"{minutes} минут{'а' if minutes == 1 else '' if minutes >= 5 or minutes == 0 else 'ы'}"
     
     def format_time_short(self, seconds: int) -> str:
-        """Форматирует время в секундах в краткую строку (1h5m)"""
+        """Форматирует время в секундах в краткую строку (1h 5m)"""
         # Проверка на положительное значение
         if seconds <= 0:
             return "0m"
@@ -665,7 +665,7 @@ class ActivityTracker(commands.Cog):
         
         if hours > 0:
             if minutes > 0:
-                return f"{hours}h{minutes}m"
+                return f"{hours}h {minutes}m"  # Пробел между часами и минутами
             else:
                 return f"{hours}h"
         else:
