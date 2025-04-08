@@ -86,7 +86,7 @@ class ActivityView(ui.View):
         
         if hours > 0:
             if minutes > 0:
-                return f"{hours}h {minutes}m"
+                return f"{hours}h {minutes}m"  # Пробел между часами и минутами
             else:
                 return f"{hours}h"
         else:
@@ -1225,7 +1225,6 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка при отображении персональной статистики: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
     
-    # НОВАЯ КОМАНДА: mystatsall
     @commands.hybrid_command(name="mystatsall", description="Показывает статистику пользователя за всё время")
     async def mystatsall(self, ctx, user: discord.Member = None):
         """Показывает статистику игровой активности пользователя за всё время с пагинацией"""
@@ -1288,8 +1287,8 @@ class ActivityTracker(commands.Cog):
             # Создаем заголовок - используем глобальное имя
             title = f"📊 Статистика {target_user.name} за всё время"
             
-            # Создаем представление для пагинации (5 игр на страницу)
-            view = StatsView(self, title, sorted_games, user=target_user, items_per_page=5, all_time=True)
+            # Создаем представление для пагинации (10 игр на страницу для mystatsall)
+            view = StatsView(self, title, sorted_games, user=target_user, items_per_page=10, all_time=True)
             
             # Отправляем первую страницу
             message = await ctx.send(embed=view.get_current_embed(), view=view)
@@ -1297,7 +1296,7 @@ class ActivityTracker(commands.Cog):
             
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды mystatsall: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при получении статистики: {e}")
+            await ctx.send(f"Произошла ошибка при получении статистики: {e}"
     
     # Обработчики ошибок команд
     @activity.error
