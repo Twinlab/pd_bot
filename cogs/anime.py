@@ -5,6 +5,7 @@ import logging
 import random
 from datetime import datetime, time
 import pytz
+from typing import Optional
 
 # Импортируем обработчик ошибок
 from utils.error_handler import command_error_handler

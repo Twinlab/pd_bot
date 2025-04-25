@@ -14,6 +14,9 @@ from utils.penis_utils import measure_penis
 from utils.snipe_utils import show_sniped_message, save_deleted_message
 from utils.deathbattle_utils import run_battle
 
+# Повторный импорт на всякий случай
+from discord.ext import commands
+
 class Fun(commands.Cog):
     """Развлекательные команды для участников сервера"""
     
