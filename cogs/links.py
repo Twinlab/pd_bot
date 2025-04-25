@@ -200,35 +200,35 @@ class Links(commands.Cog):
                 await self.send_response(ctx, f"Все аккаунты Dota 2 были успешно отвязаны от вашего аккаунта Discord.")
             else:
                 await self.send_response(ctx, "Произошла ошибка при сохранении изменений. Пожалуйста, попробуйте снова.")
-    
-        @commands.hybrid_command(description='Показать привязанные аккаунты Dota 2')
-        @command_error_handler
-        async def links(self, ctx: commands.Context):
-            """Показывает список Steam ID Dota 2, привязанных к вашему Discord аккаунту."""
-            # Для slash-команд делаем ответ приватным и отложенным
-            is_interaction = hasattr(ctx, 'interaction') and ctx.interaction is not None
-            if is_interaction:
-                await ctx.defer(ephemeral=True)
+
+    @commands.hybrid_command(description='Показать привязанные аккаунты Dota 2')
+    @command_error_handler
+    async def links(self, ctx: commands.Context):
+        """Показывает список Steam ID Dota 2, привязанных к вашему Discord аккаунту."""
+        # Для slash-команд делаем ответ приватным и отложенным
+        is_interaction = hasattr(ctx, 'interaction') and ctx.interaction is not None
+        if is_interaction:
+            await ctx.defer(ephemeral=True)
+        
+        # Получаем Discord ID автора команды
+        user_id = str(ctx.author.id)
+        
+        logger.info(f"Запрос списка привязанных аккаунтов для Discord ID {user_id}.")
+        
+        # Проверяем наличие привязок
+        if user_id in self.user_links and self.user_links[user_id]:
+            # Формируем список ID для вывода
+            linked_accounts = "\n".join(str(account_id) for account_id in self.user_links[user_id])
+            await self.send_response(ctx, f"Ваши привязанные аккаунты Dota 2:\n{linked_accounts}")
             
-            # Получаем Discord ID автора команды
-            user_id = str(ctx.author.id)
-            
-            logger.info(f"Запрос списка привязанных аккаунтов для Discord ID {user_id}.")
-            
-            # Проверяем наличие привязок
-            if user_id in self.user_links and self.user_links[user_id]:
-                # Формируем список ID для вывода
-                linked_accounts = "\n".join(str(account_id) for account_id in self.user_links[user_id])
-                await self.send_response(ctx, f"Ваши привязанные аккаунты Dota 2:\n{linked_accounts}")
-                
-                # Добавляем пояснение, если аккаунтов несколько
-                if len(self.user_links[user_id]) > 1:
-                    await self.send_response(ctx, "При использовании команды `/lastmatch` бот автоматически выберет аккаунт с самым последним матчем.")
-            else:
-                # Если привязок нет
-                await self.send_response(ctx, "У вас нет привязанных аккаунтов Dota 2. Используйте команду `/link PLAYER_ID`, чтобы привязать свой аккаунт.")
-    
-        # Этот метод используется другими когами (например, LastMatch) для доступа к данным привязок
+            # Добавляем пояснение, если аккаунтов несколько
+            if len(self.user_links[user_id]) > 1:
+                await self.send_response(ctx, "При использовании команды `/lastmatch` бот автоматически выберет аккаунт с самым последним матчем.")
+        else:
+            # Если привязок нет
+            await self.send_response(ctx, "У вас нет привязанных аккаунтов Dota 2. Используйте команду `/link PLAYER_ID`, чтобы привязать свой аккаунт.")
+
+    # Этот метод используется другими когами (например, LastMatch) для доступа к данным привязок
     def get_user_links(self):
         """Возвращает словарь с привязками аккаунтов"""
         return self.user_links
