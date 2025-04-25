@@ -1,5 +1,5 @@
 import discord
-from discord.ext.commands import Cog, hybrid_command, listener # Импортируем конкретные имена
+from discord.ext import commands # Возвращаем обычный импорт
 from typing import Optional
 import logging
 
@@ -14,14 +14,14 @@ from utils.penis_utils import measure_penis
 from utils.snipe_utils import show_sniped_message, save_deleted_message
 from utils.deathbattle_utils import run_battle
 
-class Fun(Cog): # Используем импортированное имя Cog
+class Fun(commands.Cog): # Используем commands.Cog
     """Развлекательные команды для участников сервера"""
     
     def __init__(self, bot):
         self.bot = bot
         logger.info(f"Ког {self.__class__.__name__} загружен")
 
-    @Cog.listener() # Используем импортированное имя Cog
+    @commands.Cog.listener() # Используем commands.Cog.listener
     async def on_message_delete(self, message: discord.Message):
         """
         Слушатель событий: вызывается при удалении сообщения.
@@ -32,7 +32,7 @@ class Fun(Cog): # Используем импортированное имя Cog
         except Exception as e:
             logger.error(f"Ошибка при обработке удаленного сообщения: {e}", exc_info=True)
     
-    @hybrid_command(description='Запускает дезбаттл между двумя пользователями') # Используем импортированное имя hybrid_command
+    @commands.hybrid_command(description='Запускает дезбаттл между двумя пользователями') # Используем commands.hybrid_command
     @command_error_handler
     async def deathbattle(self, ctx, member1: Optional[discord.Member] = None, member2: Optional[discord.Member] = None):
         """
@@ -45,7 +45,7 @@ class Fun(Cog): # Используем импортированное имя Cog
         """
         await run_battle(ctx, member1, member2)
 
-    @hybrid_command(description='Показывает последнее удаленное сообщение') # Используем импортированное имя hybrid_command
+    @commands.hybrid_command(description='Показывает последнее удаленное сообщение') # Используем commands.hybrid_command
     @command_error_handler
     async def snipe(self, ctx):
         """
@@ -56,7 +56,7 @@ class Fun(Cog): # Используем импортированное имя Cog
         """
         await show_sniped_message(ctx)
 
-    @hybrid_command(description='Показывает размер пениса') # Используем импортированное имя hybrid_command
+    @commands.hybrid_command(description='Показывает размер пениса') # Используем commands.hybrid_command
     @command_error_handler
     async def penis(self, ctx, mentioned_user: Optional[discord.Member] = None):
         """
@@ -68,7 +68,7 @@ class Fun(Cog): # Используем импортированное имя Cog
         """
         await measure_penis(ctx, mentioned_user)
 
-    @hybrid_command(description='Показывает аватар пользователя') # Используем импортированное имя hybrid_command
+    @commands.hybrid_command(description='Показывает аватар пользователя') # Используем commands.hybrid_command
     @command_error_handler
     async def avatar(self, ctx, mentioned_user: Optional[discord.Member] = None):
         """
