@@ -1,4 +1,3 @@
-# cogs/links.py - оптимизированный
 import json
 import os
 import logging
@@ -6,7 +5,13 @@ import discord
 from discord.ext import commands
 from typing import Optional, Dict, List
 
+# Импортируем обработчик ошибок
+from utils.error_handler import command_error_handler
+
 logger = logging.getLogger("bot")
+
+# Импортируем функцию загрузки из config.py
+from config import load_user_links as load_links_from_config
 
 class Links(commands.Cog):
     """Команды для привязки аккаунтов Dota 2"""
@@ -14,63 +19,9 @@ class Links(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.user_links_file = "data/user_links.json"
-        self.user_links = self.load_user_links()
+        # Используем импортированную функцию
+        self.user_links = load_links_from_config(self.user_links_file)
         logger.info(f"Ког {self.__class__.__name__} загружен")
-    
-    def load_user_links(self) -> Dict[str, List[int]]:
-        """
-        Загружает привязки аккаунтов из файла.
-        
-        Returns:
-            Dict[str, List[int]]: Словарь привязок аккаунтов
-        """
-        if not os.path.exists(self.user_links_file):
-            logger.info(f"Файл {self.user_links_file} не существует, создаем пустой словарь")
-            return {}
-     
-        try:
-            with open(self.user_links_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            
-            # Преобразуем все ключи в строки и удостоверяемся, что значения - списки
-            str_data = {}
-            for k, v in data.items():
-                str_key = str(k)
-                if isinstance(v, list):
-                    # Фильтруем и преобразуем значения списка в целые числа
-                    int_list = []
-                    for item in v:
-                        try:
-                            # Добавляем только положительные числа
-                            int_item = int(item)
-                            if int_item > 0:
-                                int_list.append(int_item)
-                        except (ValueError, TypeError):
-                            # Пропускаем некорректные значения
-                            logger.warning(f"Некорректное значение ID: {item}")
-                            
-                    str_data[str_key] = int_list
-                else:
-                    # Если значение не список, создаем пустой список
-                    str_data[str_key] = []
-                    logger.warning(f"Некорректный формат данных для ключа {k}: {v}")
-                
-            logger.info(f"Загружены данные привязок аккаунтов: {len(str_data)} пользователей")
-            return str_data
-            
-        except json.JSONDecodeError:
-            logger.error(f"Ошибка декодирования JSON в {self.user_links_file}")
-            # Создаем резервную копию поврежденного файла
-            try:
-                backup_file = f"{self.user_links_file}.bak"
-                os.rename(self.user_links_file, backup_file)
-                logger.info(f"Создана резервная копия поврежденного файла: {backup_file}")
-            except Exception as backup_error:
-                logger.error(f"Не удалось создать резервную копию: {backup_error}")
-            return {}
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке {self.user_links_file}: {e}")
-            return {}
 
     def save_user_links(self) -> bool:
         """
@@ -138,6 +89,7 @@ class Links(commands.Cog):
                     logger.error(f"Не удалось отправить ответ вообще")
     
     @commands.hybrid_command(description='Привязать аккаунт Dota 2')
+    @command_error_handler
     async def link(self, ctx, player_id: int):
         """
         Привязывает аккаунт Dota 2 к Discord аккаунту.
@@ -193,8 +145,9 @@ class Links(commands.Cog):
                             "При использовании `/lastmatch` бот автоматически выберет аккаунт с самым последним матчем.")
         else:
             await self.send_response(ctx, "Произошла ошибка при сохранении привязки. Пожалуйста, попробуйте снова.")
-    
+
     @commands.hybrid_command(description='Отвязать аккаунт Dota 2')
+    @command_error_handler
     async def unlink(self, ctx, player_id: Optional[int] = None):
         """
         Отвязывает аккаунт Dota 2 от Discord аккаунта.
@@ -247,31 +200,35 @@ class Links(commands.Cog):
                 await self.send_response(ctx, f"Все аккаунты Dota 2 были успешно отвязаны от вашего аккаунта Discord.")
             else:
                 await self.send_response(ctx, "Произошла ошибка при сохранении изменений. Пожалуйста, попробуйте снова.")
- 
-    @commands.hybrid_command(description='Показать привязанные аккаунты Dota 2')
-    async def links(self, ctx):
-        """Показывает список привязанных аккаунтов Dota 2"""
-        # Для slash-команд делаем ответ приватным
-        is_interaction = hasattr(ctx, 'interaction') and ctx.interaction is not None
-        if is_interaction:
-            await ctx.defer(ephemeral=True)
-        
-        # Всегда используем строковый ID
-        user_id = str(ctx.author.id)
-        
-        logger.info(f"Запрос списка привязанных аккаунтов для Discord ID {user_id}.")
-        
-        # Проверяем, есть ли привязки у пользователя
-        if user_id in self.user_links and self.user_links[user_id]:
-            linked_accounts = "\n".join(str(account_id) for account_id in self.user_links[user_id])
-            await self.send_response(ctx, f"Ваши привязанные аккаунты Dota 2:\n{linked_accounts}")
+    
+        @commands.hybrid_command(description='Показать привязанные аккаунты Dota 2')
+        @command_error_handler
+        async def links(self, ctx: commands.Context):
+            """Показывает список Steam ID Dota 2, привязанных к вашему Discord аккаунту."""
+            # Для slash-команд делаем ответ приватным и отложенным
+            is_interaction = hasattr(ctx, 'interaction') and ctx.interaction is not None
+            if is_interaction:
+                await ctx.defer(ephemeral=True)
             
-            if len(self.user_links[user_id]) > 1:
-                await self.send_response(ctx, "При использовании команды `/lastmatch` бот автоматически выберет аккаунт с самым последним матчем.")
-        else:
-            await self.send_response(ctx, "У вас нет привязанных аккаунтов Dota 2. Используйте команду `/link PLAYER_ID`, чтобы привязать свой аккаунт.")
-
-    # Этот метод будет использоваться из других когов (например, для lastmatch)
+            # Получаем Discord ID автора команды
+            user_id = str(ctx.author.id)
+            
+            logger.info(f"Запрос списка привязанных аккаунтов для Discord ID {user_id}.")
+            
+            # Проверяем наличие привязок
+            if user_id in self.user_links and self.user_links[user_id]:
+                # Формируем список ID для вывода
+                linked_accounts = "\n".join(str(account_id) for account_id in self.user_links[user_id])
+                await self.send_response(ctx, f"Ваши привязанные аккаунты Dota 2:\n{linked_accounts}")
+                
+                # Добавляем пояснение, если аккаунтов несколько
+                if len(self.user_links[user_id]) > 1:
+                    await self.send_response(ctx, "При использовании команды `/lastmatch` бот автоматически выберет аккаунт с самым последним матчем.")
+            else:
+                # Если привязок нет
+                await self.send_response(ctx, "У вас нет привязанных аккаунтов Dota 2. Используйте команду `/link PLAYER_ID`, чтобы привязать свой аккаунт.")
+    
+        # Этот метод используется другими когами (например, LastMatch) для доступа к данным привязок
     def get_user_links(self):
         """Возвращает словарь с привязками аккаунтов"""
         return self.user_links

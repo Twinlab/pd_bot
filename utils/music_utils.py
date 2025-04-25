@@ -1,4 +1,3 @@
-# utils/music_utils.py
 import discord
 import asyncio
 import logging
@@ -10,51 +9,59 @@ from collections import deque
 import glob
 from typing import Dict, List, Optional, Set, Any, Union, Callable
 
-# Настройка логирования
+# Логгер для этого модуля
 logger = logging.getLogger("music")
-
-# Директория для загрузок
+ 
+# --- Константы и Настройки ---
+ 
+# Директория для скачивания музыкальных файлов
 DOWNLOADS_DIR = 'downloads'
-os.makedirs(DOWNLOADS_DIR, exist_ok=True)
-
-# Цвета для эмбедов
-COLORS = {'DEFAULT': 0x3498db, 'ERROR': 0xe74c3c, 'SUCCESS': 0x2ecc71}
-
-# Загрузка конфигурации
-def load_config():
-    try:
-        with open("data/config.json", "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке конфигурации: {e}")
-        return {}
-
-# Глобальный экземпляр плеера
-_player = None
-
-# Настройки для yt-dlp
-_config = load_config()
+os.makedirs(DOWNLOADS_DIR, exist_ok=True) # Создаем, если не существует
+ 
+# Стандартные цвета для эмбед-сообщений
+COLORS = {
+    'DEFAULT': discord.Color.blue(),    # Стандартный цвет
+    'ERROR':   discord.Color.red(),     # Цвет для ошибок
+    'SUCCESS': discord.Color.green()    # Цвет для успешных операций
+}
+ 
+# Импорт функции загрузки основной конфигурации бота
+from config import load_config as load_main_config
+ 
+# Глобальный словарь для хранения экземпляров плеера по ID гильдии
+# Ключ: guild_id (int), Значение: MusicPlayer
+_players: Dict[int, 'MusicPlayer'] = {}
+ 
+# Загружаем конфигурацию для получения настроек yt-dlp (например, прокси)
+_config = load_main_config()
+# Опции для библиотеки yt-dlp (скачивание и извлечение аудио)
 YDL_OPTS = {
-    'format': 'bestaudio/best',
-    'outtmpl': f'{DOWNLOADS_DIR}/%(extractor)s-%(id)s-%(title)s.%(ext)s',
-    'restrictfilenames': True,
-    'noplaylist': True,
-    'nocheckcertificate': True,
-    'ignoreerrors': False,
-    'quiet': True,
-    'no_warnings': True,
-    'default_search': 'ytsearch',
-    'source_address': '0.0.0.0',
-    'proxy': _config.get("PROXY_URL", None),
+    'format': 'bestaudio/best', # Предпочитать лучший аудио формат
+    'outtmpl': f'{DOWNLOADS_DIR}/%(extractor)s-%(id)s-%(title)s.%(ext)s', # Шаблон имени файла
+    'restrictfilenames': True, # Ограничить символы в имени файла
+    'noplaylist': True, # Не скачивать плейлисты целиком, только первый трек
+    'nocheckcertificate': True, # Игнорировать ошибки SSL-сертификатов
+    'ignoreerrors': False, # Не игнорировать ошибки при скачивании
+    'quiet': True, # Не выводить лог yt-dlp в консоль
+    'no_warnings': True, # Не выводить предупреждения yt-dlp
+    'default_search': 'ytsearch', # Использовать поиск YouTube по умолчанию
+    'source_address': '0.0.0.0', # Использовать IPv4
+    'proxy': _config.get("PROXY_URL", None), # URL прокси из конфига (если есть)
+    # Настройки постпроцессора FFmpeg для извлечения аудио в MP3
     'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'mp3',
-        'preferredquality': '192',
+        'key': 'FFmpegExtractAudio', # Использовать FFmpeg для извлечения аудио
+        'preferredcodec': 'mp3', # Предпочитать кодек MP3
+        'preferredquality': '192', # Качество аудио 192 kbps
     }],
 }
-
-def create_embed(title, description, color=COLORS['DEFAULT'], **kwargs):
-    """Создает эмбед-сообщение с заданными параметрами"""
+ 
+# --- Вспомогательные функции ---
+ 
+def create_embed(title: str, description: str, color: discord.Color = COLORS['DEFAULT'], **kwargs: Any) -> discord.Embed:
+    """
+    Создает и возвращает объект discord.Embed с заданными параметрами.
+    Поддерживает установку thumbnail, footer и полей через kwargs.
+    """
     embed = discord.Embed(title=title, description=description, color=color)
     
     for name, value in kwargs.items():
@@ -63,34 +70,50 @@ def create_embed(title, description, color=COLORS['DEFAULT'], **kwargs):
             
         if name == 'thumbnail':
             embed.set_thumbnail(url=value)
+        # Установка текста футера
         elif name == 'footer':
             embed.set_footer(text=value)
+        # Добавление полей (ожидается список кортежей)
         elif name == 'fields':
-            for field in value:
+            for field in value: # field = (name, value, inline=True)
+                # Добавляем поле, inline=True по умолчанию
                 embed.add_field(name=field[0], value=field[1], inline=field[2] if len(field) > 2 else True)
+        # Добавление обычного поля (если ключ не 'thumbnail', 'footer' или 'fields')
         else:
             embed.add_field(name=name, value=value, inline=True)
     
     return embed
-
-def format_duration(duration):
-    """Форматирует продолжительность из секунд в MM:SS или HH:MM:SS"""
+ 
+def format_duration(duration: Optional[Union[int, float, str]]) -> str:
+    """
+    Форматирует продолжительность из секунд в строку формата MM:SS или HH:MM:SS.
+    Возвращает '∞' для потоков (duration=0 или None) и '?:??' при ошибке.
+    """
     if not duration:
-        return "∞"
+        return "∞" # Знак бесконечности для потоков
     
     try:
-        duration = int(float(duration))
+        # Преобразуем длительность в целое число секунд
+        duration = int(float(duration)) # float() для обработки строк типа "123.45"
+        # Рассчитываем часы, минуты и секунды
         minutes, seconds = divmod(duration, 60)
         hours, minutes = divmod(minutes, 60)
         
+        # Форматируем строку: HH:MM:SS если есть часы, иначе MM:SS
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours > 0 else f"{minutes:02d}:{seconds:02d}"
-    except (ValueError, TypeError):
-        return "?:??"
-
+    except (ValueError, TypeError): # Ловим ошибки преобразования
+        return "?:??" # Возвращаем заглушку при ошибке
+ 
+# --- Класс музыкального плеера ---
+ 
 class MusicPlayer:
-    """Компактный класс для управления музыкой на сервере"""
-
+    """
+    Класс, управляющий состоянием воспроизведения музыки для одного сервера (гильдии).
+    Хранит очередь треков, текущий трек, настройки громкости и т.д.
+    Предоставляет методы для добавления, воспроизведения, пропуска треков и управления очередью.
+    """
     def __init__(self, bot):
+        """Инициализирует экземпляр плеера для конкретного сервера."""
         self.bot = bot
         self.queue = deque()
         self.current = None
@@ -251,16 +274,27 @@ class MusicPlayer:
             
             # Функция обратного вызова после завершения трека
             def after_playback(error):
+                # Сохраняем путь к файлу перед тем, как self.current может измениться
+                finished_track_path = track.get('file')
+                
                 if error:
                     logger.error(f"Ошибка воспроизведения: {error}")
                 
                 # Запускаем следующий трек через event loop
                 future = asyncio.run_coroutine_threadsafe(self.play_next(guild), self.loop)
                 try:
-                    future.result(timeout=30)
+                    future.result(timeout=30) # Ждем завершения запуска следующего трека
                 except Exception as e:
                     logger.error(f"Ошибка при запуске следующего трека: {e}")
-            
+                finally:
+                    # Пытаемся удалить файл завершившегося трека
+                    if finished_track_path and os.path.exists(finished_track_path):
+                        try:
+                            os.remove(finished_track_path)
+                            logger.info(f"Удален файл: {finished_track_path}")
+                        except Exception as delete_error:
+                            logger.error(f"Не удалось удалить файл {finished_track_path}: {delete_error}")
+
             # Начинаем воспроизведение
             voice_client.play(source, after=after_playback)
             
@@ -392,6 +426,14 @@ class MusicPlayer:
         # Отключаемся
         await voice_client.disconnect()
         
+        # Удаляем файл текущего трека, если он есть
+        if self.current and self.current.get('file') and os.path.exists(self.current['file']):
+             try:
+                 os.remove(self.current['file'])
+                 logger.info(f"Удален файл текущего трека при остановке: {self.current['file']}")
+             except Exception as delete_error:
+                 logger.error(f"Не удалось удалить файл {self.current['file']} при остановке: {delete_error}")
+
         # Очищаем состояние
         if self.now_playing_message:
             try:
@@ -606,12 +648,17 @@ class MusicPlayer:
             await loading_message.edit(embed=create_embed("❌ Ошибка", f"Ошибка при поиске: {str(e)[:900]}", COLORS['ERROR']))
 
 # Функции управления плеером и голосовым подключением
-def get_player(bot):
-    """Получает или создает экземпляр музыкального плеера"""
-    global _player
-    if _player is None and bot is not None:
-        _player = MusicPlayer(bot)
-    return _player
+# TODO: Переделать управление плеерами (убрать глобальный _player)
+_players = {} # Словарь для хранения плееров по ID гильдии
+
+def get_player(bot, guild_id):
+    """Получает или создает экземпляр музыкального плеера для гильдии"""
+    if guild_id not in _players:
+        if bot is None: # Не можем создать плеер без бота
+             return None
+        logger.info(f"Создание нового экземпляра MusicPlayer для гильдии {guild_id}")
+        _players[guild_id] = MusicPlayer(bot)
+    return _players[guild_id]
 
 async def ensure_voice(ctx):
     """Проверяет и обеспечивает голосовое подключение"""
@@ -641,7 +688,10 @@ async def handle_play(ctx, query):
         return
     
     # Добавляем трек или запускаем поиск
-    player = get_player(ctx.bot)
+    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    if player is None:
+         await ctx.send("Ошибка: не удалось инициализировать плеер.")
+         return
     if query.startswith(('http://', 'https://')):
         await player.add_track(ctx, query)
     else:
@@ -649,40 +699,49 @@ async def handle_play(ctx, query):
 
 async def handle_skip(ctx):
     """Пропускает текущий трек"""
-    player = get_player(ctx.bot)
-    await player.skip_track(ctx)
+    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    if player: await player.skip_track(ctx)
 
 async def handle_stop(ctx):
     """Останавливает воспроизведение и очищает очередь"""
-    player = get_player(ctx.bot)
-    await player.stop_playback(ctx)
+    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    if player: await player.stop_playback(ctx)
 
 async def handle_pause(ctx):
     """Ставит воспроизведение на паузу"""
-    player = get_player(ctx.bot)
-    await player.pause_resume(ctx, pause=True)
+    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    if player: await player.pause_resume(ctx, pause=True)
 
 async def handle_resume(ctx):
     """Возобновляет воспроизведение"""
-    player = get_player(ctx.bot)
-    await player.pause_resume(ctx, pause=False)
+    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    if player: await player.pause_resume(ctx, pause=False)
 
 async def handle_remove(ctx, position):
     """Удаляет трек из очереди по позиции"""
-    player = get_player(ctx.bot)
-    await player.remove_from_queue(ctx, position)
+    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    if player: await player.remove_from_queue(ctx, position)
 
 async def handle_queue(ctx):
     """Показывает очередь воспроизведения"""
-    player = get_player(ctx.bot)
-    await player.show_queue(ctx)
+    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    if player: await player.show_queue(ctx)
 
 async def cleanup_player(guild):
-    """Очищает состояние плеера после отключения бота"""
-    player = get_player(None)
+    """Очищает состояние плеера для гильдии"""
+    guild_id = guild.id
+    player = _players.pop(guild_id, None) # Удаляем плеер из словаря
     if not player:
         return
     
+    # Удаляем файл текущего трека, если он есть
+    if player.current and player.current.get('file') and os.path.exists(player.current['file']):
+         try:
+             os.remove(player.current['file'])
+             logger.info(f"Удален файл текущего трека при очистке плеера: {player.current['file']}")
+         except Exception as delete_error:
+             logger.error(f"Не удалось удалить файл {player.current['file']} при очистке: {delete_error}")
+
     # Очищаем состояние
     player.queue.clear()
     player.current = None
@@ -700,7 +759,7 @@ async def cleanup_player(guild):
 
 async def auto_disconnect(guild, voice_channel):
     """Автоматически отключает бота, когда все пользователи вышли из канала"""
-    player = get_player(None)
+    player = get_player(None, guild.id) # Получаем плеер для гильдии
     if not player:
         return
     

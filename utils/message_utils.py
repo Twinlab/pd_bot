@@ -1,4 +1,3 @@
-# utils/message_utils.py
 import discord
 import random
 import logging
@@ -6,7 +5,8 @@ from typing import Dict, List, Union, Tuple, Optional
 
 logger = logging.getLogger("bot")
 
-# Настройки случайных ответов на сообщения определенных пользователей
+# Словарь для настройки случайных ответов на сообщения определенных пользователей.
+# Формат: {user_id: {"chance": float, "response": str}} или {user_id: [{"chance": float, "response": str}, ...]}
 USER_REACTIONS = {
     154601435990982656: {"chance": 0.05, "response": "иди нахуй абасранер"},
     305650048904200202: {"chance": 0.0001, "response": "деус, не клоуничай"},
@@ -17,35 +17,34 @@ USER_REACTIONS = {
 
 async def handle_message(message: discord.Message):
     """
-    Обрабатывает входящие сообщения с различными реакциями и ответами.
-    
+    Основная логика обработки входящих сообщений (вызывается из MessageHandler).
+    Проверяет, есть ли настроенные случайные реакции для автора сообщения,
+    и с определенной вероятностью отправляет ответ.
+
     Args:
-        message: Объект сообщения Discord
+        message: Объект сообщения discord.Message.
     """
-    try:
-        user_id = message.author.id
+    user_id = message.author.id
         
-        # Проверяем специальные реакции для конкретного пользователя
-        if user_id in USER_REACTIONS:
-            reaction_data = USER_REACTIONS[user_id]
+    # Проверяем, настроены ли реакции для этого пользователя
+    if user_id in USER_REACTIONS:
+        reaction_data = USER_REACTIONS[user_id]
             
-            # Обрабатываем одиночную реакцию
-            if isinstance(reaction_data, dict):
-                if random.random() < reaction_data["chance"]:
-                    await message.channel.send(reaction_data["response"])
+        # Обработка случая с одной возможной реакцией
+        if isinstance(reaction_data, dict):
+            if random.random() < reaction_data["chance"]:
+                await message.channel.send(reaction_data["response"])
             
-            # Обрабатываем множественные реакции
-            elif isinstance(reaction_data, list):
-                for reaction in reaction_data:
-                    if random.random() < reaction["chance"]:
-                        await message.channel.send(reaction["response"])
-                        break  # Отправляем только одну реакцию за раз
+        # Обработка случая с несколькими возможными реакциями (список словарей)
+        elif isinstance(reaction_data, list):
+            for reaction in reaction_data:
+                if random.random() < reaction["chance"]:
+                    await message.channel.send(reaction["response"])
+                    break  # Отправляем только одну реакцию за раз
         
-        # Здесь можно добавить другие обработчики сообщений
-        # Например, реакции на определенные ключевые слова
-            
-    except Exception as e:
-        logger.error(f"Ошибка в handle_message: {e}", exc_info=True)
+    # TODO: Сюда можно добавить другую логику обработки сообщений,
+    # например, реакции на ключевые слова, автоответы и т.д.
+    pass
 
 
 

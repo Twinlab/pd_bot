@@ -1,21 +1,24 @@
-# utils/dota_utils.py
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Tuple, Dict, Any, Optional
 import logging
 
 logger = logging.getLogger("dota_bot")
 
-# Функция для преобразования позиции игрока в роль
-def get_role(player_role: str) -> str:
+# --- Функции форматирования данных Dota 2 ---
+
+def get_role(player_position: Optional[str]) -> str:
     """
-    Преобразует код роли игрока в читаемую строку.
-    
+    Преобразует код позиции игрока (например, 'POSITION_1') в читаемое название роли.
+
     Args:
-        player_role: Код роли (например, 'POSITION_1')
-        
+        player_position: Строка с кодом позиции из API Stratz.
+
     Returns:
-        Название роли (например, 'Carry')
+        Название роли ('Carry', 'Mid', 'Offlane', 'Soft Support', 'Hard Support') или 'Unknown'.
     """
+    if not player_position:
+         return 'Unknown'
+         
     roles = {
         'POSITION_1': 'Carry',
         'POSITION_2': 'Mid',
@@ -23,60 +26,71 @@ def get_role(player_role: str) -> str:
         'POSITION_4': 'Soft Support',
         'POSITION_5': 'Hard Support'
     }
-    return roles.get(player_role, 'Unknown')
+    return roles.get(player_position, 'Unknown')
 
-# Функция для преобразования среднего ранга в медаль
-def convert_average_rank_to_medal(average_rank: int) -> str:
+def convert_average_rank_to_medal(average_rank: Optional[int]) -> str:
     """
-    Преобразует числовой ранг в название медали с подразделением.
-    
+    Преобразует числовой ранг Dota 2 (например, 52) в строку с названием медали и звездами ('Legend II').
+
     Args:
-        average_rank: Числовой ранг (например, 52 для Legend II)
-        
+        average_rank: Числовое представление ранга (первая цифра - медаль, вторая - звезды).
+
     Returns:
-        Название медали с подразделением (например, 'Legend II')
+        Строка с названием медали и римской цифрой звезд (или 'Unknown').
     """
-    if average_rank == 0:
+    if not average_rank or average_rank == 0:
         return 'Unknown'
     
+    # Названия медалей по порядку
     medals = ['Herald', 'Guardian', 'Crusader', 'Archon', 'Legend', 'Ancient', 'Divine', 'Immortal']
+    # Римские цифры для звезд
     roman_numerals = ['', 'I', 'II', 'III', 'IV', 'V']
     
     try:
-        medal_number = int(str(average_rank)[0])
-        stars_number = int(str(average_rank)[1])
+        # Извлекаем номер медали (первая цифра) и номер звезд (вторая цифра)
+        rank_str = str(average_rank)
+        medal_number = int(rank_str[0])
+        stars_number = int(rank_str[1]) if len(rank_str) > 1 else 0 # Учитываем случай без звезд
         
-        if medal_number < 1 or medal_number > 8:
+        if medal_number < 1 or medal_number > len(medals):
             return 'Unknown'
             
-        medal = medals[medal_number-1]
+        medal = medals[medal_number - 1] # Получаем название медали по индексу
         
-        if medal_number == 8:  # Immortals doesn't have stars
+        # У Immortal ранга нет звезд
+        if medal_number == 8:
             return medal
+        elif 0 <= stars_number < len(roman_numerals):
+             return f'{medal} {roman_numerals[stars_number]}' # Возвращаем "Медаль Звезды"
         else:
-            return f'{medal} {roman_numerals[stars_number]}'
-    except (IndexError, ValueError):
+             return medal # Возвращаем только медаль, если номер звезд некорректен
+             
+    except (IndexError, ValueError, TypeError): # Ловим возможные ошибки при преобразовании/индексации
+        logger.warning(f"Не удалось преобразовать ранг: {average_rank}")
         return 'Unknown'
 
-# Функция для получения режима игры
-def get_game_mode(game_mode_id: int, lobby_type_id: Optional[int] = None) -> str:
+def get_game_mode(game_mode_id: Optional[int], lobby_type_id: Optional[int] = None) -> str:
     """
-    Определяет режим игры на основе ID режима и типа лобби.
-    
+    Определяет название режима игры на основе ID режима и ID типа лобби из API Stratz.
+
     Args:
-        game_mode_id: ID режима игры
-        lobby_type_id: ID типа лобби (опционально)
-        
+        game_mode_id: ID режима игры.
+        lobby_type_id: ID типа лобби (опционально).
+
     Returns:
-        Название режима игры
+        Строка с названием режима игры (например, "Ranked All Pick", "Turbo", "Unranked").
     """
+    if game_mode_id is None:
+        return "Unknown"
+        
+    # Словари соответствия ID и названий
     game_modes = {
         1: "All Pick",
         2: "Captains Mode",
         3: "Random Draft",
         4: "Single Draft",
         5: "All Random",
-        22: "All Pick",
+        22: "All Pick", # Старый ID для All Pick
         23: "Turbo"
     }
     
@@ -88,82 +102,97 @@ def get_game_mode(game_mode_id: int, lobby_type_id: Optional[int] = None) -> str
         4: "Co-op Bots",
         5: "Ranked Team MM",
         6: "Ranked Solo MM",
-        7: "Ranked",
+        7: "Ranked", # Общий тип для Ranked
         8: "1v1 Mid",
         9: "Battle Cup"
     }
     
-    # Для некоторых специальных случаев
-    if game_mode_id == 22 and lobby_type_id in [5, 6, 7]:
-        return "Ranked"
-    elif game_mode_id == 22 and lobby_type_id == 0:
-        return "Unranked"
-    elif game_mode_id == 23:
+    # Обработка особых комбинаций режима и лобби
+    if game_mode_id == 22 and lobby_type_id == 7: # Ranked All Pick (старый ID)
+        return "Ranked" # Возвращаем просто "Ranked"
+    elif game_mode_id == 22 and lobby_type_id == 0: # Unranked All Pick (старый ID)
+        return "Unranked" # Возвращаем просто "Unranked"
+    elif game_mode_id == 23: # Turbo
         return "Turbo"
     
-    # Проверяем есть ли значение в словаре, иначе возвращаем Unknown
-    game_mode_str = game_modes.get(game_mode_id, f"{game_mode_id}")
+    # Получаем названия из словарей или используем ID, если название неизвестно
+    game_mode_str = game_modes.get(game_mode_id, f"Mode {game_mode_id}")
     lobby_type_str = lobby_types.get(lobby_type_id, "")
     
-    # Комбинируем информацию о режиме и типе лобби
-    if lobby_type_str and game_mode_str != f"{game_mode_id}":
+    # Комбинируем название лобби и режима, если оба известны
+    if lobby_type_str and not game_mode_str.startswith("Mode"):
+        # Особый случай для Ranked All Pick
+        if lobby_type_id == 7 and game_mode_id == 22:
+             return "Ranked"
         return f"{lobby_type_str} {game_mode_str}"
     
-    # Если нет информации о режиме, пытаемся хотя бы вернуть тип лобби
+    # Если известен только тип лобби
     if lobby_type_str:
         return lobby_type_str
         
+    # Если известен только режим (или ничего не известно)
     return game_mode_str
 
-# Функция для расчета дневного и недельного винрейта
-def get_win_rates(player_matches: List[Dict[str, Any]], days: int = 7) -> Tuple[List[int], List[int], int, int]:
+def get_win_rates(player_matches: List[Dict[str, Any]], num_days: int = 7) -> Tuple[List[int], List[int], int, int]:
     """
-    Рассчитывает дневной и недельный винрейт игрока.
-    
+    Рассчитывает статистику побед и поражений за последние `num_days` дней
+    и отдельно за последние 24 часа (первый элемент списков daily_wins/losses).
+
     Args:
-        player_matches: Список матчей игрока
-        days: Количество дней для анализа
-        
+        player_matches: Список словарей с данными матчей игрока (должен содержать 'startDateTime' и 'players').
+        num_days: Количество дней для анализа (по умолчанию 7).
+
     Returns:
-        Кортеж из четырех элементов:
-        - Список побед по дням
-        - Список поражений по дням
-        - Общее количество побед за неделю
-        - Общее количество поражений за неделю
+        Кортеж: (daily_wins, daily_losses, total_period_wins, total_period_losses).
+               Списки daily_* содержат статистику по дням, начиная с сегодня (индекс 0).
     """
-    now = datetime.utcnow()
-    daily_wins = [0] * days
-    daily_losses = [0] * days
-    weekly_wins = 0
-    weekly_losses = 0
-
+    now = datetime.now(timezone.utc) # Текущее время UTC
+    # Инициализируем списки для хранения статистики по дням
+    daily_wins = [0] * num_days
+    daily_losses = [0] * num_days
+    # Инициализируем общие счетчики за весь период
+    total_period_wins = 0
+    total_period_losses = 0
+ 
+    # Обрабатываем каждый матч из списка
     for match in player_matches:
-        match_time = datetime.utcfromtimestamp(match['startDateTime'])
+        # Проверяем наличие необходимых данных
+        if not match or 'startDateTime' not in match or 'players' not in match or not match['players']:
+             logger.warning("Пропуск матча из-за отсутствия данных в get_win_rates")
+             continue
+             
+        # Получаем время начала матча и разницу в днях с текущим моментом
+        try:
+            match_time = datetime.fromtimestamp(match['startDateTime'], timezone.utc)
+        except (TypeError, ValueError):
+            logger.warning(f"Некорректный timestamp в матче: {match.get('startDateTime')}")
+            continue
+            
         delta_days = (now - match_time).days
+ 
+        # Учитываем матч, только если он был сыгран в пределах заданного периода
+        if 0 <= delta_days < num_days:
+            try:
+                # Получаем результат матча для игрока (предполагается, что он первый в списке players)
+                is_victory = match['players'][0]['isVictory']
+                if is_victory:
+                    daily_wins[delta_days] += 1
+                    total_period_wins += 1
+                else:
+                    daily_losses[delta_days] += 1
+                    total_period_losses += 1
+            except (KeyError, IndexError, TypeError) as e:
+                 logger.warning(f"Ошибка при обработке данных матча в get_win_rates: {e}")
+ 
+    return daily_wins, daily_losses, total_period_wins, total_period_losses
 
-        if delta_days < days:
-            is_victory = match['players'][0]['isVictory']
-            if is_victory:
-                daily_wins[delta_days] += 1
-                weekly_wins += 1
-            else:
-                daily_losses[delta_days] += 1
-                weekly_losses += 1
-
-    return daily_wins, daily_losses, weekly_wins, weekly_losses
-
-# Функция для форматирования статистики матча
+# Эта функция больше не используется напрямую в handle_lastmatch, но может быть полезна
 def format_match_stats(match_data: Dict[str, Any], player_id: int) -> Dict[str, Any]:
     """
-    Форматирует данные матча для удобного отображения.
-    
-    Args:
-        match_data: Данные матча из API
-        player_id: ID игрока, чью статистику нужно выделить
-        
-    Returns:
-        Словарь с отформатированной статистикой
+    Извлекает и форматирует ключевую статистику из сырых данных матча,
+    полученных от API, в более удобный для использования словарь.
     """
+    # Инициализируем словарь с результатами по умолчанию
     result = {
         'match_id': match_data.get('matchId', 0),
         'game_mode': 'Unknown',
@@ -187,7 +216,7 @@ def format_match_stats(match_data: Dict[str, Any], player_id: int) -> Dict[str, 
     }
     
     try:
-        # Общая информация о матче
+        # Извлекаем общую информацию о матче
         result['game_mode'] = get_game_mode(
             match_data.get('gameMode', 0),
             match_data.get('lobbyType', None)
@@ -195,154 +224,69 @@ def format_match_stats(match_data: Dict[str, Any], player_id: int) -> Dict[str, 
         result['duration'] = match_data.get('durationSeconds', 0)
         result['start_time'] = datetime.utcfromtimestamp(match_data.get('startDateTime', 0))
         
-        # Информация об игроке
+        # Находим и извлекаем данные конкретного игрока
+        player_data = None
         for player in match_data.get('players', []):
             if player.get('steamAccountId') == player_id:
-                result['is_victory'] = player.get('isVictory', False)
+                player_data = player
+                break # Нашли нужного игрока, выходим из цикла
                 
-                result['player']['hero'] = player.get('hero', {}).get('displayName', 'Unknown')
-                result['player']['hero_id'] = player.get('hero', {}).get('id', 0)
-                result['player']['kills'] = player.get('kills', 0)
-                result['player']['deaths'] = player.get('deaths', 0)
-                result['player']['assists'] = player.get('assists', 0)
-                result['player']['net_worth'] = player.get('networth', 0)
-                result['player']['gpm'] = player.get('goldPerMinute', 0)
-                result['player']['xpm'] = player.get('experiencePerMinute', 0)
+        if player_data:
+                result['is_victory'] = player_data.get('isVictory', False)
                 
-                # Предметы игрока
-                if 'inventory' in player:
-                    for item in player['inventory']:
-                        if item:
-                            result['player']['items'].append({
-                                'id': item.get('id', 0),
-                                'name': item.get('name', ''),
-                                'image': item.get('image', '')
-                            })
+                result['player']['hero'] = player_data.get('hero', {}).get('displayName', 'Unknown')
+                result['player']['hero_id'] = player_data.get('hero', {}).get('id', 0)
+                result['player']['kills'] = player_data.get('kills', 0)
+                result['player']['deaths'] = player_data.get('deaths', 0)
+                result['player']['assists'] = player_data.get('assists', 0)
+                result['player']['net_worth'] = player_data.get('networth', 0)
+                result['player']['gpm'] = player_data.get('goldPerMinute', 0)
+                result['player']['xpm'] = player_data.get('experiencePerMinute', 0)
                 
-                result['player']['role'] = get_role(player.get('role', 'Unknown'))
-                break
+                # Извлекаем информацию о предметах
+                # (Примечание: API может возвращать предметы в другом формате, эта часть может требовать адаптации)
+                # Эта логика извлечения предметов может быть неактуальна для текущего API Stratz
+                # if 'inventory' in player_data:
+                #     for item in player_data['inventory']:
+                #         if item: # Пропускаем пустые слоты
+                #             result['player']['items'].append({
+                #                 'id': item.get('id', 0),
+                #                 'name': item.get('name', ''),
+                #                 'image': item.get('image', '')
+                #             })
+                
+                result['player']['role'] = get_role(player_data.get('position')) # Используем position
         
-        # Информация о командах
-        team_id = None
-        for player in match_data.get('players', []):
-            if player.get('steamAccountId') == player_id:
-                team_id = player.get('isRadiant', True)
-                break
-        
-        # Заполняем команды
-        for player in match_data.get('players', []):
-            player_info = {
-                'hero': player.get('hero', {}).get('displayName', 'Unknown'),
-                'hero_id': player.get('hero', {}).get('id', 0),
-                'kills': player.get('kills', 0),
-                'deaths': player.get('deaths', 0),
-                'assists': player.get('assists', 0),
-                'player_name': player.get('steamAccount', {}).get('name', 'Unknown'),
-                'role': get_role(player.get('role', 'Unknown')),
-                'rank': convert_average_rank_to_medal(player.get('steamAccount', {}).get('seasonRank', 0))
-            }
+        # Извлекаем информацию о союзниках и противниках (опционально, если нужно)
+        player_team_is_radiant = None
+        if player_data:
+             player_team_is_radiant = player_data.get('isRadiant')
+
+        if player_team_is_radiant is not None:
+            # Заполняем списки союзников и противников
+            for player in match_data.get('players', []):
+                # Пропускаем самого игрока
+                if player.get('steamAccountId') == player_id:
+                    continue
+                    
+                player_info = {
+                    'hero': player.get('hero', {}).get('displayName', 'Unknown'),
+                    'hero_id': player.get('hero', {}).get('id', 0),
+                    'kills': player.get('kills', 0),
+                    'deaths': player.get('deaths', 0),
+                    'assists': player.get('assists', 0),
+                    'player_name': player.get('steamAccount', {}).get('name', 'Unknown'),
+                    'role': get_role(player.get('position')), # Используем position
+                    'rank': convert_average_rank_to_medal(player.get('steamAccount', {}).get('seasonRank', 0))
+                }
             
-            if player.get('isRadiant', True) == team_id:
-                result['team'].append(player_info)
-            else:
-                result['enemy_team'].append(player_info)
+                # Добавляем в соответствующую команду
+                if player.get('isRadiant') == player_team_is_radiant:
+                    result['team'].append(player_info)
+                else:
+                    result['enemy_team'].append(player_info)
     
     except Exception as e:
-        logger.error(f"Ошибка при форматировании данных матча: {e}")
+        logger.error(f"Ошибка при форматировании данных матча: {e}", exc_info=True)
     
     return result
-
-# Функция для генерации сводной статистики по нескольким матчам
-def generate_summary_stats(matches: List[Dict[str, Any]], player_id: int) -> Dict[str, Any]:
-    """
-    Генерирует сводную статистику по нескольким матчам.
-    
-    Args:
-        matches: Список матчей
-        player_id: ID игрока
-        
-    Returns:
-        Словарь со сводной статистикой
-    """
-    if not matches:
-        return {
-            'matches_count': 0,
-            'winrate': 0,
-            'avg_kills': 0,
-            'avg_deaths': 0,
-            'avg_assists': 0,
-            'avg_gpm': 0,
-            'avg_xpm': 0,
-            'most_played_heroes': []
-        }
-    
-    stats = {
-        'matches_count': len(matches),
-        'wins': 0,
-        'losses': 0,
-        'total_kills': 0,
-        'total_deaths': 0,
-        'total_assists': 0,
-        'total_gpm': 0,
-        'total_xpm': 0,
-        'heroes': {}
-    }
-    
-    for match in matches:
-        formatted_match = format_match_stats(match, player_id)
-        
-        if formatted_match['is_victory']:
-            stats['wins'] += 1
-        else:
-            stats['losses'] += 1
-        
-        stats['total_kills'] += formatted_match['player']['kills']
-        stats['total_deaths'] += formatted_match['player']['deaths']
-        stats['total_assists'] += formatted_match['player']['assists']
-        stats['total_gpm'] += formatted_match['player']['gpm']
-        stats['total_xpm'] += formatted_match['player']['xpm']
-        
-        # Подсчет героев
-        hero_id = formatted_match['player']['hero_id']
-        hero_name = formatted_match['player']['hero']
-        
-        if hero_id not in stats['heroes']:
-            stats['heroes'][hero_id] = {
-                'name': hero_name,
-                'matches': 0,
-                'wins': 0
-            }
-        
-        stats['heroes'][hero_id]['matches'] += 1
-        if formatted_match['is_victory']:
-            stats['heroes'][hero_id]['wins'] += 1
-    
-    # Расчет средних значений
-    result = {
-        'matches_count': stats['matches_count'],
-        'winrate': (stats['wins'] / stats['matches_count']) * 100 if stats['matches_count'] > 0 else 0,
-        'avg_kills': stats['total_kills'] / stats['matches_count'] if stats['matches_count'] > 0 else 0,
-        'avg_deaths': stats['total_deaths'] / stats['matches_count'] if stats['matches_count'] > 0 else 0,
-        'avg_assists': stats['total_assists'] / stats['matches_count'] if stats['matches_count'] > 0 else 0,
-        'avg_gpm': stats['total_gpm'] / stats['matches_count'] if stats['matches_count'] > 0 else 0,
-        'avg_xpm': stats['total_xpm'] / stats['matches_count'] if stats['matches_count'] > 0 else 0
-    }
-    
-    # Сортировка героев по количеству матчей
-    heroes_sorted = sorted(
-        [{'id': k, **v} for k, v in stats['heroes'].items()],
-        key=lambda x: x['matches'],
-        reverse=True
-    )
-    
-    result['most_played_heroes'] = [
-        {
-            'name': hero['name'],
-            'matches': hero['matches'],
-            'winrate': (hero['wins'] / hero['matches']) * 100 if hero['matches'] > 0 else 0
-        }
-        for hero in heroes_sorted[:5]  # Топ-5 героев
-    ]
-    
-    return result
-    

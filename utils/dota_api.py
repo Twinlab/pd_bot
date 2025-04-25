@@ -1,4 +1,3 @@
-# utils/dota_api.py
 import json
 import aiohttp
 import time
@@ -9,36 +8,50 @@ from typing import Dict, Any, Optional
 
 logger = logging.getLogger("dota_bot")
 
-# Кэш для хранения данных
-match_cache: Dict[str, Dict[str, Any]] = {}
-items_cache: Dict[str, Any] = {}
-CACHE_TTL = 300  # 5 минут в секундах
+# Глобальные переменные для кэширования в памяти
+match_cache: Dict[str, Dict[str, Any]] = {} # {cache_key: {'data': ..., 'timestamp': ...}}
+items_cache: Dict[str, Any] = {} # {'data': {item_id: {...}}, 'timestamp': ...}
+CACHE_TTL = 300  # Время жизни кэша матчей в секундах (5 минут)
 CACHE_DIR = "data/cache"  # Директория для хранения кэша на диске
 
 # Создаем директорию для кэша, если её не существует
 os.makedirs(CACHE_DIR, exist_ok=True)
-
-# Функция для чтения JSON-данных из файла
-async def read_json_file(file_name):
+ 
+# --- Вспомогательные функции для работы с файлами ---
+ 
+async def read_json_file(file_path: str) -> Dict:
+    """Асинхронно читает JSON-файл и возвращает его содержимое как словарь."""
     try:
-        with open(file_name) as f:
+        # Используем encoding='utf-8' для совместимости
+        with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception as e:
-        logger.error(f"Ошибка при чтении файла {file_name}: {e}")
+    except FileNotFoundError:
+        logger.warning(f"Файл не найден: {file_path}")
         return {}
-
-# Функция для записи JSON-данных в файл
-async def write_json_file(file_name, data):
+    except json.JSONDecodeError:
+        logger.error(f"Ошибка декодирования JSON в файле: {file_path}")
+        return {}
+    except Exception as e:
+        logger.error(f"Неизвестная ошибка при чтении файла {file_path}: {e}")
+        return {}
+ 
+async def write_json_file(file_path: str, data: Dict) -> bool:
+    """Асинхронно записывает словарь в JSON-файл."""
     try:
-        with open(file_name, 'w') as f:
-            json.dump(data, f)
+        # Используем encoding='utf-8' и безопасное сохранение через временный файл
+        temp_file_path = f"{file_path}.tmp" # Определяем временный путь
+        with open(temp_file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2) # Добавляем отступы для читаемости
+        os.replace(temp_file_path, file_path) # Атомарная замена
         return True
     except Exception as e:
-        logger.error(f"Ошибка при записи в файл {file_name}: {e}")
+        logger.error(f"Ошибка при записи в файл {file_path}: {e}")
         return False
-
-# Функция для загрузки кэша с диска
+ 
+# --- Функции управления кэшем ---
+ 
 async def load_cache_from_disk():
+    """Загружает кэш матчей и предметов из файлов на диске в память при запуске."""
     global match_cache, items_cache
     
     try:
@@ -51,12 +64,12 @@ async def load_cache_from_disk():
         if os.path.exists(items_cache_file):
             items_cache = await read_json_file(items_cache_file)
             
-        logger.info(f"Кэш загружен: {len(match_cache)} записей матчей, {len(items_cache)} записей предметов")
+        logger.info(f"Кэш загружен с диска: {len(match_cache)} матчей, {len(items_cache.get('data', {}))} предметов.")
     except Exception as e:
-        logger.error(f"Ошибка при загрузке кэша: {e}")
-
-# Функция для сохранения кэша на диск
+        logger.error(f"Ошибка при загрузке кэша с диска: {e}")
+ 
 async def save_cache_to_disk():
+    """Сохраняет текущий кэш матчей и предметов из памяти в файлы на диске."""
     try:
         match_cache_file = os.path.join(CACHE_DIR, "match_cache.json")
         items_cache_file = os.path.join(CACHE_DIR, "items_cache.json")
@@ -64,93 +77,133 @@ async def save_cache_to_disk():
         await write_json_file(match_cache_file, match_cache)
         await write_json_file(items_cache_file, items_cache)
         
-        logger.info("Кэш сохранен на диск")
+        logger.debug("Кэш сохранен на диск.") # Изменено на debug, т.к. вызывается часто
         return True
     except Exception as e:
         logger.error(f"Ошибка при сохранении кэша: {e}")
         return False
+ 
+# --- Функции взаимодействия с API Stratz ---
+ 
+async def query_api(query: str, url: str, headers: Dict, variables: Optional[Dict] = None, cache_key: Optional[str] = None) -> Optional[Dict]:
+    """
+    Выполняет GraphQL-запрос к API Stratz.
+    Проверяет кэш матчей перед выполнением запроса.
+    Сохраняет успешные результаты в кэш (в памяти и на диск).
 
-# Функция для выполнения GraphQL-запроса к API с кэшированием
-async def query_api(query, url, headers, variables=None, cache_key=None):
+    Args:
+        query: Текст GraphQL-запроса.
+        url: URL API Stratz.
+        headers: Заголовки запроса (включая токен авторизации).
+        variables: Переменные для GraphQL-запроса (опционально).
+        cache_key: Ключ для кэширования этого запроса (опционально).
+
+    Returns:
+        Словарь с данными ('data') из ответа API или None в случае ошибки/отсутствия данных.
+    """
     # Проверка кэша
     if cache_key:
         current_time = time.time()
+        # Проверяем наличие ключа в кэше и не истекло ли время жизни (TTL)
         if cache_key in match_cache and match_cache[cache_key]['timestamp'] + CACHE_TTL > current_time:
-            logger.info(f"Использую кэшированные данные для {cache_key}")
+            logger.debug(f"Кэш найден для {cache_key}")
             return match_cache[cache_key]['data']
     
-    # Добавляем требуемый заголовок User-Agent
+    # 2. Выполнение запроса к API
+    # Копируем заголовки и добавляем обязательный User-Agent для Stratz API
     request_headers = headers.copy()
     request_headers['User-Agent'] = 'STRATZ_API'
     
     try:
-        # Выполняем запрос асинхронно
+        # Используем aiohttp для асинхронного POST-запроса
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url, 
                 json={'query': query, 'variables': variables}, 
                 headers=request_headers,
-                timeout=10
+                timeout=10 # Таймаут запроса 10 секунд
             ) as response:
-                # Логируем информацию
-                logger.info(f"API запрос: {url}, Код статуса: {response.status}")
+                logger.info(f"Запрос к Stratz API: {url}, Статус: {response.status}, Ключ кэша: {cache_key}")
                 
-                # Проверяем код состояния
+                # Проверяем HTTP статус ответа
                 if response.status != 200:
                     logger.error(f"HTTP ошибка: {response.status}")
                     return None
                 
-                # Пытаемся разобрать JSON
+                # Читаем и декодируем JSON из ответа
                 json_data = await response.json()
                 
-                # Проверяем на наличие ошибок GraphQL
+                # Проверяем наличие поля 'errors' в ответе GraphQL
                 if 'errors' in json_data:
                     logger.error(f"Ошибки GraphQL: {json_data['errors']}")
                     return None
                     
-                # Сохраняем в кэш, если запрос успешен
+                # 3. Кэширование результата (если есть ключ и данные)
                 if cache_key and 'data' in json_data:
                     match_cache[cache_key] = {
                         'data': json_data['data'],
-                        'timestamp': time.time()
+                        'timestamp': time.time() # Записываем время получения данных
                     }
-                    
-                    # Асинхронно сохраняем кэш на диск
+                    logger.debug(f"Сохранено в кэш: {cache_key}")
+                    # Запускаем асинхронную задачу для сохранения кэша на диск (не блокирует основной поток)
                     asyncio.create_task(save_cache_to_disk())
                     
+                # Возвращаем только часть 'data' из ответа
                 return json_data.get('data')
     except Exception as e:
         logger.error(f"Ошибка API: {e}")
         return None
+ 
+async def query_api_with_retry(query: str, url: str, headers: Dict, variables: Optional[Dict] = None, cache_key: Optional[str] = None, max_retries: int = 3) -> Optional[Dict]:
+    """
+    Обертка для `query_api`, добавляющая логику повторных попыток при ошибках (None в ответе).
+    Использует экспоненциальную задержку между попытками.
 
-# Функция для повторного запроса при ошибке
-async def query_api_with_retry(query, url, headers, variables=None, cache_key=None, max_retries=3):
+    Args:
+        *args, **kwargs: Аргументы, передаваемые в `query_api`.
+        max_retries: Максимальное количество повторных попыток.
+
+    Returns:
+        Результат `query_api` или None, если все попытки не удались.
+    """
     retry_delay = 1  # Начальная задержка в секундах
     
     for attempt in range(max_retries):
         result = await query_api(query, url, headers, variables, cache_key)
         if result is not None:
-            return result
+            return result # Возвращаем успешный результат
             
-        # Если результат None, делаем паузу и пробуем снова
-        logger.info(f"Попытка {attempt+1} не удалась, повторяю через {retry_delay} сек...")
+        # Если query_api вернула None (ошибка), ждем и повторяем
+        logger.warning(f"Попытка запроса {attempt + 1}/{max_retries} не удалась (cache_key: {cache_key}). Повтор через {retry_delay} сек...")
         await asyncio.sleep(retry_delay)
-        retry_delay *= 2  # Увеличиваем задержку экспоненциально
+        retry_delay *= 2 # Удваиваем задержку для следующей попытки
     
-    logger.warning("Все попытки исчерпаны")
+    logger.error(f"Все {max_retries} попыток запроса не удались (cache_key: {cache_key}).")
     return None
+ 
+async def fetch_items_data(url: str, headers: Dict) -> Dict[int, Dict[str, str]]:
+    """
+    Получает и кэширует информацию о предметах Dota 2 из API Stratz.
+    Использует кэш в памяти (`items_cache`) с увеличенным TTL.
 
-# Функция для получения информации о предметах
-async def fetch_items_data(url, headers):
+    Args:
+        url: URL API Stratz.
+        headers: Заголовки запроса (с токеном).
+
+    Returns:
+        Словарь {item_id: {'name': ..., 'displayName': ..., 'image': ...}} или пустой словарь.
+    """
     global items_cache
     
     # Если данные уже в кэше и не устарели, используем их
     current_time = time.time()
+    # Умножаем стандартный TTL на 10 (50 минут) для кэша предметов
     if 'data' in items_cache and 'timestamp' in items_cache and items_cache['timestamp'] + CACHE_TTL * 10 > current_time:
-        logger.info("Использую кэшированные данные о предметах")
+        logger.debug("Используется кэш предметов.")
         return items_cache['data']
     
-    # Запрашиваем данные о предметах из API
+    # Если кэша нет или он устарел, выполняем запрос к API
+    logger.info("Запрос данных о предметах из API Stratz...")
     items_query = """
     {
       constants {
@@ -166,8 +219,9 @@ async def fetch_items_data(url, headers):
     
     items_data = await query_api(items_query, url, headers)
     
+    # Обрабатываем успешный ответ
     if items_data and 'constants' in items_data and 'items' in items_data['constants']:
-        # Создаем словарь {id: {name, displayName, image}} для удобного доступа
+        # Преобразуем список предметов в словарь {item_id: {details}}
         items_dict = {}
         for item in items_data['constants']['items']:
             item_id = item.get('id')
@@ -175,26 +229,28 @@ async def fetch_items_data(url, headers):
                 items_dict[item_id] = {
                     'name': item.get('name', ''),
                     'displayName': item.get('displayName', ''),
-                    'image': item.get('image', '')
+                    'image': item.get('image', '') # URL изображения предмета
                 }
         
-        # Сохраняем в кэш
+        # Сохраняем отформатированный словарь в глобальный кэш предметов
         items_cache = {
             'data': items_dict,
-            'timestamp': time.time()
+            'timestamp': time.time() # Записываем время обновления кэша
         }
         
-        # Асинхронно сохраняем кэш на диск
+        # Асинхронно сохраняем обновленный кэш на диск
         asyncio.create_task(save_cache_to_disk())
         
-        logger.info(f"Получены данные о {len(items_dict)} предметах")
+        logger.info(f"Данные о {len(items_dict)} предметах получены и кэшированы.")
         return items_dict
     
     logger.warning("Не удалось получить данные о предметах")
     return {}
-
-# Инициализация - загружаем кэш при импорте модуля
+ 
+# --- Инициализация кэша при запуске ---
+ 
 async def init():
+    """Асинхронная функция для загрузки кэша с диска при старте."""
     await load_cache_from_disk()
 
 # Создаем задачу для инициализации (будет выполнена в event loop)

@@ -13,17 +13,21 @@ from discord import ui, ButtonStyle, Interaction
 logger = logging.getLogger("bot")
 
 class ActivityView(ui.View):
-    """Интерактивное представление статистики активности с кнопками"""
+    """
+    Интерактивное представление (View) для отображения статистики игровой активности.
+    Позволяет переключаться между режимами "по пользователям" и "по играм",
+    а также листать страницы с помощью кнопок.
+    """
     
     def __init__(self, cog, data, ctx=None, report_type="daily"):
-        super().__init__(timeout=86400)  # 24 часа таймаут (увеличен с 1800 до 86400)
+        super().__init__(timeout=86400)  # 24 часа таймаут
         self.cog = cog
         self.data = data  # Все данные о активности
         self.ctx = ctx
         self.report_type = report_type  # "daily" или "command"
         self.current_page = 0
         self.view_mode = "users"  # "users" или "games"
-        self.max_items_per_page = 20  # 20 элементов на страницу
+        self.max_items_per_page = 20
         
         # Подготавливаем данные для отображения
         self.prepare_data()
@@ -35,11 +39,14 @@ class ActivityView(ui.View):
                 break
     
     def prepare_data(self):
-        """Подготавливает данные для отображения - фильтрует игры с нулевым временем"""
+        """
+        Подготавливает и сортирует данные для отображения в режимах "по пользователям" и "по играм".
+        Фильтрует игры с нулевым временем. Рассчитывает максимальное количество страниц.
+        """
         # Отображение по пользователям
         self.users_data = {}
         for user_id, activities in self.data.items():
-            # Отфильтровываем строго больше 0 (не менее или равно)
+            # Отфильтровываем игры с временем > 0
             filtered_activities = {game: time for game, time in activities.items() if time > 0}
             if filtered_activities:
                 self.users_data[user_id] = filtered_activities
@@ -58,7 +65,7 @@ class ActivityView(ui.View):
         self.games_data = defaultdict(dict)
         for user_id, activities in self.users_data.items():  # Используем уже отфильтрованные данные
             for game, time in activities.items():
-                # Двойная проверка, что время > 0
+                # Проверка на всякий случай
                 if time > 0:
                     self.games_data[game][user_id] = time
         
@@ -76,8 +83,8 @@ class ActivityView(ui.View):
             self.max_pages = max(1, (len(self.games_list) + self.max_items_per_page - 1) // self.max_items_per_page)
     
     def format_time_short(self, seconds: int) -> str:
-        """Форматирует время в секундах в краткую строку (1h 5m)"""
-        # Проверка на положительное значение
+        """Форматирует время в секундах в краткую строку (например, '1h 5m', '2h', '30m')."""
+        # Обработка нулевого или отрицательного времени
         if seconds <= 0:
             return "0m"
             
@@ -103,7 +110,7 @@ class ActivityView(ui.View):
         else:
             content = self._get_games_content()
         
-        # Добавляем информацию о страницах (упрощенная)
+        # Добавляем информацию о страницах
         footer = f"\n*Страница {self.current_page + 1}/{self.max_pages}*"
         
         return header + content + footer
@@ -138,9 +145,9 @@ class ActivityView(ui.View):
             
             # Добавляем только игры с ненулевым временем
             games_list = [
-                f"{game_name} ({self.format_time_short(time_spent)})" 
-                for game_name, time_spent in activities 
-                if time_spent > 0  # Дополнительная проверка
+                f"{game_name} ({self.format_time_short(time_spent)})"
+                for game_name, time_spent in activities
+                if time_spent > 0 # Проверка на всякий случай
             ]
             content += ", ".join(games_list) + "\n"
         
@@ -257,9 +264,12 @@ class ActivityView(ui.View):
                 pass
 
 
-# НОВЫЙ КЛАСС: Представление для пагинации статистики
 class StatsView(ui.View):
-    """Интерактивное представление для пагинации статистики"""
+    """
+    Интерактивное представление (View) для пагинации статистики игр пользователя
+    (используется командами /mystats и /mystatsall).
+    Отображает статистику в виде эмбеда и позволяет листать страницы.
+    """
     
     def __init__(self, cog, title, games_data, user=None, items_per_page=5, all_time=False):
         super().__init__(timeout=86400)  # 24 часа таймаут
@@ -395,7 +405,7 @@ class ActivityTracker(commands.Cog):
         # Запуск задач
         self.month_checker.start()
         self.daily_report.start()
-        self.monthly_report.start()  # НОВАЯ ЗАДАЧА: ежемесячный отчет
+        self.monthly_report.start()
         self.periodic_save.start()
     
     def filter_zero_values(self, data):
@@ -498,7 +508,7 @@ class ActivityTracker(commands.Cog):
         """Останавливает задачи при выгрузке кога"""
         self.month_checker.cancel()
         self.daily_report.cancel()
-        self.monthly_report.cancel()  # Останавливаем новую задачу
+        self.monthly_report.cancel()
         self.periodic_save.cancel()
         
         # Сохраняем данные при выгрузке кога
@@ -892,7 +902,6 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка при загрузке архивных данных: {e}", exc_info=True)
             return {}
     
-    # НОВАЯ ЗАДАЧА: ежемесячный отчет
     @tasks.loop(time=time(hour=9, minute=0))  # 12:00 по МСК (UTC+3)
     async def monthly_report(self):
         """Отправляет ежемесячный отчет об активности всех пользователей за предыдущий месяц"""
@@ -1023,7 +1032,6 @@ class ActivityTracker(commands.Cog):
         await self.bot.wait_until_ready()
         logger.info("Запущена задача ежемесячного отчета об активности")
         
-    # НОВЫЙ МЕТОД: для ежемесячных отчетов
     def _get_monthly_summary(self, data, month, year):
         """Возвращает общую статистику для месячного отчета"""
         # Общее количество активных пользователей
@@ -1165,7 +1173,6 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка при показе статистики активности: {e}", exc_info=True)
             await ctx.send(f"Произошла ошибка при получении статистики: {e}")
     
-    # ОБНОВЛЕННАЯ КОМАНДА: mystats с пагинацией
     @commands.hybrid_command(description='Показать статистику игровой активности пользователя')
     async def mystats(self, ctx, user: discord.Member = None, month: int = None, year: int = None):
         """Показывает статистику игровой активности пользователя за месяц с пагинацией"""

@@ -1,4 +1,3 @@
-# cogs/giveaway.py - оптимизированная версия
 import discord
 from discord.ext import commands
 import asyncio
@@ -8,124 +7,134 @@ from typing import Optional, Set, Dict, Union
 import random
 from datetime import datetime, timedelta
 
+# Импортируем обработчик ошибок
+from utils.error_handler import command_error_handler
+
 logger = logging.getLogger("bot")
 
 class Giveaway(commands.Cog):
-    """Команды для проведения розыгрышей"""
+    """Ког для создания и управления розыгрышами в Discord."""
     
     def __init__(self, bot):
+        """Инициализирует ког и словарь для отслеживания активных розыгрышей."""
         self.bot = bot
-        self.active_giveaways: Dict[int, asyncio.Task] = {}  # Отслеживание активных розыгрышей
+        # Словарь для хранения задач asyncio, отслеживающих активные розыгрыши {message_id: task}
+        self.active_giveaways: Dict[int, asyncio.Task] = {}
         logger.info(f"Ког {self.__class__.__name__} загружен")
     
     def cog_unload(self):
-        """Отменяет все активные задачи при выгрузке кога"""
+        """Вызывается при выгрузке кога, отменяет все активные задачи розыгрышей."""
+        logger.info("Отмена активных задач розыгрышей...")
         for giveaway_id, task in self.active_giveaways.items():
             if not task.done():
                 task.cancel()
         logger.info(f"Ког {self.__class__.__name__} выгружен, активные розыгрыши отменены")
     
     @commands.hybrid_command(description='Создать розыгрыш')
-    async def giveaway(self, ctx, duration: str, *, description: str):
+    @command_error_handler
+    async def giveaway(self, ctx: commands.Context, duration: str, *, description: str):
         """
-        Создает розыгрыш с указанной длительностью и описанием.
-        
+        Создает новое сообщение-розыгрыш.
+
+        Пользователи могут участвовать, нажимая на реакцию 🎉.
+        По истечении времени бот автоматически выбирает победителя.
+
         Args:
             ctx: Контекст команды
             duration: Длительность розыгрыша в формате (например: 1h30m)
             description: Описание розыгрыша
         """
-        try:
-            # Проверяем длину описания
-            if len(description) > 4000:
-                await ctx.send("Описание розыгрыша слишком длинное (максимум 4000 символов).")
-                return
+        # Проверяем максимальную длину описания (ограничение Discord для эмбедов)
+        if len(description) > 4000:
+            await ctx.send("Описание розыгрыша слишком длинное (максимум 4000 символов).")
+            return
                 
-            # Парсим длительность
-            duration_seconds = await self.parse_duration(duration)
+        # Преобразуем строку длительности (напр., "1h30m") в секунды
+        duration_seconds = await self.parse_duration(duration)
             
-            if duration_seconds is None:
-                await ctx.send("Неверный формат времени. Используйте 's' для секунд, 'm' для минут и 'h' для часов. Например: 1h30m")
-                return
+        if duration_seconds is None:
+            await ctx.send("Неверный формат времени. Используйте 's' для секунд, 'm' для минут и 'h' для часов. Например: 1h30m")
+            return
                 
-            if duration_seconds < 10:
-                await ctx.send("Минимальная длительность розыгрыша - 10 секунд.")
-                return
+        # Проверка минимальной длительности
+        if duration_seconds < 10:
+            await ctx.send("Минимальная длительность розыгрыша - 10 секунд.")
+            return
                 
-            if duration_seconds > 7 * 24 * 3600:  # 7 дней
-                await ctx.send("Максимальная длительность розыгрыша - 7 дней.")
-                return
+        # Проверка максимальной длительности (7 дней)
+        if duration_seconds > 7 * 24 * 3600:
+            await ctx.send("Максимальная длительность розыгрыша - 7 дней.")
+            return
             
-            # Рассчитываем время окончания
-            end_time = datetime.now() + timedelta(seconds=duration_seconds)
-            formatted_end_time = end_time.strftime("%d.%m.%Y %H:%M:%S")
+        # Рассчитываем точное время окончания розыгрыша
+        end_time = datetime.now() + timedelta(seconds=duration_seconds)
+        formatted_end_time = end_time.strftime("%d.%m.%Y %H:%M:%S")
             
-            # Создаем эмбед с информацией о розыгрыше
-            embed = discord.Embed(
-                title="🎉 Розыгрыш",
-                description=description,
-                color=discord.Color.green()
-            )
+        # Создаем эмбед-сообщение для розыгрыша
+        embed = discord.Embed(
+            title="🎉 Розыгрыш",
+            description=description,
+            color=discord.Color.green()
+        )
             
-            # Добавляем поля с информацией
-            embed.add_field(
-                name="Организатор",
-                value=ctx.author.mention,
-                inline=True
-            )
+        # Добавляем поля с информацией
+        embed.add_field(
+            name="Организатор",
+            value=ctx.author.mention,
+            inline=True
+        )
             
-            embed.add_field(
-                name="Длительность",
-                value=self.format_duration(duration_seconds),
-                inline=True
-            )
+        embed.add_field(
+            name="Длительность",
+            value=self.format_duration(duration_seconds),
+            inline=True
+        )
             
-            embed.add_field(
-                name="Окончание",
-                value=f"<t:{int(end_time.timestamp())}:R>",  # Относительное время в формате Discord
-                inline=True
-            )
+        embed.add_field(
+            name="Окончание",
+            value=f"<t:{int(end_time.timestamp())}:R>",  # Относительное время в формате Discord
+            inline=True
+        )
             
-            embed.set_footer(
-                text=f"Розыгрыш создан {ctx.author.name} | Заканчивается {formatted_end_time}",
-                icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
-            )
+        # Устанавливаем футер с информацией о создателе и времени окончания
+        embed.set_footer(
+            text=f"Розыгрыш создан {ctx.author.name} | Заканчивается {formatted_end_time}",
+            icon_url=ctx.author.avatar.url if ctx.author.avatar else ctx.author.default_avatar.url
+        )
             
-            # Отправляем сообщение
-            giveaway_message = await ctx.send(embed=embed)
+        # Отправляем сообщение с эмбедом в текущий канал
+        giveaway_message = await ctx.send(embed=embed)
             
-            # Добавляем реакцию для участия
-            await giveaway_message.add_reaction("🎉")
+        # Добавляем реакцию "🎉", чтобы пользователи могли участвовать
+        await giveaway_message.add_reaction("🎉")
             
-            # Создаем и запускаем задачу для отслеживания розыгрыша
-            task = asyncio.create_task(
-                self.wait_and_collect_reactions(ctx, giveaway_message, duration_seconds, end_time)
-            )
+        # Создаем фоновую задачу asyncio для ожидания окончания розыгрыша
+        task = asyncio.create_task(
+            self.wait_and_collect_reactions(ctx, giveaway_message, duration_seconds, end_time)
+        )
             
-            # Сохраняем ссылку на задачу
-            self.active_giveaways[giveaway_message.id] = task
+        # Сохраняем задачу в словарь активных розыгрышей по ID сообщения
+        self.active_giveaways[giveaway_message.id] = task
             
-            logger.info(f"Создан розыгрыш с ID {giveaway_message.id}, длительность: {self.format_duration(duration_seconds)}")
-            
-        except Exception as e:
-            logger.error(f"Ошибка при создании розыгрыша: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при создании розыгрыша: {e}")
-    
-    async def wait_and_collect_reactions(self, ctx, giveaway_message, duration_seconds, end_time):
+        logger.info(f"Создан розыгрыш (ID: {giveaway_message.id}), длительность: {self.format_duration(duration_seconds)}")
+
+    async def wait_and_collect_reactions(self, ctx: commands.Context, giveaway_message: discord.Message, duration_seconds: int, end_time: datetime):
         """
-        Ожидает окончания розыгрыша и собирает реакции участников.
-        
+        Асинхронная задача, ожидающая окончания розыгрыша.
+        После ожидания собирает участников по реакциям, выбирает победителя,
+        обновляет исходное сообщение и отправляет результаты.
+
         Args:
             ctx: Контекст команды
             giveaway_message: Сообщение с розыгрышем
             duration_seconds: Длительность в секундах
-            end_time: Время окончания
+            end_time: Время окончания.
         """
         try:
-            # Ожидаем указанное время
+            # Приостанавливаем выполнение задачи до окончания розыгрыша
             await asyncio.sleep(duration_seconds)
             
-            # Получаем обновленное сообщение
+            # Получаем актуальную версию сообщения с реакциями
             try:
                 message = await ctx.channel.fetch_message(giveaway_message.id)
             except discord.NotFound:
@@ -134,15 +143,15 @@ class Giveaway(commands.Cog):
                 self.active_giveaways.pop(giveaway_message.id, None)
                 return
             
-            # Собираем участников
-            participants = []
+            # Собираем список пользователей (не ботов), нажавших на реакцию 🎉
+            participants: List[discord.User] = []
             for reaction in message.reactions:
                 if str(reaction.emoji) == "🎉":
                     async for user in reaction.users():
                         if not user.bot:  # Исключаем ботов
                             participants.append(user)
             
-            # Формируем результаты
+            # Подготавливаем эмбед с результатами
             participants_count = len(participants)
             embed = discord.Embed(
                 title="🎉 Розыгрыш завершен!",
@@ -182,10 +191,10 @@ class Giveaway(commands.Cog):
                 icon_url=self.bot.user.avatar.url if self.bot.user.avatar else self.bot.user.default_avatar.url
             )
             
-            # Обновляем сообщение
+            # Редактируем исходное сообщение розыгрыша, заменяя его эмбедом с результатами
             await message.edit(embed=embed)
             
-            # Отправляем уведомление в канал
+            # Отправляем отдельное сообщение в канал с упоминанием победителя (если он есть)
             if participants:
                 await ctx.channel.send(
                     f"🎉 Розыгрыш завершен! Поздравляем {winner.mention}, вы победили!" +
@@ -197,7 +206,7 @@ class Giveaway(commands.Cog):
                     f"\nСсылка на розыгрыш: {message.jump_url}"
                 )
             
-            # Отправляем список участников организатору
+            # Отправляем список участников и победителя организатору в личные сообщения
             if participants:
                 participants_list = "\n".join([f"{i+1}. {user.name} ({user.id})" for i, user in enumerate(participants)])
                 
@@ -214,23 +223,27 @@ class Giveaway(commands.Cog):
             else:
                 await ctx.author.send("В вашем розыгрыше никто не принял участие.")
             
-            # Удаляем из активных
+            # Удаляем задачу из словаря активных розыгрышей
             self.active_giveaways.pop(giveaway_message.id, None)
             
-            logger.info(f"Розыгрыш {giveaway_message.id} завершен. Участников: {participants_count}")
+            logger.info(f"Розыгрыш {giveaway_message.id} завершен. Победитель: {winner.name if participants else 'Нет'}. Участников: {participants_count}")
             
         except asyncio.CancelledError:
+            # Задача была отменена (например, при выгрузке кога)
             logger.info(f"Розыгрыш {giveaway_message.id} был отменен")
-            # Не делаем ничего, задача была отменена
+            # Ничего не делаем, просто логируем отмену
         except Exception as e:
-            logger.error(f"Ошибка при завершении розыгрыша: {e}", exc_info=True)
+            # Логируем непредвиденную ошибку при завершении розыгрыша
+            logger.error(f"Ошибка в wait_and_collect_reactions для розыгрыша {giveaway_message.id}: {e}", exc_info=True)
             try:
                 await ctx.send("Произошла ошибка при завершении розыгрыша.")
             except:
-                pass
+                pass # Игнорируем ошибки при отправке сообщения об ошибке
             
-            # Удаляем из активных
+            # В любом случае удаляем задачу из активных при ошибке
             self.active_giveaways.pop(giveaway_message.id, None)
+    
+    # --- Вспомогательные статические методы ---
     
     @staticmethod
     async def parse_duration(duration_str: str) -> Optional[int]:
@@ -247,12 +260,12 @@ class Giveaway(commands.Cog):
             duration_str: Строка с продолжительностью
             
         Returns:
-            int: Количество секунд или None, если не удалось распарсить
+            int: Общее количество секунд или None при неверном формате.
         """
-        # Удаляем пробелы
+        # Приводим к нижнему регистру и убираем пробелы по краям
         duration_str = duration_str.lower().strip()
         
-        # Проверяем с помощью регулярного выражения
+        # Регулярное выражение для проверки формата (только цифры и h/m/s)
         pattern = r'^(\d+[hms])+$'
         if not re.match(pattern, duration_str):
             return None
@@ -277,23 +290,27 @@ class Giveaway(commands.Cog):
     @staticmethod
     def format_duration(seconds: int) -> str:
         """
-        Форматирует длительность в секундах в удобочитаемую строку.
-        
+        Форматирует количество секунд в строку вида "Xч Yм Zс".
+
         Args:
             seconds: Длительность в секундах
             
         Returns:
-            str: Отформатированная строка (например, "1ч 30м 20с")
+            str: Отформатированная строка (например, "1ч 30м", "45м", "10с").
         """
+        if seconds <= 0:
+             return "0с"
+             
         hours, remainder = divmod(seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         
         parts = []
-        if hours:
+        if hours > 0:
             parts.append(f"{hours}ч")
-        if minutes:
+        if minutes > 0:
             parts.append(f"{minutes}м")
-        if seconds or not parts:  # Добавляем секунды, если нет часов и минут
+        # Добавляем секунды, только если нет часов и минут, или если они не равны нулю
+        if seconds > 0 or not parts:
             parts.append(f"{seconds}с")
         
         return " ".join(parts)

@@ -1,8 +1,10 @@
-# cogs/lastmatch.py
 import discord
 from discord.ext import commands
 from typing import Optional
 import logging
+
+# Импортируем обработчик ошибок
+from utils.error_handler import command_error_handler
 
 logger = logging.getLogger("bot")
 
@@ -16,22 +18,27 @@ class LastMatch(commands.Cog):
         self.bot = bot
         logger.info(f"Ког {self.__class__.__name__} загружен")
     
-    @commands.hybrid_command(description='Показать информацию о последнем матче')
-    async def lastmatch(self, ctx, member: Optional[discord.Member] = None):
-        """Показывает информацию о последнем матче Dota 2"""
-        # Получаем ссылку на ког Links
+    @commands.hybrid_command(description='Показать информацию о последнем матче Dota 2')
+    @command_error_handler
+    async def lastmatch(self, ctx: commands.Context, member: Optional[discord.Member] = None):
+        """
+        Показывает информацию о последнем матче Dota 2 для указанного пользователя
+        (или автора команды, если пользователь не указан).
+        Требует предварительной привязки Steam ID через команду /link.
+        """
+        # Получаем доступ к когу Links для получения привязок аккаунтов
         links_cog = self.bot.get_cog("Links")
         if not links_cog:
             await ctx.send("Ошибка: не удалось получить данные о привязках аккаунтов.")
             return
         
-        # Получаем данные о привязках
+        # Получаем словарь привязок {discord_id: [steam_id1, steam_id2, ...]}
         user_links = links_cog.get_user_links()
         
-        # Сообщаем Discord, что команда может выполняться дольше обычного
+        # Отмечаем взаимодействие как отложенное, т.к. запрос к API может занять время
         await ctx.defer()
         
-        # Вызываем обработчик
+        # Вызываем основную логику обработки команды из utils/dota_match_utils.py
         await handle_lastmatch(ctx, user_links, member)
 
 async def setup(bot):
