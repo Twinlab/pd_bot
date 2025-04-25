@@ -7,7 +7,7 @@ from io import BytesIO
 import logging
 import os
 from typing import Tuple, Optional
-from discord.ext import commands # Для type hint в docstring
+# Убираем импорт commands, будем использовать полный путь для type hint
 
 logger = logging.getLogger("bot")
 
@@ -119,7 +119,7 @@ async def create_deathbattle_image(member1: discord.Member, member2: discord.Mem
         logger.error(f"Ошибка при создании изображения deathbattle: {e}", exc_info=True)
         return None
 
-async def run_battle(ctx: commands.Context, member1: Optional[discord.Member] = None, member2: Optional[discord.Member] = None):
+async def run_battle(ctx: discord.ext.commands.Context, member1: Optional[discord.Member] = None, member2: Optional[discord.Member] = None): # Используем полный путь для type hint
     """
     Основная функция для команды /deathbattle.
     Симулирует пошаговую битву между двумя участниками, обновляя сообщение
