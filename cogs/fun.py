@@ -3,8 +3,8 @@ from discord.ext import commands
 from typing import Optional
 import logging
 
-# Импортируем обработчик ошибок
-from utils.error_handler import command_error_handler
+# # Импортируем обработчик ошибок # Временно комментируем
+# from utils.error_handler import command_error_handler # Временно комментируем
 
 logger = logging.getLogger("bot")
 
