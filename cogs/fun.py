@@ -1,15 +1,17 @@
-# cogs/fun.py
 import discord
 from discord.ext import commands
 from typing import Optional
 import logging
+
+# Импортируем обработчик ошибок
+from utils.error_handler import command_error_handler
 
 logger = logging.getLogger("bot")
 
 # Импортируем функциональность из утилит
 from utils.avatar_utils import display_avatar
 from utils.penis_utils import measure_penis
-from utils.snipe_utils import show_sniped_message
+from utils.snipe_utils import show_sniped_message, save_deleted_message
 from utils.deathbattle_utils import run_battle
 
 class Fun(commands.Cog):
@@ -22,13 +24,11 @@ class Fun(commands.Cog):
     @commands.Cog.listener()
     async def on_message_delete(self, message):
         """Обрабатывает удаленные сообщения для команды snipe"""
-        try:
-            from utils.snipe_utils import save_deleted_message
-            await save_deleted_message(message)
-        except Exception as e:
-            logger.error(f"Ошибка при обработке удаленного сообщения: {e}", exc_info=True)
+        # Блок try/except не нужен, т.к. ошибки listener не влияют на команды
+        await save_deleted_message(message)
 
     @commands.hybrid_command(description='Запускает дезбаттл между двумя пользователями')
+    @command_error_handler # Добавляем декоратор
     async def deathbattle(self, ctx, member1: Optional[discord.Member] = None, member2: Optional[discord.Member] = None):
         """
         Запускает битву между двумя пользователями с визуализацией сражения.
@@ -38,13 +38,10 @@ class Fun(commands.Cog):
             member1: Первый участник (опционально)
             member2: Второй участник (опционально)
         """
-        try:
-            await run_battle(ctx, member1, member2)
-        except Exception as e:
-            logger.error(f"Ошибка в команде deathbattle: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {e}")
+        await run_battle(ctx, member1, member2)
 
     @commands.hybrid_command(description='Показывает последнее удаленное сообщение')
+    @command_error_handler # Добавляем декоратор
     async def snipe(self, ctx):
         """
         Показывает последнее удаленное сообщение в канале.
@@ -52,13 +49,11 @@ class Fun(commands.Cog):
         Args:
             ctx: Контекст команды
         """
-        try:
-            await show_sniped_message(ctx)
-        except Exception as e:
-            logger.error(f"Ошибка в команде snipe: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {e}")
+        # Блок try/except теперь не нужен, используется декоратор
+        await show_sniped_message(ctx)
 
     @commands.hybrid_command(description='Показывает размер пениса')
+    @command_error_handler # Добавляем декоратор
     async def penis(self, ctx, mentioned_user: Optional[discord.Member] = None):
         """
         Генерирует случайный размер пениса.
@@ -67,13 +62,11 @@ class Fun(commands.Cog):
             ctx: Контекст команды
             mentioned_user: Пользователь, чей аватар нужно показать (опционально)
         """
-        try:
-            await measure_penis(ctx, mentioned_user)
-        except Exception as e:
-            logger.error(f"Ошибка в команде penis: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {e}")
+        # Блок try/except теперь не нужен, используется декоратор
+        await measure_penis(ctx, mentioned_user)
 
     @commands.hybrid_command(description='Показывает аватар пользователя')
+    @command_error_handler # Добавляем декоратор
     async def avatar(self, ctx, mentioned_user: Optional[discord.Member] = None):
         """
         Показывает аватар указанного пользователя или автора команды.
@@ -82,11 +75,8 @@ class Fun(commands.Cog):
             ctx: Контекст команды
             mentioned_user: Пользователь, чей аватар нужно показать (опционально)
         """
-        try:
-            await display_avatar(ctx, mentioned_user)
-        except Exception as e:
-            logger.error(f"Ошибка в команде avatar: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {e}")
+        # Блок try/except теперь не нужен, используется декоратор
+        await display_avatar(ctx, mentioned_user)
 
 async def setup(bot):
     await bot.add_cog(Fun(bot))
