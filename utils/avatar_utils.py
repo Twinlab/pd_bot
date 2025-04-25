@@ -1,10 +1,11 @@
 import discord
 import logging
 from typing import Optional
+from discord.ext import commands # Возвращаем импорт commands
 
 logger = logging.getLogger("bot")
 
-async def display_avatar(ctx: commands.Context, mentioned_user: Optional[discord.Member] = None):
+async def display_avatar(ctx: commands.Context, mentioned_user: Optional[discord.Member] = None): # Используем commands.Context
     """
     Создает и отправляет эмбед с аватаром пользователя.
     Отображает серверный аватар как основное изображение и предоставляет ссылки
