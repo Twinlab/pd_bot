@@ -1,6 +1,7 @@
 import discord
 import asyncio
-import os
+import os # Оставляем для listdir в handlers, если не меняем там
+from pathlib import Path # Импортируем Path
 import logging
 from discord.ext import commands
 from discord import Intents
@@ -18,7 +19,9 @@ logger = logging.getLogger("bot")
  
 # Импорт конфигурации
 from config import load_config
- 
+# Импорт инициализатора БД
+from utils.database import initialize_database, DB_PATH
+
 # Настройка интентов бота
 intents = Intents.default()
 intents.message_content = True
@@ -26,20 +29,32 @@ intents.messages = True
 intents.members = True
 intents.presences = True
 
-# Создание экземпляра бота
-bot = commands.Bot(command_prefix="!", intents=intents)
- 
+# Загрузка конфигурации ДО создания экземпляра бота
+config = load_config()
+
+# Проверка наличия токена ДО создания бота
+if not config.get("BOT_TOKEN"):
+    logger.critical("Токен бота (BOT_TOKEN) не найден в data/config.json! Запуск невозможен.")
+    # Можно либо выйти, либо поднять исключение
+    exit() # Простой выход, если токена нет
+
+# Создание экземпляра бота с префиксом из конфига
+bot = commands.Bot(command_prefix=config.get("PREFIX", "!"), intents=intents) # Используем get с дефолтным значением
+bot.config = config # Прикрепляем конфиг к боту
+
 async def load_cogs():
     """Сканирует директорию cogs/ для загрузки когов команд и загружает указанные обработчики из handlers/."""
     # Загрузка когов команд из директории cogs/
     logger.info("Загрузка когов команд...")
-    for filename in os.listdir('./cogs'):
-        if filename.endswith('.py') and filename != "__init__.py":
+    cogs_dir = Path("./cogs")
+    for filepath in cogs_dir.glob("*.py"):
+        if filepath.name != "__init__.py":
+            cog_module = f"cogs.{filepath.stem}" # stem дает имя файла без расширения
             try:
-                await bot.load_extension(f'cogs.{filename[:-3]}')
-                logger.info(f"Загружен ког: cogs.{filename[:-3]}")
+                await bot.load_extension(cog_module)
+                logger.info(f"Загружен ког: {cog_module}")
             except Exception as e:
-                logger.error(f"Ошибка при загрузке кога {filename}: {e}")
+                logger.error(f"Ошибка при загрузке кога {filepath.name}: {e}")
     
     # Загрузка обработчиков событий из handlers/
     logger.info("Загрузка обработчиков событий...")
@@ -59,14 +74,11 @@ async def load_cogs():
  
 async def main():
     """Основная асинхронная функция для инициализации и запуска бота."""
-    # Загрузка конфигурации из data/config.json
-    config = load_config()
-    bot.config = config # Прикрепляем конфиг к боту
-
-    # Проверка наличия токена
-    if not config.get("BOT_TOKEN"):
-        logger.critical("Токен бота (BOT_TOKEN) не найден в data/config.json!")
-        return
+    # Конфигурация и бот уже созданы выше
+    
+    # Инициализация базы данных
+    logger.info(f"Используется файл базы данных: {DB_PATH}")
+    await initialize_database()
     
     # Загрузка всех когов и обработчиков
     await load_cogs()

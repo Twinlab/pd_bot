@@ -1,39 +1,16 @@
-discord.py==2.3.2
-
-# Альтернатива youtube_dl с лучшей поддержкой
-yt-dlp
-
-# Библиотека для работы с голосовыми соединениями
-PyNaCl
-
-# Асинхронные HTTP-запросы
 aiohttp
+aiosqlite
 async-timeout
-# Обработка переменных окружения
-python-dotenv
-ffmpeg-python
-
-# Поддержка асинхронных операций с таймаутами
-async-timeout
-
-# Обработка изображений для развлекательных команд
-Pillow
-
-# Создание графиков и визуализаций для статистики
-matplotlib
-
-# Расширения типов для аннотаций типов
-typing-extensions
 colorlog
-
-# HTTP-запросы для случаев, когда не требуется асинхронность
-requests
-
-# Обработка JSON (используется для структурированной записи и чтения данных)
-ujson
-
-# Локальное кэширование данных
+discord.py==2.3.2
 diskcache
-
-# Библиотека для работы с часовыми поясами
+ffmpeg-python
+matplotlib
+Pillow
+PyNaCl
+python-dotenv
 pytz
+requests
+typing-extensions
+ujson
+yt-dlp

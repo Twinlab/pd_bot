@@ -1,0 +1,164 @@
+import aiosqlite
+import logging
+from typing import List, Tuple, Optional
+import asyncio
+
+# Импортируем путь к БД из database.py
+from .database import DB_PATH
+
+logger = logging.getLogger("bot.links_db")
+
+class LinksDataManager:
+    """
+    Управляет привязками Steam ID к Discord ID пользователей с использованием SQLite.
+    """
+    def __init__(self, db_path: str = DB_PATH):
+        self.db_path = db_path
+        logger.info(f"Инициализация LinksDataManager с БД: {self.db_path}")
+
+    async def add_link(self, discord_user_id: int, steam_id: int) -> bool:
+        """Добавляет привязку Steam ID к Discord ID. Возвращает True если добавлено, False если уже существует."""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                # Пытаемся вставить, игнорируя дубликаты
+                await db.execute("""
+                    INSERT OR IGNORE INTO links (discord_user_id, steam_id) VALUES (?, ?)
+                """, (discord_user_id, steam_id))
+                # Проверяем, была ли строка действительно вставлена
+                changes = db.total_changes
+                await db.commit()
+                if changes > 0:
+                     logger.info(f"Добавлена привязка для {discord_user_id}: {steam_id}")
+                     return True
+                else:
+                     logger.info(f"Привязка для {discord_user_id}: {steam_id} уже существует.")
+                     return False
+        except Exception as e:
+            logger.error(f"Ошибка при добавлении привязки для {discord_user_id}: {e}", exc_info=True)
+            return False # Возвращаем False при ошибке
+
+    async def remove_link(self, discord_user_id: int, steam_id: int) -> bool:
+        """Удаляет конкретную привязку Steam ID для Discord ID. Возвращает True если удалено, False если не найдено."""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("""
+                    DELETE FROM links WHERE discord_user_id = ? AND steam_id = ?
+                """, (discord_user_id, steam_id))
+                changes = db.total_changes
+                await db.commit()
+                if changes > 0:
+                    logger.info(f"Удалена привязка для {discord_user_id}: {steam_id}")
+                    return True
+                else:
+                    logger.warning(f"Привязка для удаления не найдена: {discord_user_id} - {steam_id}")
+                    return False
+        except Exception as e:
+            logger.error(f"Ошибка при удалении привязки для {discord_user_id}: {e}", exc_info=True)
+            return False
+
+    async def remove_all_links(self, discord_user_id: int) -> int:
+        """Удаляет все привязки для указанного Discord ID. Возвращает количество удаленных привязок."""
+        count = 0
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute("DELETE FROM links WHERE discord_user_id = ?", (discord_user_id,))
+                count = db.total_changes
+                await db.commit()
+                logger.info(f"Удалено {count} привязок для {discord_user_id}")
+                return count
+        except Exception as e:
+            logger.error(f"Ошибка при удалении всех привязок для {discord_user_id}: {e}", exc_info=True)
+            return 0
+
+    async def get_links(self, discord_user_id: int) -> List[int]:
+        """Получает список Steam ID, привязанных к Discord ID."""
+        links: List[int] = []
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute("SELECT steam_id FROM links WHERE discord_user_id = ?", (discord_user_id,)) as cursor:
+                    async for row in cursor:
+                        links.append(row[0])
+            logger.debug(f"Загружено {len(links)} привязок для {discord_user_id}")
+            return links
+        except Exception as e:
+            logger.error(f"Ошибка при получении привязок для {discord_user_id}: {e}", exc_info=True)
+            return []
+
+    async def get_all_links_data(self) -> Dict[int, List[int]]:
+        """Загружает все данные о привязках из БД (может быть неэффективно для больших БД)."""
+        all_links: Dict[int, List[int]] = defaultdict(list)
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute("SELECT discord_user_id, steam_id FROM links ORDER BY discord_user_id") as cursor:
+                    async for row in cursor:
+                        discord_id, steam_id = row
+                        all_links[discord_id].append(steam_id)
+            logger.info(f"Загружены все данные о привязках из БД: {len(all_links)} пользователей.")
+            return dict(all_links)
+        except Exception as e:
+            logger.error(f"Ошибка при получении всех данных о привязках: {e}", exc_info=True)
+            return {}
+
+    # --- Метод для миграции ---
+    async def migrate_links_from_json(self, json_file_path: str = "data/user_links.json"):
+        """Мигрирует данные о привязках из JSON в SQLite."""
+        logger.info(f"Начало миграции привязок из {json_file_path}...")
+        count = 0
+        # Используем синхронный код для чтения JSON, так как это одноразовая операция
+        try:
+            import json as sync_json
+            import os as sync_os
+            if not sync_os.path.exists(json_file_path) or sync_os.path.getsize(json_file_path) == 0:
+                logger.warning(f"Файл {json_file_path} не найден или пуст. Миграция привязок пропущена.")
+                return 0 # Возвращаем 0 мигрированных записей
+
+            with open(json_file_path, "r", encoding="utf-8") as f:
+                data = sync_json.load(f)
+
+            links_to_insert: List[Tuple[int, int]] = []
+            if isinstance(data, dict): # Новый формат
+                for user_id_str, steam_ids in data.items():
+                    try:
+                        user_id = int(user_id_str)
+                        if isinstance(steam_ids, list):
+                            for steam_id in steam_ids:
+                                try: links_to_insert.append((user_id, int(steam_id)))
+                                except (ValueError, TypeError): logger.warning(f"Некорректный steam_id '{steam_id}' для {user_id} в {json_file_path}")
+                        else: logger.warning(f"Некорректный формат steam_ids для {user_id} в {json_file_path}")
+                    except ValueError: logger.warning(f"Некорректный user_id '{user_id_str}' в {json_file_path}")
+            elif isinstance(data, list): # Старый формат
+                 logger.info("Обнаружен старый формат user_links.json, конвертируем...")
+                 for item in data:
+                     if isinstance(item, dict) and "user" in item and "links" in item:
+                         try:
+                             user_id = int(item["user"])
+                             if isinstance(item["links"], list):
+                                 for steam_id in item["links"]:
+                                     try: links_to_insert.append((user_id, int(steam_id)))
+                                     except (ValueError, TypeError): logger.warning(f"Некорректный steam_id '{steam_id}' для {user_id} в старом формате {json_file_path}")
+                             else: logger.warning(f"Некорректный формат links для {user_id} в старом формате {json_file_path}")
+                         except (ValueError, TypeError): logger.warning(f"Некорректный user_id '{item.get('user')}' в старом формате {json_file_path}")
+                     else: logger.warning(f"Некорректный элемент в старом формате {json_file_path}: {item}")
+            else:
+                logger.error(f"Неизвестный формат данных в {json_file_path}. Миграция привязок прервана.")
+                return 0
+
+            if not links_to_insert:
+                logger.info("Не найдено привязок для миграции.")
+                return 0
+
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.executemany("INSERT OR IGNORE INTO links (discord_user_id, steam_id) VALUES (?, ?)", links_to_insert)
+                # Получаем количество реально измененных строк (т.е. вставленных, а не проигнорированных)
+                # total_changes может быть неточным после executemany с IGNORE, лучше посчитать до вставки
+                # Но для лога оставим так
+                changes = await db.execute("SELECT changes()")
+                count = (await changes.fetchone())[0]
+                await db.commit()
+
+            logger.info(f"Миграция привязок завершена. Вставлено {count} новых записей (дубликаты проигнорированы).")
+            return count
+
+        except Exception as e:
+            logger.error(f"Ошибка во время миграции привязок: {e}", exc_info=True)
+            return 0 # Возвращаем 0 при ошибке

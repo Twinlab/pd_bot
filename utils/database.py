@@ -1,0 +1,83 @@
+import aiosqlite
+import logging
+import os
+
+logger = logging.getLogger("bot.database")
+
+# Определяем путь к файлу БД относительно директории проекта
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "data", "bot_data.db")
+
+async def initialize_database():
+    """
+    Инициализирует базу данных SQLite.
+    Создает файл БД и необходимые таблицы, если они не существуют.
+    """
+    try:
+        # Создаем директорию data, если ее нет
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
+        async with aiosqlite.connect(DB_PATH) as db:
+            # Таблица для привязок аккаунтов
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS links (
+                    discord_user_id INTEGER NOT NULL,
+                    steam_id INTEGER NOT NULL,
+                    PRIMARY KEY (discord_user_id, steam_id)
+                )
+            """)
+            logger.info("Таблица 'links' проверена/создана.")
+
+            # Таблица для дневной статистики
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS daily_activity (
+                    discord_user_id INTEGER NOT NULL,
+                    game_name TEXT NOT NULL,
+                    date TEXT NOT NULL, -- Формат YYYY-MM-DD
+                    seconds_played_today INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (discord_user_id, game_name, date)
+                )
+            """)
+            # Индекс для быстрого поиска по дате
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_daily_activity_date ON daily_activity (date);
+            """)
+            logger.info("Таблица 'daily_activity' и индекс проверены/созданы.")
+
+            # Таблица для месячной агрегированной статистики
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS monthly_activity (
+                    discord_user_id INTEGER NOT NULL,
+                    game_name TEXT NOT NULL,
+                    year INTEGER NOT NULL,
+                    month INTEGER NOT NULL,
+                    total_seconds_in_month INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY (discord_user_id, game_name, year, month)
+                )
+            """)
+            # Индекс для быстрого поиска по пользователю, году и месяцу
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_monthly_activity_user_month ON monthly_activity (discord_user_id, year, month);
+            """)
+            logger.info("Таблица 'monthly_activity' и индекс проверены/созданы.")
+
+            # (Опционально) Таблица для розыгрышей, если решим добавить персистентность
+            # await db.execute("""
+            #     CREATE TABLE IF NOT EXISTS giveaways (
+            #         message_id INTEGER PRIMARY KEY,
+            #         channel_id INTEGER NOT NULL,
+            #         guild_id INTEGER NOT NULL,
+            #         end_time TIMESTAMP NOT NULL,
+            #         winner_count INTEGER NOT NULL DEFAULT 1,
+            #         description TEXT,
+            #         creator_id INTEGER
+            #     )
+            # """)
+            # logger.info("Таблица 'giveaways' проверена/создана.")
+
+            await db.commit()
+            logger.info(f"База данных инициализирована: {DB_PATH}")
+
+    except Exception as e:
+        logger.critical(f"Критическая ошибка при инициализации базы данных: {e}", exc_info=True)
+        raise # Передаем исключение дальше, чтобы бот не запустился с нерабочей БД
