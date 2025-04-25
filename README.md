@@ -34,6 +34,7 @@ pd_bot/
 │   ├── events.py
 │   └── message_handler.py
 ├── utils/                 # Вспомогательные функции
+│   ├── activity_data_manager.py # Управление данными активности
 │   ├── avatar_utils.py
 │   ├── deathbattle_utils.py
 │   ├── dota_api.py
@@ -77,11 +78,13 @@ pd_bot/
     *   Для каждого сервера (гильдии) создается отдельный экземпляр `MusicPlayer`, управляющий очередью и состоянием воспроизведения (`_players` в `music_utils.py`).
     *   Скачанные аудиофайлы хранятся в `downloads/` и автоматически удаляются после воспроизведения или при остановке/очистке плеера.
 *   **Отслеживание активности (`cogs/activity.py`):**
-    *   Статистика ведется раздельно для текущего дня (`user_activities.json`) и текущего месяца (`monthly_activities.json`).
-    *   Активность отслеживается через событие `on_presence_update`.
+    *   Статистика ведется раздельно для текущего дня (`data/user_activities.json`) и текущего месяца (`data/monthly_activities.json`).
+    *   Активность отслеживается через событие `on_presence_update` в коге `ActivityTracker`.
+    *   Загрузка, сохранение, архивирование и миграция данных управляются классом `ActivityDataManager` в `utils/activity_data_manager.py`.
     *   Данные периодически сохраняются фоновой задачей (`periodic_save`).
-    *   В начале каждого месяца данные за предыдущий месяц архивируются в `data/activity_archives/`, а месячный файл очищается (`archive_monthly_data`).
+    *   В начале каждого месяца данные за предыдущий месяц архивируются в `data/activity_archives/`, а месячный файл очищается (логика в `ActivityDataManager`, вызывается задачей `month_checker`).
     *   Ежедневные и ежемесячные отчеты генерируются фоновыми задачами (`daily_report`, `monthly_report`).
+    *   Используется ID канала для отчетов из `config.json` (`REPORT_CHANNEL_ID`), если он указан, иначе используется значение по умолчанию.
 *   **Механизм обновления (`cogs/update.py`):**
     *   Команда `/update` выполняет `git pull` и запускает скрипт `restart.sh`.
     *   Скрипт `restart.sh` использует `sudo systemctl restart discord-bot` для перезапуска.
