@@ -1,18 +1,18 @@
 import discord
 from discord.ext import commands
-# from typing import Optional # Commented out
+from typing import Optional
 import logging
 
-# # Импортируем обработчик ошибок # Commented out
-# from utils.error_handler import command_error_handler # Commented out
+# Импортируем обработчик ошибок
+from utils.error_handler import command_error_handler
 
 logger = logging.getLogger("bot")
 
-# # Импортируем функциональность из утилит # Commented out
-# from utils.avatar_utils import display_avatar # Commented out
-# from utils.penis_utils import measure_penis # Commented out
-# from utils.snipe_utils import show_sniped_message, save_deleted_message # Commented out
-# from utils.deathbattle_utils import run_battle # Commented out
+# Импортируем функциональность из утилит
+from utils.avatar_utils import display_avatar
+from utils.penis_utils import measure_penis
+from utils.snipe_utils import show_sniped_message, save_deleted_message
+from utils.deathbattle_utils import run_battle
 
 class Fun(commands.Cog):
     """Развлекательные команды для участников сервера"""
