@@ -1,6 +1,6 @@
 import aiosqlite
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict # Добавляем Dict
 import asyncio
 
 # Импортируем путь к БД из database.py
@@ -27,12 +27,22 @@ class LinksDataManager:
                 # Проверяем, была ли строка действительно вставлена
                 changes = db.total_changes
                 await db.commit()
+                # total_changes не всегда надежен после INSERT OR IGNORE в aiosqlite
+                # Лучше проверить наличие перед вставкой или использовать SELECT changes()
+                # Пока оставим так для простоты, но это потенциальное улучшение
                 if changes > 0:
                      logger.info(f"Добавлена привязка для {discord_user_id}: {steam_id}")
                      return True
                 else:
-                     logger.info(f"Привязка для {discord_user_id}: {steam_id} уже существует.")
-                     return False
+                     # Проверим, существует ли запись, чтобы точно знать причину
+                     async with db.execute("SELECT 1 FROM links WHERE discord_user_id = ? AND steam_id = ?", (discord_user_id, steam_id)) as cursor:
+                         exists = await cursor.fetchone()
+                         if exists:
+                             logger.info(f"Привязка для {discord_user_id}: {steam_id} уже существует.")
+                         else:
+                             # Если changes == 0 и записи нет, значит была ошибка, но она не перехвачена (?)
+                             logger.warning(f"Не удалось добавить привязку {discord_user_id}: {steam_id}, но она и не существовала.")
+                     return False # Возвращаем False, т.к. новая запись не добавлена
         except Exception as e:
             logger.error(f"Ошибка при добавлении привязки для {discord_user_id}: {e}", exc_info=True)
             return False # Возвращаем False при ошибке
@@ -41,12 +51,9 @@ class LinksDataManager:
         """Удаляет конкретную привязку Steam ID для Discord ID. Возвращает True если удалено, False если не найдено."""
         try:
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("""
-                    DELETE FROM links WHERE discord_user_id = ? AND steam_id = ?
-                """, (discord_user_id, steam_id))
-                changes = db.total_changes
+                cursor = await db.execute("DELETE FROM links WHERE discord_user_id = ? AND steam_id = ?", (discord_user_id, steam_id))
                 await db.commit()
-                if changes > 0:
+                if cursor.rowcount > 0: # rowcount более надежен для DELETE
                     logger.info(f"Удалена привязка для {discord_user_id}: {steam_id}")
                     return True
                 else:
@@ -61,8 +68,8 @@ class LinksDataManager:
         count = 0
         try:
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute("DELETE FROM links WHERE discord_user_id = ?", (discord_user_id,))
-                count = db.total_changes
+                cursor = await db.execute("DELETE FROM links WHERE discord_user_id = ?", (discord_user_id,))
+                count = cursor.rowcount # Используем rowcount
                 await db.commit()
                 logger.info(f"Удалено {count} привязок для {discord_user_id}")
                 return count
@@ -103,7 +110,7 @@ class LinksDataManager:
     async def migrate_links_from_json(self, json_file_path: str = "data/user_links.json"):
         """Мигрирует данные о привязках из JSON в SQLite."""
         logger.info(f"Начало миграции привязок из {json_file_path}...")
-        count = 0
+        inserted_count = 0
         # Используем синхронный код для чтения JSON, так как это одноразовая операция
         try:
             import json as sync_json
@@ -148,16 +155,19 @@ class LinksDataManager:
                 return 0
 
             async with aiosqlite.connect(self.db_path) as db:
-                await db.executemany("INSERT OR IGNORE INTO links (discord_user_id, steam_id) VALUES (?, ?)", links_to_insert)
-                # Получаем количество реально измененных строк (т.е. вставленных, а не проигнорированных)
-                # total_changes может быть неточным после executemany с IGNORE, лучше посчитать до вставки
-                # Но для лога оставим так
-                changes = await db.execute("SELECT changes()")
-                count = (await changes.fetchone())[0]
-                await db.commit()
+                # Используем транзакцию для массовой вставки
+                await db.execute("BEGIN")
+                try:
+                    cursor = await db.executemany("INSERT OR IGNORE INTO links (discord_user_id, steam_id) VALUES (?, ?)", links_to_insert)
+                    inserted_count = cursor.rowcount # rowcount должен быть точнее для executemany
+                    await db.commit()
+                except Exception as insert_err:
+                    logger.error(f"Ошибка при вставке данных привязок, откатываем: {insert_err}", exc_info=True)
+                    await db.rollback()
+                    inserted_count = 0 # Сбрасываем счетчик при ошибке
 
-            logger.info(f"Миграция привязок завершена. Вставлено {count} новых записей (дубликаты проигнорированы).")
-            return count
+            logger.info(f"Миграция привязок завершена. Вставлено {inserted_count} новых записей (дубликаты проигнорированы).")
+            return inserted_count
 
         except Exception as e:
             logger.error(f"Ошибка во время миграции привязок: {e}", exc_info=True)

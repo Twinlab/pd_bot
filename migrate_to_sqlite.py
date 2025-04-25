@@ -5,7 +5,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional # Добавляем Any и Optional
 
 # Настройка базового логирования для скрипта
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
