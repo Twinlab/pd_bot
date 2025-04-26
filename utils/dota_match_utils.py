@@ -148,15 +148,16 @@ async def get_match_data(user_links: Dict[str, List[int]], user_id: str, stratz_
     # Возвращаем все собранные данные
     return match_data, weekly_data, match_id, items_dict
 
-async def handle_lastmatch(ctx: commands.Context, user_links: Dict[str, List[int]], member: Optional[discord.Member] = None):
+async def handle_lastmatch(ctx: commands.Context, user_links_list: List[int], member: Optional[discord.Member] = None):
     """
     Основная логика команды /lastmatch.
     Получает данные о матче, форматирует их и отправляет в виде эмбеда.
     """
     # Определяем ID пользователя Discord
-    user_id = str(member.id if member else ctx.author.id)
-    target_user_mention = member.mention if member else ctx.author.mention
-    
+    target_user = member if member else ctx.author
+    user_id_str = str(target_user.id) # Используем строковый ID для словаря
+    target_user_mention = target_user.mention
+
     # Получаем ключ API Stratz из конфигурации бота
     stratz_key = ctx.bot.config.get("STRATZ_API_KEY")
         
@@ -165,15 +166,18 @@ async def handle_lastmatch(ctx: commands.Context, user_links: Dict[str, List[int
          logger.error("STRATZ_API_KEY не найден в конфигурации бота.")
          return
 
-    # Проверяем, привязал ли пользователь хотя бы один Steam ID
-    if user_id not in user_links or not user_links[user_id]:
+    # Проверяем, есть ли у пользователя привязанные Steam ID
+    if not user_links_list: # Проверяем переданный список
         message = f"Пользователь {target_user_mention} не привязал свой аккаунт Dota 2." if member else "Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2."
         await ctx.send(f"{message} Используйте команду `/link PLAYER_ID`.")
         return
-            
+
+    # Создаем словарь в формате, который ожидает get_match_data
+    user_links_dict = {user_id_str: user_links_list}
+
     # Вызываем функцию для получения данных о матче, недельной статистике и предметах
-    match_data, weekly_data, match_id, items_dict = await get_match_data(user_links, user_id, stratz_key)
-        
+    match_data, weekly_data, match_id, items_dict = await get_match_data(user_links_dict, user_id_str, stratz_key)
+
     # Если данные о матче не получены
     if not match_data:
         await ctx.send("Не удалось получить данные о последнем матче. Убедитесь, что история матчей доступна в настройках Dota 2, или попробуйте позже.")
