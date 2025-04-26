@@ -432,19 +432,6 @@ async def ensure_voice(ctx: commands.Context) -> bool:
     return True
 
 async def handle_play(ctx: commands.Context, query: str):
-    """Проверяет и обеспечивает голосовое подключение."""
-    if not ctx.author.voice or not ctx.author.voice.channel:
-        await ctx.send(embed=create_embed("❌ Ошибка", "Вы должны быть в голосовом канале", COLORS['ERROR']))
-        return False
-    voice_client = ctx.guild.voice_client
-    if not voice_client:
-        try: await ctx.author.voice.channel.connect()
-        except Exception as e: await ctx.send(embed=create_embed("❌ Ошибка", f"Не удалось подключиться: {e}", COLORS['ERROR'])); return False
-    elif voice_client.channel != ctx.author.voice.channel:
-        try: await voice_client.move_to(ctx.author.voice.channel)
-        except Exception as e: await ctx.send(embed=create_embed("❌ Ошибка", f"Не удалось переместиться: {e}", COLORS['ERROR'])); return False
-    return True
-
     """Обрабатывает команду воспроизведения."""
     # Отвечаем на interaction как можно скорее, если он есть
     is_interaction = isinstance(ctx, commands.Context) and ctx.interaction is not None
