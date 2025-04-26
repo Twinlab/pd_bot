@@ -47,22 +47,11 @@ class LoggingCog(commands.Cog):
             logger.error(f"[LogCog] Критическая ошибка при получении начального размера файла логов '{self.log_file_path}' в __init__: {e}. Задача чтения логов не будет запущена.", exc_info=True)
 
     async def cog_load(self):
-        """Получение объекта канала после готовности бота."""
-        # logger.info("[LogCog] cog_load вызван.") # Убрано
+        """Вызывается при загрузке кога (теперь только логирует)."""
+        logger.info("[LogCog] cog_load вызван.")
         if not self._task_started:
-            logger.warning("[LogCog] Задача чтения логов не была запущена в __init__. Поиск канала отменен.")
-            return
-
-        # logger.info("[LogCog] Ожидание готовности бота для получения канала...") # Убрано
-        await self.bot.wait_until_ready()
-        # logger.info("[LogCog] Бот готов. Попытка получить канал...") # Убрано
-        self.log_channel = self.bot.get_channel(self.log_channel_id)
-
-        if not self.log_channel:
-            logger.error(f"[LogCog] Не удалось найти канал для логирования с ID: {self.log_channel_id}. Логирование в Discord отключено.")
-            if self._task_started: self.tail_log_file.cancel()
-        else:
-             logger.info(f"[LogCog] Канал для логирования '{self.log_channel.name}' ({self.log_channel_id}) успешно найден.")
+            logger.warning("[LogCog] Задача чтения логов не была запущена в __init__.")
+        # Логика получения канала и wait_until_ready удалена, т.к. она есть в цикле
 
     def cog_unload(self):
         """Останавливает задачу при выгрузке кога."""
@@ -114,7 +103,7 @@ class LoggingCog(commands.Cog):
                     # logger.debug(f"[LogCog] Прочитано {len(new_lines)} строк. Новая позиция: {new_position}")
 
                 if new_lines:
-                    # logger.info(f"[LogCog] Обнаружено {len(new_lines)} новых строк лога для отправки.") # Оставляем INFO об отправке
+                    # logger.info(f"[LogCog] Обнаружено {len(new_lines)} новых строк лога для отправки.")
                     buffer = ""
                     for line in new_lines:
                         if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:

@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands # Убедимся, что импорт есть
 import logging
 from typing import Optional, Dict
 import asyncio # Нужен для sleep в on_voice_state_update
@@ -90,9 +90,9 @@ class Music(commands.Cog):
         return player
 
     # --- Команды ---
-    @commands.hybrid_command(description='Воспроизвести музыку или добавить в очередь')
+    @commands.hybrid_command(name="play", description='Воспроизвести музыку или добавить в очередь') # Явно указали имя
     @command_error_handler
-    async def play(self, ctx: commands.Context, query: str): # Убрали '*' перед query
+    async def play(self, ctx: commands.Context, query: str):
         """Воспроизводит музыку по URL/поиску или добавляет в очередь."""
         player = await self.get_player(ctx)
         if not player: return

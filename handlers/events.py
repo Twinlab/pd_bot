@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands # Убедимся, что импорт есть
 import logging
 from typing import List, Optional, Union
 
