@@ -407,10 +407,10 @@ class ActivityTracker(commands.Cog):
             for user_id, new_start_data in users_to_update_start_time.items():
                 if user_id in self.current_activities and self.current_activities[user_id][0] == new_start_data[0]:
                     self.current_activities[user_id] = new_start_data
-            logger.info(f"Обновлена активность в БД для {len(users_to_update_start_time)} пользователей.")
+            # logger.info(f"Обновлена активность в БД для {len(users_to_update_start_time)} пользователей.") # Убрано сообщение об успехе
         except Exception as e:
             logger.error(f"Ошибка при пакетном обновлении активности в БД: {e}", exc_info=True)
-            # НЕ обновляем время старта в памяти при ошибке
+            # Время старта в памяти не обновляется при ошибке
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member):
@@ -585,8 +585,9 @@ class ActivityTracker(commands.Cog):
 
             # Перенос данных daily -> monthly и очистка daily
             transfer_success = await self.data_manager.transfer_daily_to_monthly(yesterday)
-            if not transfer_success: logger.error(f"Не удалось перенести дневные данные за {yesterday.isoformat()} в месячную статистику!")
-            else: logger.info(f"Дневные данные за {yesterday.isoformat()} успешно перенесены и удалены.")
+            if not transfer_success:
+                logger.error(f"Не удалось перенести дневные данные за {yesterday.isoformat()} в месячную статистику!")
+            # else: logger.info(f"Дневные данные за {yesterday.isoformat()} успешно перенесены и удалены.") # Убрано сообщение об успехе
         except Exception as e:
             logger.error(f"Ошибка при выполнении ежедневного отчета: {e}", exc_info=True)
 

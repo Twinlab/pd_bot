@@ -17,7 +17,8 @@ class Admin(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        # Отслеживание времени последней очистки для защиты от спама {channel_id: (timestamp, count)}
+        # Словарь для отслеживания времени последней очистки {channel_id: (timestamp, count)}
+        # Используется для предотвращения спама командой clear
         self.recent_purges: Dict[int, Tuple[float, int]] = {}
 
 
@@ -35,20 +36,20 @@ class Admin(commands.Cog):
             int: Фактическое количество удаленных сообщений.
         """
         def check(msg: discord.Message) -> bool:
-            # Проверяем, соответствует ли автор сообщения указанному пользователю (если он задан)
             return user is None or msg.author == user
 
+        # Discord API позволяет массово удалять только сообщения не старше 14 дней
         two_weeks_ago = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=14)
 
         messages_to_delete = []
-        # Собираем историю сообщений с учетом лимита
-        async for msg in ctx.channel.history(limit=count * 2): # Берем с запасом, т.к. фильтруем
+        # Собираем историю сообщений (берем с запасом, т.к. будем фильтровать)
+        async for msg in ctx.channel.history(limit=count * 2):
             if check(msg):
                 messages_to_delete.append(msg)
                 if len(messages_to_delete) >= count:
-                    break # Прекращаем, если набрали нужное количество
+                    break # Набрали нужное количество
 
-        # Разделяем на недавние (можно удалить пачкой) и старые (удаляем по одному)
+        # Разделяем сообщения на "новые" (можно удалить пачкой) и "старые" (удаляем по одному)
         recent_messages = [msg for msg in messages_to_delete if msg.created_at > two_weeks_ago]
         old_messages = [msg for msg in messages_to_delete if msg.created_at <= two_weeks_ago]
 
@@ -61,7 +62,7 @@ class Admin(commands.Cog):
                 deleted_count += len(deleted)
             except discord.HTTPException as e:
                 logger.warning(f"Не удалось массово удалить сообщения, пробуем по одному: {e}")
-                # При ошибке массового удаления пробуем удалить по одному
+                # Если пачковое удаление не удалось, пробуем удалить по одному
                 for msg in recent_messages:
                     try:
                         await msg.delete()
@@ -76,16 +77,16 @@ class Admin(commands.Cog):
             try:
                 await msg.delete()
                 deleted_count += 1
-                await asyncio.sleep(0.5) # Задержка для избежания rate limit
+                await asyncio.sleep(0.5) # Небольшая задержка между удалениями старых сообщений
             except discord.NotFound:
-                 pass
+                 pass # Сообщение уже удалено
             except Exception as e:
                  logger.warning(f"Не удалось удалить старое сообщение {msg.id}: {e}")
 
         return deleted_count
 
     @commands.hybrid_command(description='Очистить сообщения в канале')
-    @commands.has_permissions(manage_messages=True) # Используем manage_messages вместо administrator
+    @commands.has_permissions(manage_messages=True) # Права на управление сообщениями
     @command_error_handler
     async def clear(self, ctx, count: Optional[int] = 10, user: Optional[discord.Member] = None):
         """
@@ -103,7 +104,7 @@ class Admin(commands.Cog):
             await safe_send(ctx, "Количество сообщений должно быть от 1 до 100.", ephemeral=True)
             return
 
-        # Защита от спама командой
+        # Защита от спама командой clear
         channel_id = ctx.channel.id
         current_time = datetime.datetime.now().timestamp()
 
@@ -120,19 +121,20 @@ class Admin(commands.Cog):
 
         is_slash = hasattr(ctx, 'interaction') and ctx.interaction is not None
         if is_slash:
-            await ctx.defer(ephemeral=True) # Ответ будет виден только автору
+            await ctx.defer(ephemeral=True) # Отложенный ответ, видимый только автору
 
         # Запоминаем время и количество для защиты от спама
         self.recent_purges[channel_id] = (current_time, count)
 
-        # Выполняем удаление
+        # Выполняем фактическое удаление
         deleted_count = await self._clear_messages_helper(ctx, count=count, user=user)
 
-        # Формируем и отправляем подтверждение
+        # Формируем и отправляем сообщение о результате
         message = f"Удалено {deleted_count} сообщений"
         if user:
             message += f" пользователя {user.display_name}"
 
+        # Отправляем подтверждение (эфемерное для slash, удаляемое через 5 сек для префиксных)
         await safe_send(ctx, message + ".", ephemeral=True if is_slash else False, delete_after=5 if not is_slash else None)
 
         logger.info(f"Администратор {ctx.author} удалил {deleted_count} сообщений в канале {ctx.channel.name}")
@@ -148,27 +150,27 @@ class Admin(commands.Cog):
         member: Пользователь для кика (@упоминание или ID).
         reason: Причина кика (опционально).
         """
-        # Проверка иерархии ролей
+        # Проверка иерархии ролей: нельзя кикнуть пользователя с ролью выше или равной вашей
         if member.top_role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
             await safe_send(ctx, "Вы не можете кикнуть участника с равной или более высокой ролью.", ephemeral=True)
             return
-
+        # Проверка иерархии ролей: бот не может кикнуть пользователя с ролью выше или равной своей
         if member.top_role >= ctx.guild.me.top_role:
             await safe_send(ctx, "У бота недостаточно прав для кика этого участника.", ephemeral=True)
             return
 
-        # Попытка отправить DM пользователю
+        # Пытаемся отправить личное сообщение пользователю о кике
         try:
             await member.send(f"Вы были кикнуты с сервера **{ctx.guild.name}**. Причина: {reason}")
         except discord.Forbidden:
-             logger.warning(f"Не удалось отправить DM пользователю {member} при кике (ЛС закрыты?).")
+             logger.warning(f"Не удалось отправить DM пользователю {member} при кике (ЛС закрыты или бот заблокирован).")
         except Exception as dm_error:
              logger.error(f"Ошибка при отправке DM пользователю {member} при кике: {dm_error}")
 
-        # Кик
+        # Выполняем кик
         await member.kick(reason=f"Кикнут {ctx.author.name}: {reason}")
 
-        # Подтверждение в канал
+        # Отправляем подтверждение в канал
         await safe_send(
             ctx,
             f"Пользователь {member.mention} ({member.name}) был кикнут. Причина: {reason}"
@@ -197,41 +199,39 @@ class Admin(commands.Cog):
         message_content = "🔄 Перезапуск бота..."
         response_message = None
         if is_slash:
-            # Для slash команд отправляем начальное сообщение, которое потом отредактируем
             await ctx.send(message_content, ephemeral=True)
         else:
-            # Для префиксных команд запоминаем отправленное сообщение
             response_message = await ctx.send(message_content)
 
         script_path = "restart.sh"
-        service_name = "discord-bot" # Имя systemd сервиса
+        service_name = "discord-bot" # Имя systemd сервиса (изменить при необходимости)
         try:
             with open(script_path, "w") as f:
                 f.write("#!/bin/bash\n")
                 f.write("sleep 1\n") # Небольшая задержка
-                f.write(f"sudo systemctl restart {service_name}\n")
+                f.write(f"sudo systemctl restart {service_name}\n") # Команда перезапуска сервиса
 
-            os.chmod(script_path, 0o755) # Даем права на выполнение
+            os.chmod(script_path, 0o755) # Даем скрипту права на выполнение
 
             logger.info(f"Запуск скрипта перезапуска: {script_path}")
             subprocess.Popen(["bash", script_path], start_new_session=True)
 
             logger.info("Закрытие текущего экземпляра бота...")
             await asyncio.sleep(0.5)
-            await self.bot.close()
+            await self.bot.close() # Завершаем работу текущего процесса бота
 
         except Exception as e:
             logger.error(f"Ошибка при попытке перезапуска: {e}")
             error_message = f"❌ Ошибка при перезапуске: ```{e}```"
-            # Пытаемся отредактировать исходное сообщение или отправить новое
+            # Пытаемся отредактировать исходное сообщение об ошибке или отправить новое
             if is_slash:
                 await ctx.edit_original_response(content=error_message)
             elif response_message:
                  try:
                      await response_message.edit(content=error_message)
-                 except discord.NotFound:
-                     await ctx.send(error_message) # Если исходное сообщение удалено
-            else:
+                 except discord.NotFound: # Если исходное сообщение было удалено
+                     await ctx.send(error_message)
+            else: # Если не удалось отправить исходное сообщение
                  await ctx.send(error_message)
 
 

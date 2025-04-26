@@ -7,7 +7,7 @@ import os
 logger = logging.getLogger("bot")
 LOG_FILE_PATH = "bot.log"
 CHECK_INTERVAL_SECONDS = 5
-MAX_MESSAGE_LENGTH = 1990 # Оставляем запас для ```\n ... \n```
+MAX_MESSAGE_LENGTH = 1990 # Макс. длина сообщения Discord (с запасом для ```)
 
 class LoggingCog(commands.Cog):
     """
@@ -17,9 +17,9 @@ class LoggingCog(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # ID канала для логирования жестко задан. В будущем лучше вынести в конфиг.
-        self.log_channel_id = 1365045098785542224
-        self.log_channel = None
+        # TODO: Перенести LOG_CHANNEL_ID в config.py или переменные окружения
+        self.log_channel_id = 1365045098785542224 # Жестко заданный ID канала для логов
+        self.log_channel = None # Объект канала Discord (получается в cog_load)
         self.last_read_position = 0
         self.log_file_path = LOG_FILE_PATH
 
@@ -27,14 +27,13 @@ class LoggingCog(commands.Cog):
             logger.warning("ID канала логирования не установлен. Логирование в Discord отключено.")
             return
 
-        self.tail_log_file.start()
+        self.tail_log_file.start() # Запускаем фоновую задачу чтения логов
 
     async def cog_load(self):
         """Инициализация канала и начальной позиции чтения при загрузке кога."""
         if not self.log_channel_id:
             return
 
-        # Ожидаем готовности бота, чтобы получить объект канала
         await self.bot.wait_until_ready()
         self.log_channel = self.bot.get_channel(self.log_channel_id)
 
@@ -43,17 +42,19 @@ class LoggingCog(commands.Cog):
             self.tail_log_file.cancel()
             return
 
-        # Определяем начальную позицию для чтения файла логов (с конца)
+        # Определяем начальную позицию для чтения файла логов
         try:
             if os.path.exists(self.log_file_path):
+                # Если файл существует, начинаем читать с конца (как tail -f)
                 self.last_read_position = os.path.getsize(self.log_file_path)
                 logger.info(f"Логирование в Discord канал '{self.log_channel.name}' ({self.log_channel_id}) настроено. Чтение с конца файла '{self.log_file_path}'.")
             else:
+                # Если файл не найден, начнем читать с начала, когда он появится
                 logger.warning(f"Файл логов '{self.log_file_path}' не найден при запуске. Чтение начнется с начала после создания файла.")
                 self.last_read_position = 0
         except Exception as e:
             logger.error(f"Ошибка при получении начального размера файла логов '{self.log_file_path}': {e}")
-            self.tail_log_file.cancel()
+            self.tail_log_file.cancel() # Останавливаем задачу при ошибке
 
     def cog_unload(self):
         """Останавливает задачу при выгрузке кога."""
@@ -62,55 +63,57 @@ class LoggingCog(commands.Cog):
 
     @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
     async def tail_log_file(self):
-        """Периодически проверяет файл логов на новые записи и отправляет их."""
+        """Периодически проверяет файл логов на новые записи и отправляет их в Discord."""
         if not self.log_channel:
-            # Попытка повторно получить канал, если он не был найден сразу
+            # Пытаемся получить канал, если он не был найден при запуске
             if self.log_channel_id and not self.tail_log_file.is_being_cancelled():
                  self.log_channel = self.bot.get_channel(self.log_channel_id)
                  if not self.log_channel:
                      logger.warning(f"Канал логирования {self.log_channel_id} все еще не найден. Проверка через {CHECK_INTERVAL_SECONDS} сек.")
-                     return
+                     return # Пропускаем итерацию, если канал не найден
                  else:
                      logger.info(f"Канал логирования {self.log_channel.name} ({self.log_channel_id}) найден.")
             else:
-                return # Прекращаем, если нет ID или задача отменена
+                return # Выходим, если нет ID или задача отменена
 
         try:
+            # Проверяем существование файла перед чтением
             if not os.path.exists(self.log_file_path):
-                return # Файл еще не создан
+                return # Файл еще не создан или был удален
 
             current_size = os.path.getsize(self.log_file_path)
 
             # Обработка усечения файла (например, при ротации логов)
             if current_size < self.last_read_position:
-                logger.info(f"Файл логов '{self.log_file_path}' был усечен. Чтение с начала.")
-                self.last_read_position = 0
+                logger.info(f"Файл логов '{self.log_file_path}' был усечен. Чтение продолжится с начала.")
+                self.last_read_position = current_size # Обновляем позицию до текущего (усеченного) размера
 
-            # Читаем новые строки, если файл увеличился
+            # Читаем новые строки, если размер файла увеличился
             if current_size > self.last_read_position:
                 with open(self.log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    f.seek(self.last_read_position)
-                    new_lines = f.readlines()
-                    self.last_read_position = f.tell()
+                    f.seek(self.last_read_position) # Переходим к последней прочитанной позиции
+                    new_lines = f.readlines()      # Читаем все новые строки
+                    self.last_read_position = f.tell() # Обновляем позицию
 
                 if new_lines:
                     buffer = ""
                     for line in new_lines:
-                        # Отправляем буфер, если добавление следующей строки превысит лимит Discord
-                        if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
+                        # Собираем строки в буфер, пока не достигнем лимита Discord
+                        # Отправляем буфер, если добавление следующей строки его превысит
+                        if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH: # +10 для ```\n и \n```
                             if buffer:
                                 await self.send_log_message(buffer)
-                            buffer = line
+                            buffer = line # Начинаем новый буфер с текущей строки
                         else:
-                            buffer += line
-                    # Отправляем остаток буфера
+                            buffer += line # Добавляем строку в буфер
+                    # Отправляем остаток буфера после цикла
                     if buffer:
                         await self.send_log_message(buffer)
 
         except FileNotFoundError:
-             # Редкий случай, если файл удален между проверкой и открытием
+             # Может случиться, если файл удален между os.path.exists и open
              logger.warning(f"Файл логов '{self.log_file_path}' не найден во время чтения.")
-             self.last_read_position = 0
+             self.last_read_position = 0 # Сбрасываем позицию
         except Exception as e:
             logger.error(f"Ошибка при чтении файла логов '{self.log_file_path}': {e}", exc_info=True)
 
@@ -121,7 +124,6 @@ class LoggingCog(commands.Cog):
             return
 
         try:
-            # Используем code blocks для лучшей читаемости
             await self.log_channel.send(f"```\n{message.strip()}\n```")
         except discord.HTTPException as e:
             logger.error(f"Ошибка Discord API при отправке лога: {e}")
@@ -137,8 +139,4 @@ class LoggingCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     """Добавляет LoggingCog к боту."""
-    # Проверка наличия конфига у бота убрана, т.к. ID канала захардкожен
-    # if not hasattr(bot, 'config'):
-    #      logger.error("Конфигурация не найдена в объекте бота. Невозможно загрузить LoggingCog.")
-    #      return
     await bot.add_cog(LoggingCog(bot))
