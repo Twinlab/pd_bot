@@ -77,12 +77,21 @@ class Events(commands.Cog):
                  logger.warning("Функции cleanup_player или auto_disconnect недоступны в on_voice_state_update.")
                  return
  
+            # Получаем ког Music для доступа к плееру
+            music_cog = self.bot.get_cog("Music")
+            if not music_cog or not hasattr(music_cog, 'player'):
+                logger.warning("Ког Music или его плеер не найдены в on_voice_state_update.")
+                return
+
+            player = music_cog.player
+
             # Если сам бот был отключен от канала
             if member.id == self.bot.user.id and before.channel and not after.channel:
                 logger.info(f"Бот был отключен от канала {before.channel.name}")
-                await cleanup_player(member.guild)
+                # Передаем плеер и имя гильдии
+                await cleanup_player(player, member.guild.name)
                 return
-                
+
             # Если пользователь (не бот) покинул голосовой канал, в котором находится бот
             if before.channel and not member.bot:
                 # Получаем голосовой клиент бота для этого сервера
@@ -95,7 +104,8 @@ class Events(commands.Cog):
                     # Если в канале не осталось пользователей, запускаем автоотключение
                     if not users_in_channel:
                         logger.info(f"Последний пользователь покинул канал {before.channel.name}, запускаем автоотключение...")
-                        await auto_disconnect(member.guild, before.channel)
+                        # Передаем плеер, гильдию и голосовой канал
+                        await auto_disconnect(player, member.guild, before.channel)
         except Exception as e:
             logger.error(f"Ошибка в on_voice_state_update: {e}", exc_info=True)
         

@@ -32,9 +32,13 @@ class LastMatch(commands.Cog):
             await ctx.send("Ошибка: не удалось получить данные о привязках аккаунтов.")
             return
         
-        # Получаем словарь привязок {discord_id: [steam_id1, steam_id2, ...]}
-        user_links = links_cog.get_user_links()
-        
+        # Определяем ID пользователя, для которого нужно получить ссылки
+        target_user = member if member else ctx.author
+        user_id = target_user.id
+
+        # Получаем список привязанных Steam ID для этого пользователя
+        user_links = await links_cog.links_manager.get_links(user_id)
+
         # Отмечаем взаимодействие как отложенное, т.к. запрос к API может занять время
         await ctx.defer()
         

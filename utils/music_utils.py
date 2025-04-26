@@ -249,12 +249,17 @@ class MusicPlayer:
             # Создаем аудио источник
             logger.info(f"Создание FFmpegPCMAudio для файла: {file_path}")
             try:
-                # Опции FFmpeg можно передать здесь, если нужно (например, для отладки)
-                # options = '-loglevel debug'
-                # audio = discord.FFmpegPCMAudio(file_path, options=options)
-                audio = discord.FFmpegPCMAudio(file_path)
+                # Опции для FFmpeg: попытка переподключения при проблемах с потоком
+                ffmpeg_options = {
+                    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+                    'options': '-vn' # Игнорировать видеодорожку
+                }
+                # Опции для отладки FFmpeg (раскомментировать при необходимости):
+                # ffmpeg_options['options'] += ' -loglevel debug'
+
+                audio = discord.FFmpegPCMAudio(file_path, **ffmpeg_options)
                 source = discord.PCMVolumeTransformer(audio, volume=self.volume) # Для управления громкостью
-                logger.info(f"Аудио источник FFmpegPCMAudio создан успешно.")
+                logger.info(f"Аудио источник FFmpegPCMAudio создан успешно с опциями: {ffmpeg_options}")
             except Exception as audio_error:
                 logger.error(f"Ошибка при создании FFmpegPCMAudio: {audio_error}", exc_info=True)
                 # Сообщаем пользователю об ошибке, связанной с FFmpeg
