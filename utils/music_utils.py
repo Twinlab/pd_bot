@@ -27,8 +27,7 @@ COLORS = {
  
 # Импорт функции загрузки основной конфигурации бота
 from config import load_config as load_main_config
- 
-# Глобальный словарь _players больше не нужен для одного сервера
+
 
 # Загружаем конфигурацию для получения настроек yt-dlp (например, прокси)
 _config = load_main_config()
@@ -71,12 +70,12 @@ def create_embed(title: str, description: str, color: discord.Color = COLORS['DE
         # Установка текста футера
         elif name == 'footer':
             embed.set_footer(text=value)
-        # Добавление полей (ожидается список кортежей)
+        # Добавление полей (ожидается список кортежей вида (name, value, inline))
         elif name == 'fields':
-            for field in value: # field = (name, value, inline=True)
+            for field in value:
                 # Добавляем поле, inline=True по умолчанию
                 embed.add_field(name=field[0], value=field[1], inline=field[2] if len(field) > 2 else True)
-        # Добавление обычного поля (если ключ не 'thumbnail', 'footer' или 'fields')
+        # Добавление обычного поля
         else:
             embed.add_field(name=name, value=value, inline=True)
     
@@ -267,8 +266,26 @@ class MusicPlayer:
                 raise FileNotFoundError(f"Файл трека недоступен или поврежден: {file_path}")
             
             # Создаем аудио источник
-            audio = discord.FFmpegPCMAudio(file_path)
-            source = discord.PCMVolumeTransformer(audio, volume=self.volume)
+            logger.info(f"Создание FFmpegPCMAudio для файла: {file_path}")
+            try:
+                # Добавляем опции для вывода логов ffmpeg в stderr, если нужно больше деталей
+                # options = '-loglevel debug' # Раскомментировать для детального лога ffmpeg
+                # audio = discord.FFmpegPCMAudio(file_path, options=options)
+                audio = discord.FFmpegPCMAudio(file_path)
+                source = discord.PCMVolumeTransformer(audio, volume=self.volume)
+                logger.info(f"Аудио источник создан успешно.")
+            except Exception as audio_error:
+                logger.error(f"Ошибка при создании FFmpegPCMAudio: {audio_error}", exc_info=True)
+                # Сообщаем пользователю об ошибке FFmpeg
+                if self.text_channel:
+                    await self.text_channel.send(
+                        embed=create_embed(
+                            "❌ Ошибка FFmpeg",
+                            f"Не удалось обработать аудиофайл. Убедитесь, что FFmpeg установлен и доступен.\nОшибка: `{audio_error}`",
+                            COLORS['ERROR']
+                        )
+                    )
+                raise # Перебрасываем ошибку, чтобы она была обработана внешним try...except
             
             # Функция обратного вызова после завершения трека
             def after_playback(error):
@@ -294,7 +311,9 @@ class MusicPlayer:
                             logger.error(f"Не удалось удалить файл {finished_track_path}: {delete_error}")
 
             # Начинаем воспроизведение
+            logger.info(f"Вызов voice_client.play() для трека: {track.get('title', 'Unknown')}")
             voice_client.play(source, after=after_playback)
+            logger.info(f"Воспроизведение начато (или поставлено в очередь).")
             
             # Отправляем сообщение
             if self.text_channel:
@@ -645,8 +664,7 @@ class MusicPlayer:
             logger.error(f"Ошибка при поиске: {e}", exc_info=True)
             await loading_message.edit(embed=create_embed("❌ Ошибка", f"Ошибка при поиске: {str(e)[:900]}", COLORS['ERROR']))
 
-# Функции управления плеером и голосовым подключением
-# get_player и _players удалены, т.к. используется один экземпляр плеера в коге
+# --- Функции управления плеером и голосовым подключением ---
 
 async def ensure_voice(ctx):
     """Проверяет и обеспечивает голосовое подключение"""
@@ -663,32 +681,20 @@ async def ensure_voice(ctx):
     
     return True
 
-# Обработчики команд
+# --- Обработчики команд (вызываются из кога) ---
 async def handle_play(ctx, query):
-    """Обрабатывает команду воспроизведения"""
-    # Базовые проверки
+    """Обрабатывает команду воспроизведения: проверяет канал, добавляет трек/ищет."""
     if not query:
         await ctx.send(embed=create_embed("❌ Ошибка", "Укажите запрос или ссылку для воспроизведения", COLORS['ERROR']))
         return
-    
-    # Проверяем голосовое подключение
+
     if not await ensure_voice(ctx):
         return
-    
-    # Добавляем трек или запускаем поиск
-    # Получаем плеер из кога (будет передаваться в функцию)
-    # Эта логика переедет в ког или будет передавать self.player
-    # Пока закомментируем получение плеера здесь
-    # player = get_player(ctx.bot, ctx.guild.id)
-    # if player is None:
-    #      await ctx.send("Ошибка: не удалось инициализировать плеер.")
-    #      return
-    # Вместо этого, ожидаем, что 'player' будет передан как аргумент
-    # или будет доступен через 'ctx.cog.player'
-    # Пример: player = ctx.cog.player
-    player = getattr(ctx.cog, 'player', None) # Пытаемся получить плеер из кога
+
+    # Получаем экземпляр плеера из кога
+    player = getattr(ctx.cog, 'player', None)
     if not player:
-         await ctx.send("Ошибка: Экземпляр плеера не найден в коге.")
+         await ctx.send("Ошибка: Экземпляр плеера не найден.")
          return
     if query.startswith(('http://', 'https://')):
         await player.add_track(ctx, query)
@@ -732,8 +738,7 @@ async def handle_queue(ctx):
     else: await ctx.send("Ошибка: Экземпляр плеера не найден.")
 
 async def cleanup_player(player: 'MusicPlayer', guild_name: str):
-    """Очищает состояние указанного плеера"""
-    # guild_id больше не нужен, работаем с переданным плеером
+    """Очищает состояние плеера: очередь, текущий трек, сообщение 'сейчас играет'."""
     if not player:
         logger.warning("Попытка очистить несуществующий плеер.")
         return
@@ -762,8 +767,7 @@ async def cleanup_player(player: 'MusicPlayer', guild_name: str):
     logger.info(f"Плеер очищен для сервера {guild_name}")
 
 async def auto_disconnect(player: 'MusicPlayer', guild: discord.Guild, voice_channel: discord.VoiceChannel):
-    """Автоматически отключает бота, когда все пользователи вышли из канала"""
-    # player передается напрямую
+    """Автоматически отключает бота, если он остался один в канале."""
     if not player:
         logger.warning(f"Попытка автоотключения для несуществующего плеера в {guild.name}")
         return
