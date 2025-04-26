@@ -92,7 +92,7 @@ class Music(commands.Cog):
     # --- Команды ---
     @commands.hybrid_command(description='Воспроизвести музыку или добавить в очередь')
     @command_error_handler
-    async def play(self, ctx: commands.Context, *, query: str):
+    async def play(self, ctx: commands.Context, query: str): # Убрали '*' перед query
         """Воспроизводит музыку по URL/поиску или добавляет в очередь."""
         player = await self.get_player(ctx)
         if not player: return
