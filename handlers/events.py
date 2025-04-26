@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands # Убедимся, что импорт есть
+from discord.ext import commands # Явно перезаписываем импорт
 import logging
 from typing import List, Optional, Union
 import asyncio

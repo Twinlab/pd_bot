@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands, tasks # Убедимся, что commands импортирован
 import logging
 import asyncio
 from typing import Optional
