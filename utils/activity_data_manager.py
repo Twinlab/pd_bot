@@ -196,7 +196,7 @@ class ActivityDataManager:
             logger.error(f"Ошибка при получении all_time_stats из БД для {user_id}: {e}", exc_info=True)
             return {}
 
-    # --- Методы для миграции (можно вынести в отдельный скрипт) ---
+    # --- Методы для миграции (используются в migrate_to_sqlite.py) ---
 
     async def migrate_links_from_json(self, json_file_path: str = "data/user_links.json"):
         """Мигрирует данные о привязках из JSON в SQLite."""

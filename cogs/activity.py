@@ -463,9 +463,7 @@ class ActivityTracker(commands.Cog):
     async def before_periodic_save(self):
         await self.bot.wait_until_ready()
         logger.info("Запущена задача периодического обновления активности")
-
-    # month_checker удален
-
+    
     @tasks.loop(time=time(hour=9, minute=0))  # 12:00 по МСК (UTC+3)
     async def monthly_report(self):
         """Отправляет ежемесячный отчет об активности всех пользователей за предыдущий месяц"""

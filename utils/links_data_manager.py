@@ -106,7 +106,7 @@ class LinksDataManager:
             logger.error(f"Ошибка при получении всех данных о привязках: {e}", exc_info=True)
             return {}
 
-    # --- Метод для миграции ---
+    # --- Метод для миграции (используется в migrate_to_sqlite.py) ---
     async def migrate_links_from_json(self, json_file_path: str = "data/user_links.json"):
         """Мигрирует данные о привязках из JSON в SQLite."""
         logger.info(f"Начало миграции привязок из {json_file_path}...")

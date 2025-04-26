@@ -1,7 +1,7 @@
 import asyncio
 import random
 import discord
-import requests
+import aiohttp # Заменяем requests на aiohttp
 from PIL import Image, ImageOps
 from io import BytesIO
 import logging
@@ -74,7 +74,6 @@ async def create_deathbattle_image(member1: discord.Member, member2: discord.Mem
         Optional[BytesIO]: BytesIO буфер с PNG-изображением или None в случае ошибки.
     """
     # Путь к фоновому изображению (относительно корня проекта)
-    # TODO: Сделать путь более надежным (относительно этого файла)
     image_path = "deathbattle.jpg"
     
     # Проверяем наличие фонового файла
@@ -88,20 +87,21 @@ async def create_deathbattle_image(member1: discord.Member, member2: discord.Mem
         avatar_size = (128, 128) # Размер аватаров на изображении
  
         # Загрузка и обработка аватарки первого участника
-        # TODO: Заменить requests на aiohttp для асинхронной загрузки
-        member1_avatar_url = str(member1.display_avatar.url)
-        response1 = requests.get(member1_avatar_url)
-        response1.raise_for_status() # Проверка на ошибки HTTP
-        member1_avatar = Image.open(BytesIO(response1.content))
-        # Используем Image.LANCZOS (Image.ANTIALIAS устарел в Pillow)
-        member1_avatar = ImageOps.fit(member1_avatar, avatar_size, Image.LANCZOS) # Обрезка и изменение размера
- 
-        # Загрузка и обработка аватарки второго участника
-        member2_avatar_url = str(member2.display_avatar.url)
-        response2 = requests.get(member2_avatar_url)
-        response2.raise_for_status() # Проверка на ошибки HTTP
-        member2_avatar = Image.open(BytesIO(response2.content))
-        member2_avatar = ImageOps.fit(member2_avatar, avatar_size, Image.LANCZOS)
+        # Используем aiohttp для асинхронной загрузки
+        async with aiohttp.ClientSession() as session:
+            # Загрузка аватара 1
+            member1_avatar_url = str(member1.display_avatar.replace(size=128, format='png').url) # Запрашиваем нужный размер и формат
+            async with session.get(member1_avatar_url) as resp1:
+                resp1.raise_for_status() # Проверка на ошибки HTTP
+                avatar1_data = await resp1.read()
+                member1_avatar = Image.open(BytesIO(avatar1_data))
+
+            # Загрузка аватара 2
+            member2_avatar_url = str(member2.display_avatar.replace(size=128, format='png').url)
+            async with session.get(member2_avatar_url) as resp2:
+                resp2.raise_for_status()
+                avatar2_data = await resp2.read()
+                member2_avatar = Image.open(BytesIO(avatar2_data))
  
         # Накладываем аватары на фон в заданных координатах
         background.paste(member1_avatar, (20, 133)) # Координаты для левого аватара
@@ -112,8 +112,8 @@ async def create_deathbattle_image(member1: discord.Member, member2: discord.Mem
         background.save(image_buffer, "PNG")
         image_buffer.seek(0) # Перемещаем указатель в начало буфера
         return image_buffer
-    except requests.exceptions.RequestException as req_err:
-         logger.error(f"Ошибка при загрузке аватара для deathbattle: {req_err}")
+    except aiohttp.ClientError as http_err: # Ловим ошибки aiohttp
+         logger.error(f"Ошибка HTTP при загрузке аватара для deathbattle: {http_err}")
          return None
     except Exception as e:
         logger.error(f"Ошибка при создании изображения deathbattle: {e}", exc_info=True)

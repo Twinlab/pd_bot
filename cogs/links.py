@@ -14,11 +14,8 @@ class Links(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.links_manager = LinksDataManager() # Используем новый менеджер
-        # self.user_links больше не нужен, данные в БД
+        self.links_manager = LinksDataManager()
         logger.info(f"Ког {self.__class__.__name__} загружен")
-
-    # save_user_links больше не нужен, т.к. менеджер сам сохраняет в БД
 
     async def send_response(self, ctx, message):
         """Отправляет приватный ответ в зависимости от типа контекста команды."""
@@ -138,8 +135,6 @@ class Links(commands.Cog):
                 await self.send_response(ctx, "При использовании `/lastmatch` бот автоматически выберет аккаунт с последним матчем.")
         else:
             await self.send_response(ctx, "У вас нет привязанных аккаунтов Dota 2. Используйте `/link PLAYER_ID`.")
-
-    # Метод get_user_links больше не нужен, т.к. данные запрашиваются из БД по мере необходимости
 
 async def setup(bot):
     await bot.add_cog(Links(bot))

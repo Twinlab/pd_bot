@@ -61,20 +61,6 @@ async def initialize_database():
             """)
             logger.info("Таблица 'monthly_activity' и индекс проверены/созданы.")
 
-            # (Опционально) Таблица для розыгрышей, если решим добавить персистентность
-            # await db.execute("""
-            #     CREATE TABLE IF NOT EXISTS giveaways (
-            #         message_id INTEGER PRIMARY KEY,
-            #         channel_id INTEGER NOT NULL,
-            #         guild_id INTEGER NOT NULL,
-            #         end_time TIMESTAMP NOT NULL,
-            #         winner_count INTEGER NOT NULL DEFAULT 1,
-            #         description TEXT,
-            #         creator_id INTEGER
-            #     )
-            # """)
-            # logger.info("Таблица 'giveaways' проверена/создана.")
-
             await db.commit()
             logger.info(f"База данных инициализирована: {DB_PATH}")
 

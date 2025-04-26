@@ -28,10 +28,8 @@ COLORS = {
 # Импорт функции загрузки основной конфигурации бота
 from config import load_config as load_main_config
  
-# Глобальный словарь для хранения экземпляров плеера по ID гильдии
-# Ключ: guild_id (int), Значение: MusicPlayer
-_players: Dict[int, 'MusicPlayer'] = {}
- 
+# Глобальный словарь _players больше не нужен для одного сервера
+
 # Загружаем конфигурацию для получения настроек yt-dlp (например, прокси)
 _config = load_main_config()
 # Опции для библиотеки yt-dlp (скачивание и извлечение аудио)
@@ -648,17 +646,7 @@ class MusicPlayer:
             await loading_message.edit(embed=create_embed("❌ Ошибка", f"Ошибка при поиске: {str(e)[:900]}", COLORS['ERROR']))
 
 # Функции управления плеером и голосовым подключением
-# TODO: Переделать управление плеерами (убрать глобальный _player)
-_players = {} # Словарь для хранения плееров по ID гильдии
-
-def get_player(bot, guild_id):
-    """Получает или создает экземпляр музыкального плеера для гильдии"""
-    if guild_id not in _players:
-        if bot is None: # Не можем создать плеер без бота
-             return None
-        logger.info(f"Создание нового экземпляра MusicPlayer для гильдии {guild_id}")
-        _players[guild_id] = MusicPlayer(bot)
-    return _players[guild_id]
+# get_player и _players удалены, т.к. используется один экземпляр плеера в коге
 
 async def ensure_voice(ctx):
     """Проверяет и обеспечивает голосовое подключение"""
@@ -688,9 +676,19 @@ async def handle_play(ctx, query):
         return
     
     # Добавляем трек или запускаем поиск
-    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
-    if player is None:
-         await ctx.send("Ошибка: не удалось инициализировать плеер.")
+    # Получаем плеер из кога (будет передаваться в функцию)
+    # Эта логика переедет в ког или будет передавать self.player
+    # Пока закомментируем получение плеера здесь
+    # player = get_player(ctx.bot, ctx.guild.id)
+    # if player is None:
+    #      await ctx.send("Ошибка: не удалось инициализировать плеер.")
+    #      return
+    # Вместо этого, ожидаем, что 'player' будет передан как аргумент
+    # или будет доступен через 'ctx.cog.player'
+    # Пример: player = ctx.cog.player
+    player = getattr(ctx.cog, 'player', None) # Пытаемся получить плеер из кога
+    if not player:
+         await ctx.send("Ошибка: Экземпляр плеера не найден в коге.")
          return
     if query.startswith(('http://', 'https://')):
         await player.add_track(ctx, query)
@@ -699,39 +697,45 @@ async def handle_play(ctx, query):
 
 async def handle_skip(ctx):
     """Пропускает текущий трек"""
-    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    player = getattr(ctx.cog, 'player', None)
     if player: await player.skip_track(ctx)
+    else: await ctx.send("Ошибка: Экземпляр плеера не найден.")
 
 async def handle_stop(ctx):
     """Останавливает воспроизведение и очищает очередь"""
-    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    player = getattr(ctx.cog, 'player', None)
     if player: await player.stop_playback(ctx)
+    else: await ctx.send("Ошибка: Экземпляр плеера не найден.")
 
 async def handle_pause(ctx):
     """Ставит воспроизведение на паузу"""
-    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    player = getattr(ctx.cog, 'player', None)
     if player: await player.pause_resume(ctx, pause=True)
+    else: await ctx.send("Ошибка: Экземпляр плеера не найден.")
 
 async def handle_resume(ctx):
     """Возобновляет воспроизведение"""
-    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    player = getattr(ctx.cog, 'player', None)
     if player: await player.pause_resume(ctx, pause=False)
+    else: await ctx.send("Ошибка: Экземпляр плеера не найден.")
 
 async def handle_remove(ctx, position):
     """Удаляет трек из очереди по позиции"""
-    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    player = getattr(ctx.cog, 'player', None)
     if player: await player.remove_from_queue(ctx, position)
+    else: await ctx.send("Ошибка: Экземпляр плеера не найден.")
 
 async def handle_queue(ctx):
     """Показывает очередь воспроизведения"""
-    player = get_player(ctx.bot, ctx.guild.id) # Получаем плеер для гильдии
+    player = getattr(ctx.cog, 'player', None)
     if player: await player.show_queue(ctx)
+    else: await ctx.send("Ошибка: Экземпляр плеера не найден.")
 
-async def cleanup_player(guild):
-    """Очищает состояние плеера для гильдии"""
-    guild_id = guild.id
-    player = _players.pop(guild_id, None) # Удаляем плеер из словаря
+async def cleanup_player(player: 'MusicPlayer', guild_name: str):
+    """Очищает состояние указанного плеера"""
+    # guild_id больше не нужен, работаем с переданным плеером
     if not player:
+        logger.warning("Попытка очистить несуществующий плеер.")
         return
     
     # Удаляем файл текущего трека, если он есть
@@ -755,12 +759,13 @@ async def cleanup_player(guild):
             pass
         player.now_playing_message = None
     
-    logger.info(f"Плеер очищен для гильдии {guild.name}")
+    logger.info(f"Плеер очищен для сервера {guild_name}")
 
-async def auto_disconnect(guild, voice_channel):
+async def auto_disconnect(player: 'MusicPlayer', guild: discord.Guild, voice_channel: discord.VoiceChannel):
     """Автоматически отключает бота, когда все пользователи вышли из канала"""
-    player = get_player(None, guild.id) # Получаем плеер для гильдии
+    # player передается напрямую
     if not player:
+        logger.warning(f"Попытка автоотключения для несуществующего плеера в {guild.name}")
         return
     
     # Отправляем сообщение
@@ -783,7 +788,7 @@ async def auto_disconnect(guild, voice_channel):
     except Exception as e:
         logger.error(f"Ошибка при отключении от голосового канала: {e}")
     
-    # Очищаем состояние
-    await cleanup_player(guild)
+    # Очищаем состояние переданного плеера
+    await cleanup_player(player, guild.name)
     
     logger.info(f"Бот автоматически отключен от канала {voice_channel.name}")
