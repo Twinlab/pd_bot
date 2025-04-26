@@ -394,6 +394,15 @@ class SearchView(discord.ui.View):
 
 # --- Вспомогательные функции и обработчики команд (обновленные) ---
 
+# Helper to get the correct voice client, especially for interactions
+def get_voice_client(ctx: commands.Context) -> Optional[discord.VoiceClient]:
+    """Gets the voice client from interaction guild if available, otherwise from context guild."""
+    if ctx.interaction and ctx.interaction.guild:
+        return ctx.interaction.guild.voice_client
+    elif ctx.guild:
+        return ctx.guild.voice_client
+    return None
+
 async def ensure_voice(ctx: commands.Context) -> bool:
     """Проверяет и обеспечивает голосовое подключение."""
     # Проверяем автора команды
@@ -515,7 +524,9 @@ async def handle_skip(ctx: commands.Context):
     is_interaction = isinstance(ctx, commands.Context) and ctx.interaction is not None
     send_method = ctx.interaction.response.send_message if is_interaction else ctx.send
     player = getattr(ctx.cog, 'player', None)
-    if not player or not player.current or not ctx.guild.voice_client or not ctx.guild.voice_client.is_playing():
+    voice_client = get_voice_client(ctx) # Use helper
+
+    if not player or not player.current or not voice_client or not voice_client.is_playing():
         await send_method(embed=create_embed("❌ Ошибка", "Сейчас ничего не воспроизводится.", COLORS['ERROR']), ephemeral=True)
         return
 
@@ -525,13 +536,16 @@ async def handle_skip(ctx: commands.Context):
 
     if is_dj or is_requester:
         await send_method(embed=create_embed("⏭️ Трек пропущен", f"Трек **{player.current['title']}** пропущен по запросу {ctx.author.mention}.", COLORS['SUCCESS']))
-        ctx.guild.voice_client.stop() # Останавливаем воспроизведение, after_playback запустит следующий
+        if voice_client: voice_client.stop() # Останавливаем воспроизведение, after_playback запустит следующий
         player.skip_votes.clear() # Очищаем голоса после пропуска
         return
 
     # --- Логика голосования ---
     # Считаем только людей в канале
-    channel_members = len([m for m in ctx.guild.voice_client.channel.members if not m.bot])
+    if not voice_client or not voice_client.channel: # Доп. проверка на случай отключения
+         await send_method(embed=create_embed("❌ Ошибка", "Не удалось определить голосовой канал.", COLORS['ERROR']), ephemeral=True)
+         return
+    channel_members = len([m for m in voice_client.channel.members if not m.bot])
     required_votes = math.ceil(channel_members / 2) if channel_members > 1 else 1 # Нужно хотя бы 1 голос, если бот не один
 
     if ctx.author.id in player.skip_votes:
@@ -543,7 +557,7 @@ async def handle_skip(ctx: commands.Context):
 
     if current_votes >= required_votes:
         await send_method(embed=create_embed("⏭️ Трек пропущен", f"Трек **{player.current['title']}** пропущен по голосованию ({current_votes}/{required_votes}).", COLORS['SUCCESS']))
-        ctx.guild.voice_client.stop()
+        if voice_client: voice_client.stop()
         player.skip_votes.clear() # Очищаем голоса
     else:
         await send_method(embed=create_embed("⏭️ Голосование", f"{ctx.author.mention} проголосовал(а) за пропуск.\nГолосов: {current_votes}/{required_votes}", COLORS['DEFAULT']))
@@ -554,7 +568,9 @@ async def handle_stop(ctx: commands.Context):
     is_interaction = isinstance(ctx, commands.Context) and ctx.interaction is not None
     send_method = ctx.interaction.response.send_message if is_interaction else ctx.send
     player = getattr(ctx.cog, 'player', None)
-    if not player or not ctx.guild.voice_client:
+    voice_client = get_voice_client(ctx) # Use helper
+
+    if not player or not voice_client:
         await send_method(embed=create_embed("❌ Ошибка", "Бот не находится в голосовом канале.", COLORS['ERROR']), ephemeral=True)
         return
 
@@ -563,16 +579,17 @@ async def handle_stop(ctx: commands.Context):
     now_playing_msg = player.now_playing_message
 
     # Очищаем очередь и состояние плеера ДО отключения
-    await cleanup_player(player, ctx.guild.name) # Используем общую функцию очистки
+    guild_name = ctx.guild.name if ctx.guild else "Unknown Guild"
+    await cleanup_player(player, guild_name) # Используем общую функцию очистки
 
     # Останавливаем воспроизведение, если оно идет
-    if ctx.guild.voice_client.is_playing() or ctx.guild.voice_client.is_paused():
+    if voice_client.is_playing() or voice_client.is_paused():
         logger.info("Остановка voice_client...")
-        ctx.guild.voice_client.stop() # Это прервет текущий трек
+        voice_client.stop() # Это прервет текущий трек
 
     # Отключаемся от канала
     logger.info("Отключение от голосового канала...")
-    await ctx.guild.voice_client.disconnect()
+    await voice_client.disconnect()
 
     # Удаляем сообщение "Now Playing", если оно было и interaction не удалил его сам
     if now_playing_msg and not is_interaction: # Не удаляем, если это interaction, т.к. View сама удалит
@@ -591,14 +608,16 @@ async def handle_pause(ctx: commands.Context):
     is_interaction = isinstance(ctx, commands.Context) and ctx.interaction is not None
     send_method = ctx.interaction.response.send_message if is_interaction else ctx.send
     player = getattr(ctx.cog, 'player', None)
-    if not player or not ctx.guild.voice_client or not ctx.guild.voice_client.is_playing():
+    voice_client = get_voice_client(ctx) # Use helper
+
+    if not player or not voice_client or not voice_client.is_playing():
         await send_method(embed=create_embed("❌ Ошибка", "Сейчас ничего не воспроизводится.", COLORS['ERROR']), ephemeral=True)
         return
-    if ctx.guild.voice_client.is_paused():
+    if voice_client.is_paused():
         await send_method(embed=create_embed("ℹ️ Инфо", "Воспроизведение уже на паузе.", COLORS['DEFAULT']), ephemeral=True)
         return
 
-    ctx.guild.voice_client.pause()
+    voice_client.pause()
     player.is_paused = True
     await send_method(embed=create_embed("⏸️ Пауза", "Воспроизведение приостановлено.", COLORS['DEFAULT']), ephemeral=is_interaction) # Ephemeral для interaction
 
@@ -608,11 +627,13 @@ async def handle_resume(ctx: commands.Context):
     is_interaction = isinstance(ctx, commands.Context) and ctx.interaction is not None
     send_method = ctx.interaction.response.send_message if is_interaction else ctx.send
     player = getattr(ctx.cog, 'player', None)
-    if not player or not ctx.guild.voice_client or not ctx.guild.voice_client.is_paused():
+    voice_client = get_voice_client(ctx) # Use helper
+
+    if not player or not voice_client or not voice_client.is_paused():
         await send_method(embed=create_embed("❌ Ошибка", "Воспроизведение не приостановлено.", COLORS['ERROR']), ephemeral=True)
         return
 
-    ctx.guild.voice_client.resume()
+    voice_client.resume()
     player.is_paused = False
     await send_method(embed=create_embed("▶️ Продолжение", "Воспроизведение возобновлено.", COLORS['SUCCESS']), ephemeral=is_interaction) # Ephemeral для interaction
 
