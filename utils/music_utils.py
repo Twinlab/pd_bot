@@ -35,13 +35,25 @@ try:
     from config import load_config as load_main_config
     _config = load_main_config()
     PROXY_URL = _config.get("PROXY_URL", None)
-    logger.info(f"Прокси URL загружен из конфига: {PROXY_URL}")
+    
+    # Проверяем, что прокси не пустой
+    if PROXY_URL:
+        logger.info(f"Прокси URL загружен из конфига: {PROXY_URL}")
+    else:
+        logger.warning("PROXY_URL в конфиге пустой. Это может привести к медленной работе.")
+        # Можно установить значение по умолчанию, если нужно
+        # PROXY_URL = "http://your-default-proxy.com:8080"
 except ImportError:
     logger.warning("Не удалось импортировать основной конфиг. PROXY_URL не будет использоваться.")
     PROXY_URL = None
 except Exception as e:
     logger.error(f"Ошибка загрузки основного конфига: {e}", exc_info=True)
     PROXY_URL = None
+
+# Выводим предупреждение, если прокси не настроен
+if not PROXY_URL:
+    logger.warning("Прокси не настроен! Это может привести к медленной работе или блокировке запросов.")
+    logger.warning("Для улучшения производительности добавьте PROXY_URL в файл config.json")
 
 # Опции для yt-dlp
 YDL_OPTS_BASE = {
@@ -56,6 +68,12 @@ YDL_OPTS_BASE = {
     'default_search': 'ytsearch',  # Поиск по умолчанию на YouTube
     'source_address': '0.0.0.0',  # Fix для некоторых систем
     'proxy': PROXY_URL,
+    'socket_timeout': 15,  # Таймаут соединения (секунды)
+    'retries': 3,  # Количество повторных попыток при ошибке
+    'fragment_retries': 3,  # Повторные попытки для фрагментов
+    'skip_download_archive': True,  # Не использовать архив загрузок
+    'geo_bypass': True,  # Обход географических ограничений
+    'geo_bypass_country': 'US',  # Страна для обхода (USA)
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'opus',  # Opus обычно лучше для ботов
@@ -64,11 +82,17 @@ YDL_OPTS_BASE = {
     'logtostderr': False,  # Не выводить логи yt-dlp в stderr
 }
 
+# Логируем настройки
+logger.info("Настройки yt-dlp инициализированы с прокси: " + ("Да" if PROXY_URL else "Нет"))
+
 # Опции FFmpeg
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-    'options': '-vn -loglevel warning',  # Не выводить подробные логи ffmpeg
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
+    'options': '-vn -loglevel warning -hide_banner -stats',  # Улучшенные опции для стабильности
 }
+
+# Логируем настройки FFmpeg
+logger.info("Настройки FFmpeg инициализированы")
 
 # --- Вспомогательные функции ---
 
@@ -385,7 +409,6 @@ class MusicPlayer:
         self.loop = asyncio.get_event_loop()
         self.now_playing_message: Optional[discord.Message] = None
         self.player_view: Optional[PlayerControlView] = None
-        self._volume: float = 0.5  # Внутренняя громкость (50%)
         self._play_next_task: Optional[asyncio.Task] = None
         
     # --- Управление подключением ---
@@ -560,10 +583,22 @@ class MusicPlayer:
     async def _download_track(self, url: str) -> Optional[Dict[str, Any]]:
         """Скачивает трек с помощью yt-dlp и возвращает информацию."""
         ydl_opts = YDL_OPTS_BASE.copy()
+        
+        # Оптимизация: если это YouTube URL, добавляем дополнительные параметры
+        if 'youtube.com' in url or 'youtu.be' in url:
+            logger.info(f"Обнаружена ссылка YouTube, применяем оптимизированные настройки")
+            ydl_opts.update({
+                'format': 'bestaudio[ext=webm]/bestaudio/best',  # Предпочитаем webm для YouTube
+                'youtube_include_dash_manifest': False,  # Отключаем DASH для ускорения
+            })
+            
+        start_time = asyncio.get_event_loop().time()
         try:
             # Запускаем yt-dlp в отдельном потоке, чтобы не блокировать event loop
             ytdl = yt_dlp.YoutubeDL(ydl_opts)
             info = await self.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=True))
+            download_time = asyncio.get_event_loop().time() - start_time
+            logger.info(f"Скачивание завершено за {download_time:.2f} секунд")
             
             if not info:
                 logger.warning(f"yt-dlp вернул пустую информацию для {url}")
@@ -665,8 +700,36 @@ class MusicPlayer:
                 return
                 
             try:
+                # Проверяем существование и размер файла перед созданием источника
+                if not os.path.exists(self.current_track.filepath):
+                    raise FileNotFoundError(f"Файл не найден: {self.current_track.filepath}")
+                    
+                file_size = os.path.getsize(self.current_track.filepath)
+                if file_size == 0:
+                    raise ValueError(f"Файл имеет нулевой размер: {self.current_track.filepath}")
+                    
+                logger.info(f"Создание аудио источника для файла: {self.current_track.filepath} (размер: {file_size} байт)")
+                
+                # Создаем источник аудио без регулировки громкости
                 source = discord.FFmpegPCMAudio(self.current_track.filepath, **FFMPEG_OPTIONS)
-                source_volumed = discord.PCMVolumeTransformer(source, volume=self._volume)
+                
+                logger.info(f"Аудио источник успешно создан для трека: {self.current_track.title}")
+            except FileNotFoundError as e:
+                logger.error(f"Файл не найден: {self.current_track.filepath}: {e}")
+                await self.send_error_message(f"Ошибка: Файл для трека '{self.current_track.title}' не найден.")
+                # Удаляем битый файл
+                await self._cleanup_track_file(self.current_track)
+                self.current_track = None
+                self.start_playback_loop()  # Пытаемся сыграть следующий
+                return
+            except ValueError as e:
+                logger.error(f"Ошибка размера файла: {e}")
+                await self.send_error_message(f"Ошибка: Файл для трека '{self.current_track.title}' поврежден.")
+                # Удаляем битый файл
+                await self._cleanup_track_file(self.current_track)
+                self.current_track = None
+                self.start_playback_loop()  # Пытаемся сыграть следующий
+                return
             except Exception as e:
                 logger.error(f"Ошибка создания FFmpegPCMAudio для {self.current_track.filepath}: {e}", exc_info=True)
                 await self.send_error_message(f"Ошибка FFmpeg при обработке трека '{self.current_track.title}'.")
@@ -677,7 +740,7 @@ class MusicPlayer:
                 return
                 
             # Воспроизводим
-            self.voice_client.play(source_volumed, after=lambda e: self.loop.create_task(self._after_playback(e)))
+            self.voice_client.play(source, after=lambda e: self.loop.create_task(self._after_playback(e)))
             self.is_playing = True
             self.is_paused = False
             logger.info(f"Воспроизведение начато для: {self.current_track.title}")
@@ -761,23 +824,7 @@ class MusicPlayer:
         # Полная очистка и отключение
         await self.disconnect(interaction)
         
-    # --- Управление громкостью ---
-    
-    async def set_volume(self, volume: float, interaction: Optional[discord.Interaction] = None):
-        """Устанавливает громкость (от 0.0 до 2.0)."""
-        if not (0.0 <= volume <= 2.0):
-            if interaction:
-                await interaction.response.send_message("Громкость должна быть от 0 до 200.", ephemeral=True)
-            return
-            
-        self._volume = volume
-        if self.voice_client and self.voice_client.source:
-            self.voice_client.source.volume = self._volume
-            logger.info(f"Громкость установлена на {volume * 100}%")
-            if interaction:
-                await interaction.response.send_message(f"🔊 Громкость установлена на {int(volume * 100)}%", ephemeral=True)
-        elif interaction:
-            await interaction.response.send_message(f"🔊 Громкость будет применена к следующему треку ({int(volume * 100)}%).", ephemeral=True)
+    # Управление громкостью удалено по запросу пользователя
             
     # --- Отображение информации ---
     
@@ -953,11 +1000,21 @@ class MusicPlayer:
             
     async def _cleanup_files(self, filepaths: set[str]):
         """Безопасно удаляет файлы из переданного множества путей."""
+        for path in filepaths:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                    logger.info(f"Удален файл: {path}")
+                except OSError as e:
+                    logger.error(f"Ошибка при удалении файла {path}: {e}")
+
 # --- Глобальные функции поиска ---
 
 async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dict[str, Any]]]:
     """Ищет видео на YouTube без скачивания."""
     logger.info(f"Поиск на YouTube: '{query}' (max_results={max_results})")
+    
+    # Используем базовые настройки и добавляем специфичные для поиска
     ydl_opts = {
         'format': 'bestaudio',  # Нужно для получения длительности
         'extract_flat': 'discard_in_playlist',  # Не извлекать инфо о каждом видео плейлиста
@@ -967,6 +1024,10 @@ async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dic
         'default_search': f'ytsearch{max_results}',
         'source_address': '0.0.0.0',
         'proxy': PROXY_URL,
+        'socket_timeout': 10,  # Меньший таймаут для поиска
+        'retries': 2,  # Меньше повторных попыток для поиска
+        'geo_bypass': True,
+        'geo_bypass_country': YDL_OPTS_BASE['geo_bypass_country'],  # Используем ту же страну, что и в основных настройках
         'logtostderr': False,
         'ignoreerrors': True,  # Игнорировать ошибки отдельных видео
     }
@@ -992,10 +1053,3 @@ async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dic
     except Exception as e:
         logger.error(f"Неожиданная ошибка при поиске на YouTube для '{query}': {e}", exc_info=True)
         return None
-        for path in filepaths:
-            if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                    logger.info(f"Удален файл: {path}")
-                except OSError as e:
-                    logger.error(f"Ошибка при удалении файла {path}: {e}")

@@ -193,16 +193,7 @@ class MusicCog(commands.Cog, name="Music"):
         # Голосовой канал не важен для просмотра очереди
         await self.player.show_queue(interaction)
 
-    @discord.app_commands.command(name="volume", description="Установить громкость воспроизведения (0-200%).")
-    @discord.app_commands.describe(level="Уровень громкости от 0 до 200")
-    async def volume(self, interaction: discord.Interaction, level: discord.app_commands.Range[int, 0, 200]):
-        """Устанавливает громкость плеера."""
-        if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
-             await interaction.response.send_message("Вы должны быть в том же канале, что и бот, чтобы менять громкость!", ephemeral=True)
-             return
-
-        volume_float = float(level) / 100.0
-        await self.player.set_volume(volume_float, interaction)
+    # Команда volume удалена по запросу пользователя
         
 
     # --- Глобальный обработчик ошибок для команд кога (пример) ---
