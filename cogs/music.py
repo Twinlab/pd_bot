@@ -39,20 +39,20 @@ class MusicCog(commands.Cog, name="Music"):
         self.bot: commands.Bot = bot
         # Создаем единственный экземпляр плеера, т.к. бот на одном сервере
         self.player: MusicPlayer = MusicPlayer(bot)
-        cog_logger.info("Music Cog initialized.")
+        cog_logger.info("Музыкальный модуль инициализирован.")
         # Запускаем фоновую задачу для автоотключения (опционально)
         # self.auto_disconnect_task.start()
 
     def cog_unload(self):
         """Вызывается при выгрузке кога."""
-        cog_logger.info("Unloading Music Cog...")
+        cog_logger.info("Выгрузка музыкального модуля...")
         # Останавливаем фоновую задачу, если она есть
         # self.auto_disconnect_task.cancel()
         # Очищаем плеер асинхронно
         # Важно: cog_unload - синхронная функция, поэтому используем create_task
         if self.player:
             asyncio.create_task(self.player.disconnect())
-        cog_logger.info("Music Cog unloaded.")
+        cog_logger.info("Музыкальный модуль выгружен.")
 
     # --- Обработчики событий ---
 
@@ -77,7 +77,7 @@ class MusicCog(commands.Cog, name="Music"):
 
             human_members = [m for m in vc.channel.members if not m.bot]
             if not human_members:
-                cog_logger.info(f"Bot is alone in '{vc.channel.name}'. Disconnecting.")
+                cog_logger.info(f"Бот остался один в канале '{vc.channel.name}'. Отключаемся.")
                 await self.player.disconnect() # Вызываем метод плеера для отключения и очистки
 
     # --- Вспомогательные методы ---
@@ -100,9 +100,9 @@ class MusicCog(commands.Cog, name="Music"):
              # Проверяем тип канала (TextChannel или Thread)
              if isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
                  self.player.text_channel = interaction.channel
-                 cog_logger.info(f"Player text channel set to: #{interaction.channel.name} ({interaction.channel.id})")
+                 cog_logger.info(f"Текстовый канал плеера установлен: #{interaction.channel.name} ({interaction.channel.id})")
              else:
-                  cog_logger.warning(f"Interaction channel is not a TextChannel or Thread: {type(interaction.channel)}")
+                  cog_logger.warning(f"Канал взаимодействия не является TextChannel или Thread: {type(interaction.channel)}")
         return True
 
     # --- Команды ---
@@ -148,11 +148,10 @@ class MusicCog(commands.Cog, name="Music"):
     @discord.app_commands.command(name="skip", description="Пропустить текущий трек.")
     async def skip(self, interaction: discord.Interaction):
         """Пропускает текущий трек."""
-        # Проверка канала не нужна здесь, т.к. skip вызывается из View, которая уже проверила
-        # Но если делать как slash-команду, проверка нужна:
-        # if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
-        #     await interaction.response.send_message("Вы должны быть в том же канале, что и бот!", ephemeral=True)
-        #     return
+        # Добавляем проверку канала для slash-команды
+        if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            return
 
         # skip сама отправит ответ через interaction
         await self.player.skip(interaction)
@@ -160,8 +159,10 @@ class MusicCog(commands.Cog, name="Music"):
     @discord.app_commands.command(name="stop", description="Остановить воспроизведение и покинуть канал.")
     async def stop(self, interaction: discord.Interaction):
         """Останавливает плеер и отключает бота."""
-        # Проверка канала не нужна здесь, т.к. stop вызывается из View
-        # Но если делать как slash-команду, проверка нужна.
+        # Добавляем проверку канала для slash-команды
+        if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            return
 
         # stop сама отправит ответ через interaction
         await self.player.stop(interaction)
@@ -169,13 +170,21 @@ class MusicCog(commands.Cog, name="Music"):
     @discord.app_commands.command(name="pause", description="Приостановить воспроизведение.")
     async def pause(self, interaction: discord.Interaction):
         """Ставит текущий трек на паузу."""
-        # Проверка канала не нужна здесь, т.к. pause вызывается из View
+        # Добавляем проверку канала для slash-команды
+        if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            return
+            
         await self.player.pause(interaction)
 
     @discord.app_commands.command(name="resume", description="Возобновить воспроизведение.")
     async def resume(self, interaction: discord.Interaction):
         """Возобновляет воспроизведение после паузы."""
-        # Проверка канала не нужна здесь, т.к. resume вызывается из View
+        # Добавляем проверку канала для slash-команды
+        if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            return
+            
         await self.player.resume(interaction)
 
     @discord.app_commands.command(name="queue", description="Показать очередь воспроизведения.")
@@ -194,6 +203,7 @@ class MusicCog(commands.Cog, name="Music"):
 
         volume_float = float(level) / 100.0
         await self.player.set_volume(volume_float, interaction)
+        
 
     # --- Глобальный обработчик ошибок для команд кога (пример) ---
     # @commands.Cog.listener()
@@ -209,21 +219,42 @@ class MusicCog(commands.Cog, name="Music"):
 
     # Обработчик ошибок для slash-команд
     async def cog_app_command_error(self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
-         cog_logger.error(f"Error in Music Cog slash command '{interaction.command.name if interaction.command else 'unknown'}': {error}", exc_info=error)
-         error_message = f"Произошла ошибка при выполнении команды: `{error}`"
-         if isinstance(error, discord.app_commands.CheckFailure):
-              error_message = "У вас нет прав для выполнения этой команды."
-         elif isinstance(error, discord.app_commands.CommandInvokeError):
-              # Показываем исходную ошибку, если она есть
-              error_message = f"Произошла внутренняя ошибка: `{error.original}`"
-
-         if interaction.response.is_done():
-              await interaction.followup.send(error_message, ephemeral=True)
-         else:
-              await interaction.response.send_message(error_message, ephemeral=True)
+        cog_logger.error(f"Ошибка в музыкальной команде '{interaction.command.name if interaction.command else 'неизвестно'}': {error}", exc_info=error)
+        
+        # Формируем понятное сообщение об ошибке на русском языке
+        error_message = f"Произошла ошибка при выполнении команды: `{error}`"
+        
+        if isinstance(error, discord.app_commands.CheckFailure):
+            error_message = "У вас нет прав для выполнения этой команды."
+        elif isinstance(error, discord.app_commands.CommandInvokeError):
+            # Анализируем оригинальную ошибку для более точного сообщения
+            original = error.original
+            if isinstance(original, asyncio.TimeoutError):
+                error_message = "Превышено время ожидания ответа от сервера. Пожалуйста, попробуйте еще раз."
+            elif "Cannot connect to host" in str(original):
+                error_message = "Не удалось подключиться к серверу YouTube. Проверьте ваше интернет-соединение."
+            elif "HTTP Error 403" in str(original):
+                error_message = "Доступ к ресурсу запрещен. Возможно, видео недоступно в вашем регионе."
+            elif "HTTP Error 404" in str(original):
+                error_message = "Ресурс не найден. Возможно, видео было удалено."
+            else:
+                error_message = f"Произошла внутренняя ошибка: `{original}`"
+        elif isinstance(error, discord.app_commands.CommandNotFound):
+            error_message = "Команда не найдена. Используйте /help для просмотра доступных команд."
+        elif isinstance(error, discord.app_commands.MissingPermissions):
+            error_message = "У бота недостаточно прав для выполнения этой команды."
+            
+        # Отправляем сообщение об ошибке
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(error_message, ephemeral=True)
+            else:
+                await interaction.response.send_message(error_message, ephemeral=True)
+        except Exception as e:
+            cog_logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
 
 
 # --- Функция setup для загрузки кога ---
 async def setup(bot: commands.Bot):
     await bot.add_cog(MusicCog(bot))
-    cog_logger.info("Music Cog added to bot.")
+    cog_logger.info("Музыкальный модуль добавлен к боту.")
