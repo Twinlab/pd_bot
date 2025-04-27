@@ -98,7 +98,16 @@ async def search_youtube(query: str, max_results: int = 5) -> Optional[List[Dict
         if not info or not info.get('entries'):
             logger.warning(f"Поиск на YouTube для '{query}' не вернул результатов.")
             return None
-        valid_entries = [entry for entry in info['entries'] if isinstance(entry, dict) and entry.get('url')]
+        valid_entries = []
+        for entry in info['entries']:
+            if not isinstance(entry, dict):
+                continue
+            # yt-dlp >=2023.03.04 для ytsearch с extract_flat=True не возвращает 'url', только 'id' и 'ie_key'
+            if entry.get('url'):
+                valid_entries.append(entry)
+            elif entry.get('id') and entry.get('ie_key') == 'Youtube':
+                entry['url'] = f"https://www.youtube.com/watch?v={entry['id']}"
+                valid_entries.append(entry)
         logger.info(f"Найдено {len(valid_entries)} результатов для '{query}'")
         return valid_entries
     except yt_dlp.utils.DownloadError as e:
