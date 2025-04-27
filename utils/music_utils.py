@@ -4,6 +4,7 @@ import logging
 import os
 import yt_dlp
 import glob
+import time
 from collections import deque
 from typing import Dict, List, Optional, Any, Union, Tuple
 from pathlib import Path
@@ -410,6 +411,10 @@ class MusicPlayer:
         self.now_playing_message: Optional[discord.Message] = None
         self.player_view: Optional[PlayerControlView] = None
         self._play_next_task: Optional[asyncio.Task] = None
+        self._cleanup_task: Optional[asyncio.Task] = None
+        
+        # Запускаем задачу очистки старых файлов
+        self.loop.create_task(self.start_cleanup_task())
         
     # --- Управление подключением ---
     
@@ -462,6 +467,8 @@ class MusicPlayer:
         if self._play_next_task:
             self._play_next_task.cancel()
             self._play_next_task = None
+            
+        # Не отменяем задачу очистки файлов, она должна работать постоянно
             
         if self.voice_client and self.voice_client.is_connected():
             logger.info(f"Остановка воспроизведения и отключение от {self.voice_client.channel.name}")
@@ -765,9 +772,8 @@ class MusicPlayer:
             logger.error(f"Ошибка воспроизведения: {error}", exc_info=error)
             await self.send_error_message(f"Ошибка во время воспроизведения трека '{finished_track.title if finished_track else ''}': `{error}`")
             
-        # Очищаем файл завершенного трека
-        if finished_track:
-            await self._cleanup_track_file(finished_track)
+        # Не удаляем файл сразу после воспроизведения
+        # Файлы будут удаляться по расписанию
             
         # Если в очереди есть еще треки и бот все еще подключен, запускаем следующий
         if self.queue and self.voice_client and self.voice_client.is_connected():
@@ -939,7 +945,7 @@ class MusicPlayer:
     # --- Очистка ---
     
     async def cleanup(self, clear_queue: bool = True):
-        """Очищает состояние плеера и временные файлы."""
+        """Очищает состояние плеера."""
         logger.debug(f"Вызвана очистка. clear_queue={clear_queue}")
         self.is_playing = False
         self.is_paused = False
@@ -967,69 +973,82 @@ class MusicPlayer:
                 logger.warning(f"Не удалось удалить сообщение 'Сейчас играет' при очистке: {e}")
             self.now_playing_message = None
             
-        files_to_delete = set()
         if clear_queue:
             logger.debug(f"Очистка очереди (содержит {len(self.queue)} элементов).")
-            while self.queue:
-                track = self.queue.popleft()
-                if track.filepath:
-                    files_to_delete.add(track.filepath)
-            self.queue.clear()  # Убедимся, что она точно пуста
-        else:
-            # Если не очищаем очередь, нужно проверить файлы только для current_track (которого уже нет)
-            # Файлы треков в очереди НЕ удаляем
-            logger.debug("Очистка без очистки очереди.")
-            pass  # Файлы в очереди остаются
+            self.queue.clear()  # Очищаем очередь
             
-        # Удаляем собранные файлы
-        await self._cleanup_files(files_to_delete)
-        
         logger.debug("Очистка завершена.")
         
-    async def _cleanup_track_file(self, track: Track):
-        """Удаляет файл указанного трека, если он больше не нужен."""
-        if not track or not track.filepath:
-            return
+    # Методы для очистки файлов по расписанию
+    
+    async def start_cleanup_task(self):
+        """Запускает задачу по очистке старых файлов."""
+        if not hasattr(self, '_cleanup_task') or self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = self.loop.create_task(self._scheduled_cleanup())
+            logger.info("Запущена задача по очистке старых файлов")
+    
+    async def _scheduled_cleanup(self):
+        """Периодически очищает старые файлы."""
+        try:
+            while True:
+                # Запускаем очистку раз в сутки
+                await asyncio.sleep(24 * 60 * 60)  # 24 часа
+                await self._cleanup_old_files()
+        except asyncio.CancelledError:
+            logger.info("Задача очистки файлов отменена")
+        except Exception as e:
+            logger.error(f"Ошибка в задаче очистки файлов: {e}", exc_info=True)
+    
+    async def _cleanup_old_files(self):
+        """Удаляет файлы старше 1 часа из директории загрузок."""
+        try:
+            now = time.time()
+            one_hour_ago = now - 3600  # 1 час в секундах
             
-        # Проверяем, есть ли этот же файл в очереди
-        is_needed = any(t.filepath == track.filepath for t in self.queue)
-        if not is_needed:
-            await self._cleanup_files({track.filepath})
-        else:
-            logger.debug(f"Файл {track.filepath} все еще нужен очереди, не удаляем.")
-            
-    async def _cleanup_files(self, filepaths: set[str]):
-        """Безопасно удаляет файлы из переданного множества путей."""
-        for path in filepaths:
-            if path and os.path.exists(path):
+            count = 0
+            for file_path in glob.glob(f"{DOWNLOADS_DIR}/*"):
                 try:
-                    os.remove(path)
-                    logger.info(f"Удален файл: {path}")
+                    # Получаем время создания файла
+                    file_creation_time = os.path.getctime(file_path)
+                    
+                    # Если файл старше 1 часа, удаляем его
+                    if file_creation_time < one_hour_ago:
+                        os.remove(file_path)
+                        count += 1
+                        logger.debug(f"Удален старый файл: {file_path}")
                 except OSError as e:
-                    logger.error(f"Ошибка при удалении файла {path}: {e}")
+                    logger.error(f"Ошибка при удалении старого файла {file_path}: {e}")
+                    
+            if count > 0:
+                logger.info(f"Очистка завершена: удалено {count} старых файлов")
+        except Exception as e:
+            logger.error(f"Ошибка при очистке старых файлов: {e}", exc_info=True)
 
 # --- Глобальные функции поиска ---
 
-async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dict[str, Any]]]:
+async def search_youtube(query: str, max_results: int = 5) -> Optional[List[Dict[str, Any]]]:
     """Ищет видео на YouTube без скачивания."""
     logger.info(f"Поиск на YouTube: '{query}' (max_results={max_results})")
     
-    # Используем базовые настройки и добавляем специфичные для поиска
+    # Оптимизированные настройки для быстрого поиска
     ydl_opts = {
-        'format': 'bestaudio',  # Нужно для получения длительности
-        'extract_flat': 'discard_in_playlist',  # Не извлекать инфо о каждом видео плейлиста
+        'format': 'bestaudio',
+        'extract_flat': True,  # Максимально плоское извлечение для скорости
+        'skip_download': True,  # Гарантированно не скачиваем
         'playlistend': max_results,
         'quiet': True,
         'no_warnings': True,
         'default_search': f'ytsearch{max_results}',
         'source_address': '0.0.0.0',
         'proxy': PROXY_URL,
-        'socket_timeout': 10,  # Меньший таймаут для поиска
-        'retries': 2,  # Меньше повторных попыток для поиска
+        'socket_timeout': 5,  # Уменьшенный таймаут для скорости
+        'retries': 1,  # Минимальные повторные попытки
         'geo_bypass': True,
-        'geo_bypass_country': YDL_OPTS_BASE['geo_bypass_country'],  # Используем ту же страну, что и в основных настройках
+        'geo_bypass_country': YDL_OPTS_BASE['geo_bypass_country'],
         'logtostderr': False,
-        'ignoreerrors': True,  # Игнорировать ошибки отдельных видео
+        'ignoreerrors': True,
+        'skip_download_archive': True,
+        'youtube_include_dash_manifest': False,  # Отключаем DASH для ускорения
     }
     try:
         ytdl = yt_dlp.YoutubeDL(ydl_opts)
