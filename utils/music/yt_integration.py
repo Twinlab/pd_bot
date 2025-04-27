@@ -68,12 +68,12 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Неожиданная ошибка при скачивании трека ({url}): {e}", exc_info=True)
         return None
 
-async def search_youtube(query: str, max_results: int = 5) -> Optional[List[Dict[str, Any]]]:
+async def search_youtube(query: str, max_results: int = 3) -> Optional[List[Dict[str, Any]]]:
     """Ищет видео на YouTube без скачивания."""
     logger.info(f"Поиск на YouTube: '{query}' (max_results={max_results})")
     ydl_opts = {
         'format': 'bestaudio',
-        'extract_flat': True,
+        # 'extract_flat': True,  # Отключено для диагностики
         'skip_download': True,
         'playlistend': max_results,
         'quiet': True,
@@ -89,6 +89,7 @@ async def search_youtube(query: str, max_results: int = 5) -> Optional[List[Dict
         'ignoreerrors': True,
         'skip_download_archive': True,
         'youtube_include_dash_manifest': False,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     }
     try:
         ytdl = yt_dlp.YoutubeDL(ydl_opts)
