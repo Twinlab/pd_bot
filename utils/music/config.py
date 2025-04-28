@@ -32,7 +32,7 @@ except Exception as e:
 
 # Опции для yt-dlp
 YDL_OPTS_BASE = {
-    'format': 'bestaudio[ext=opus]/bestaudio/best',
+    'format': 'bestaudio/best',
     'outtmpl': str(DOWNLOADS_DIR / '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
     'restrictfilenames': True,
     'noplaylist': True,
