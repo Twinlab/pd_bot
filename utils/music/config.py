@@ -32,7 +32,7 @@ except Exception as e:
 
 # Опции для yt-dlp
 YDL_OPTS_BASE = {
-    'format': 'bestaudio/best',
+    'format': 'bestaudio[ext=opus]/bestaudio/best',
     'outtmpl': str(DOWNLOADS_DIR / '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
     'restrictfilenames': True,
     'noplaylist': True,
@@ -43,22 +43,18 @@ YDL_OPTS_BASE = {
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
     'proxy': PROXY_URL,
-    'socket_timeout': 15,
+    'socket_timeout': 10,
     'retries': 3,
     'fragment_retries': 3,
     'skip_download_archive': True,
     'geo_bypass': True,
     'geo_bypass_country': 'US',
-    'postprocessors': [{
-        'key': 'FFmpegExtractAudio',
-        'preferredcodec': 'opus',
-        'preferredquality': '128',
-    }],
+    'postprocessors': [],
     'logtostderr': False,
 }
 
 # Опции FFmpeg
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -f opus',
-    'options': '-vn -loglevel debug -hide_banner',
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'options': '-vn -loglevel info -hide_banner',
 }
