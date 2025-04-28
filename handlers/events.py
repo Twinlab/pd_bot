@@ -4,18 +4,37 @@ import logging
 from typing import List, Optional, Union
 import asyncio
 
-# Импорты для музыки (возвращаем)
+# Определяем logger до его использования
+logger = logging.getLogger("bot")
+
+# Импорты для музыки
 try:
-    from utils.music_utils import cleanup_player, auto_disconnect
-    # Пытаемся импортировать плеер для проверки типа, но не обязательно
-    from utils.music_utils import MusicPlayer
+    # Импортируем MusicPlayer из правильного модуля
+    from utils.music import MusicPlayer
+    
+    # Определяем функции для работы с музыкой
+    async def cleanup_player(player, guild_name):
+        """Очищает плеер после отключения"""
+        if player:
+            await player.cleanup(clear_queue=True)
+            logger.info(f"Плеер очищен для гильдии {guild_name}")
+    
+    async def auto_disconnect(player, guild, voice_channel):
+        """Автоматически отключает бота после периода неактивности"""
+        logger.info(f"Запущено автоотключение для {guild.name} из канала {voice_channel.name}")
+        await asyncio.sleep(180)  # 3 минуты ожидания
+        
+        # Проверяем, что бот все еще в том же канале и канал пуст
+        voice_client = guild.voice_client
+        if voice_client and voice_client.channel == voice_channel:
+            if len(voice_client.channel.members) == 1:  # Только бот в канале
+                logger.info(f"Автоотключение из {voice_channel.name} после периода неактивности")
+                await player.disconnect()
 except ImportError:
     cleanup_player = None
     auto_disconnect = None
-    MusicPlayer = None # Определяем как None, если импорт не удался
+    MusicPlayer = None  # Определяем как None, если импорт не удался
     logger.warning("Модули для работы с музыкой не найдены")
-
-logger = logging.getLogger("bot")
 
 class Events(commands.Cog):
     """Ког для обработки основных событий Discord."""
