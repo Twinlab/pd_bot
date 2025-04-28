@@ -43,7 +43,12 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
             title = info.get('title', 'unknown_title')
             safe_title = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title)[:100]
             expected_base = f"{DOWNLOADS_DIR}/{extractor}-{track_id}-{safe_title}"
-        preferred_ext = '.' + ydl_opts['postprocessors'][0]['preferredcodec']
+        
+        # Безопасное получение предпочтительного расширения
+        preferred_ext = '.mp3'  # Расширение по умолчанию
+        if ydl_opts.get('postprocessors') and len(ydl_opts['postprocessors']) > 0:
+            preferred_ext = '.' + ydl_opts['postprocessors'][0].get('preferredcodec', 'mp3')
+        
         filepath = expected_base + preferred_ext
         if not os.path.exists(filepath):
             logger.warning(f"Файл {filepath} не найден. Ищем с помощью glob: {expected_base}.*")
@@ -68,7 +73,7 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Неожиданная ошибка при скачивании трека ({url}): {e}", exc_info=True)
         return None
 
-async def search_youtube(query: str, max_results: int = 3) -> Optional[List[Dict[str, Any]]]:
+async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dict[str, Any]]]:
     """Ищет видео на YouTube без скачивания."""
     logger.info(f"Поиск на YouTube: '{query}' (max_results={max_results})")
     ydl_opts = {

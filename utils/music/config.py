@@ -49,7 +49,11 @@ YDL_OPTS_BASE = {
     'skip_download_archive': True,
     'geo_bypass': True,
     'geo_bypass_country': 'US',
-    'postprocessors': [],
+    'postprocessors': [{
+        'key': 'FFmpegExtractAudio',
+        'preferredcodec': 'mp3',
+        'preferredquality': '192',
+    }],
     'logtostderr': False,
 }
 
