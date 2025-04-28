@@ -89,7 +89,7 @@ async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dic
         'socket_timeout': 5,
         'retries': 1,
         'geo_bypass': True,
-        'geo_bypass_country': YDL_OPTS_BASE['geo_bypass_country'],
+        'geo_bypass_country': YDL_OPTS_BASE.get('geo_bypass_country', 'RU'),  # Используем 'RU' как значение по умолчанию
         'logtostderr': False,
         'ignoreerrors': True,
         'skip_download_archive': True,
