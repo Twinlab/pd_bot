@@ -42,7 +42,7 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
             track_id = info.get('id', 'unknown_id')
             title = info.get('title', 'unknown_title')
             safe_title = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in title)[:100]
-            expected_base = f"{DOWNLOADS_DIR}/{extractor}-{track_id}-{safe_title}"
+            expected_base = str(DOWNLOADS_DIR / f"{extractor}-{track_id}-{safe_title}")
         
         # Безопасное получение предпочтительного расширения
         preferred_ext = '.mp3'  # Расширение по умолчанию

@@ -32,8 +32,8 @@ except Exception as e:
 
 # Опции для yt-dlp
 YDL_OPTS_BASE = {
-    'format': 'bestaudio/best',
-    'outtmpl': f'{DOWNLOADS_DIR}/%(extractor)s-%(id)s-%(title)s.%(ext)s',
+    'format': 'bestaudio[ext=opus]/bestaudio/best',
+    'outtmpl': str(DOWNLOADS_DIR / '%(extractor)s-%(id)s-%(title)s.%(ext)s'),
     'restrictfilenames': True,
     'noplaylist': True,
     'nocheckcertificate': True,
@@ -42,7 +42,7 @@ YDL_OPTS_BASE = {
     'no_warnings': True,
     'default_search': 'ytsearch',
     'source_address': '0.0.0.0',
-    'proxy': _config.get("PROXY_URL", None),
+    'proxy': PROXY_URL,
     'postprocessors': [{
         'key': 'FFmpegExtractAudio',
         'preferredcodec': 'mp3',
