@@ -52,6 +52,6 @@ YDL_OPTS_BASE = {
 
 # Опции FFmpeg
 FFMPEG_OPTIONS = {
-    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+    'before_options': '',
     'options': '-vn -loglevel info -hide_banner',
 }
