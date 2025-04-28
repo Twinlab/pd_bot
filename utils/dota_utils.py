@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Tuple, Dict, Any, Optional
 import logging
 
-logger = logging.getLogger("dota_bot")
+logger = logging.getLogger("bot.dota")
 
 # --- Функции форматирования данных Dota 2 ---
 

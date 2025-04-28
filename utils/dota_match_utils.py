@@ -9,7 +9,7 @@ from discord.ext import commands # Для type hint в docstring
 from utils.dota_api import query_api_with_retry, fetch_items_data
 from utils.dota_utils import get_role, convert_average_rank_to_medal, get_game_mode, get_win_rates
 
-logger = logging.getLogger("dota_bot")
+logger = logging.getLogger("bot.dota")
 
 # GraphQL запросы к API Stratz
 QUERY_MATCHES = '''

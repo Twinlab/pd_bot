@@ -6,7 +6,7 @@ import os
 import asyncio
 from typing import Dict, Any, Optional
 
-logger = logging.getLogger("dota_bot")
+logger = logging.getLogger("bot.dota")
 
 # Глобальные переменные для кэширования в памяти
 match_cache: Dict[str, Dict[str, Any]] = {} # {cache_key: {'data': ..., 'timestamp': ...}}
