@@ -9,7 +9,7 @@ async def test_initialize_database(monkeypatch):
         async def close(self): return None
         async def __aenter__(self): return self
         async def __aexit__(self, exc_type, exc, tb): return None
-    async def dummy_connect(*a, **kw): return DummyConn()
+    def dummy_connect(*a, **kw): return DummyConn()
     monkeypatch.setattr("aiosqlite.connect", dummy_connect)
 
     await initialize_database()
