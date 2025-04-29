@@ -8,25 +8,24 @@ logger = logging.getLogger("bot.dota")
 
 def get_role(player_position: Optional[str]) -> str:
     """
-    Преобразует код позиции игрока (например, 'POSITION_1') в читаемое название роли.
+    Преобразует номер позиции игрока ('1', '2', '3', '4', '5') в читаемое название роли на русском.
 
     Args:
-        player_position: Строка с кодом позиции из API Stratz.
+        player_position: Строка с номером позиции ('1', '2', ...), либо None.
 
     Returns:
-        Название роли ('Carry', 'Mid', 'Offlane', 'Soft Support', 'Hard Support') или 'Unknown'.
+        Название роли ('Керри', 'Мидер', 'Оффлейнер', 'Саппорт') или 'Неизвестно'.
     """
     if not player_position:
-         return 'Unknown'
-         
+        return 'Неизвестно'
     roles = {
-        'POSITION_1': 'Carry',
-        'POSITION_2': 'Mid',
-        'POSITION_3': 'Offlane',
-        'POSITION_4': 'Soft Support',
-        'POSITION_5': 'Hard Support'
+        '1': 'Керри',
+        '2': 'Мидер',
+        '3': 'Оффлейнер',
+        '4': 'Саппорт',
+        '5': 'Саппорт'
     }
-    return roles.get(player_position, 'Unknown')
+    return roles.get(str(player_position), 'Неизвестно')
 
 def convert_average_rank_to_medal(average_rank: Optional[int]) -> str:
     """
