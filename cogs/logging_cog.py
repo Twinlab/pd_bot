@@ -88,6 +88,12 @@ class LoggingCog(commands.Cog):
                 
                 return
             else:
+                # Проверяем права бота в канале
+                permissions = self.log_channel.permissions_for(self.log_channel.guild.me)
+                if not permissions.send_messages:
+                    logger.error(f"[LogCog] У бота нет прав на отправку сообщений в канал {self.log_channel.name} ({self.log_channel_id})")
+                    return
+                
                 logger.info(f"[LogCog] Канал для логирования '{self.log_channel.name}' ({self.log_channel_id}) успешно получен в цикле.")
 
         try:
@@ -144,10 +150,10 @@ class LoggingCog(commands.Cog):
         if not self.log_channel:
             return
 
-        # logger.debug(f"[LogCog] Попытка отправки сообщения в канал {self.log_channel.name}")
+        logger.info(f"[LogCog] Попытка отправки сообщения в канал {self.log_channel.name}")
         try:
             await self.log_channel.send(f"```\n{message.strip()}\n```")
-            # logger.debug(f"[LogCog] Сообщение успешно отправлено.")
+            logger.info(f"[LogCog] Сообщение успешно отправлено в канал {self.log_channel.name}")
         except discord.HTTPException as e:
             logger.error(f"[LogCog] Ошибка Discord API при отправке лога: {e}")
             if e.status == 403:

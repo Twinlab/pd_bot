@@ -187,16 +187,24 @@ class TwitchCog(commands.Cog):
             stream_data: Данные о стриме
         """
         try:
-            logger.info(f"Отправка уведомления о стриме {username} на сервер {guild_id} в канал {channel_id}")
+            logger.info(f"НАЧАЛО: Отправка уведомления о стриме {username} на сервер {guild_id} в канал {channel_id}")
             
+            # Проверяем, что бот готов
+            if not self.bot.is_ready():
+                logger.error(f"Бот не готов при попытке отправить уведомление о стриме {username}")
+                return
+                
+            # Получаем объект сервера
             guild = self.bot.get_guild(guild_id)
             if not guild:
-                logger.warning(f"Не найден сервер с ID {guild_id}")
+                logger.error(f"Не найден сервер с ID {guild_id}. Доступные серверы: {[g.name for g in self.bot.guilds]}")
                 return
             
+            # Получаем объект канала
             channel = guild.get_channel(channel_id)
             if not channel:
-                logger.warning(f"Не найден канал с ID {channel_id} на сервере {guild.name}")
+                logger.error(f"Не найден канал с ID {channel_id} на сервере {guild.name}. Доступные каналы: {[c.name for c in guild.text_channels]}")
+                
                 # Пробуем найти канал по умолчанию
                 default_channel_id = 1113813039083442296
                 default_channel = guild.get_channel(default_channel_id)
@@ -205,7 +213,14 @@ class TwitchCog(commands.Cog):
                     channel = default_channel
                 else:
                     logger.error(f"Канал по умолчанию {default_channel_id} также не найден на сервере {guild.name}")
-                    return
+                    
+                    # Пробуем использовать первый доступный текстовый канал
+                    if guild.text_channels:
+                        channel = guild.text_channels[0]
+                        logger.info(f"Используем первый доступный канал: {channel.name} ({channel.id})")
+                    else:
+                        logger.error(f"На сервере {guild.name} нет доступных текстовых каналов")
+                        return
             
             # Создаем эмбед с информацией о стриме
             embed = discord.Embed(
@@ -238,13 +253,34 @@ class TwitchCog(commands.Cog):
             # Добавляем футер
             embed.set_footer(text="Twitch Stream Notification")
             
-            # Отправляем уведомление
-            await channel.send(
-                content=f"@everyone **{stream_data['user_name']}** начал(а) стрим на Twitch!",
-                embed=embed
-            )
+            # Проверяем права бота в канале
+            permissions = channel.permissions_for(guild.me)
+            if not permissions.send_messages:
+                logger.error(f"У бота нет прав на отправку сообщений в канал {channel.name} ({channel.id}) на сервере {guild.name}")
+                return
+                
+            if not permissions.embed_links:
+                logger.warning(f"У бота нет прав на отправку эмбедов в канал {channel.name} ({channel.id}) на сервере {guild.name}")
+                # Продолжаем, но без эмбеда
             
-            logger.info(f"Отправлено уведомление о стриме {username} на сервер {guild.name}")
+            # Отправляем уведомление
+            try:
+                if permissions.embed_links:
+                    await channel.send(
+                        content=f"@everyone **{stream_data['user_name']}** начал(а) стрим на Twitch!",
+                        embed=embed
+                    )
+                else:
+                    await channel.send(
+                        content=f"@everyone **{stream_data['user_name']}** начал(а) стрим на Twitch!\n"
+                                f"Название: {stream_data['title']}\n"
+                                f"Ссылка: https://twitch.tv/{username}"
+                    )
+                
+                logger.info(f"УСПЕХ: Отправлено уведомление о стриме {username} на сервер {guild.name} в канал {channel.name}")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке сообщения в канал {channel.name}: {e}", exc_info=True)
+                return
         
         except discord.Forbidden:
             logger.error(f"Недостаточно прав для отправки уведомления в канал {channel_id} на сервере {guild_id}")
