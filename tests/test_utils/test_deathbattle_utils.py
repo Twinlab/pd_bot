@@ -18,9 +18,15 @@ async def test_create_deathbattle_image():
     result = await create_deathbattle_image(member1, member2)
     assert result is None or hasattr(result, "read")  # BytesIO или None
 
+from unittest.mock import AsyncMock
+
 @pytest.mark.asyncio
 async def test_run_battle():
     ctx = MagicMock()
+    ctx.send = AsyncMock()
+    ctx.author = MagicMock()
+    ctx.guild = MagicMock()
+    ctx.guild.members = [ctx.author]
     member1 = MagicMock()
     member2 = MagicMock()
     await run_battle(ctx, member1, member2)

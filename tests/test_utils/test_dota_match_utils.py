@@ -11,10 +11,19 @@ async def test_get_match_data():
     assert isinstance(result, tuple)
     assert len(result) == 4
 
+from unittest.mock import AsyncMock
+
 @pytest.mark.asyncio
 async def test_handle_lastmatch():
     ctx = MagicMock()
+    ctx.send = AsyncMock()
+    ctx.author = MagicMock()
+    ctx.bot = MagicMock()
+    ctx.bot.config = {"STRATZ_API_KEY": "fake"}
+    ctx.guild = MagicMock()
     user_links_list = [123]
     member = MagicMock()
+    member.id = 123
+    member.mention = "@user"
     await handle_lastmatch(ctx, user_links_list, member)
     await handle_lastmatch(ctx, user_links_list, None)

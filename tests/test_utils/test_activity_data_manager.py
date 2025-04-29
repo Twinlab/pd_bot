@@ -18,14 +18,16 @@ def manager(monkeypatch):
 async def test_update_activity(manager):
     await manager.update_activity(1, "game", 10)
 
+from datetime import date
+
 @pytest.mark.asyncio
 async def test_get_daily_stats(manager):
-    result = await manager.get_daily_stats(target_date=None)
+    result = await manager.get_daily_stats(target_date=date.today())
     assert isinstance(result, dict)
 
 @pytest.mark.asyncio
 async def test_transfer_daily_to_monthly(manager):
-    result = await manager.transfer_daily_to_monthly(target_date=None)
+    result = await manager.transfer_daily_to_monthly(target_date=date.today())
     assert isinstance(result, bool)
 
 @pytest.mark.asyncio

@@ -1,4 +1,5 @@
 import aiosqlite
+from collections import defaultdict
 import logging
 from typing import List, Tuple, Optional, Dict # Добавляем Dict
 import asyncio
