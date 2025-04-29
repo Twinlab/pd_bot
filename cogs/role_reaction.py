@@ -3,6 +3,7 @@ from discord.ext import commands
 from discord import app_commands
 import logging
 import asyncio
+import aiosqlite
 from typing import Optional, Union
 
 # Импортируем утилиты
@@ -144,8 +145,16 @@ class RoleReaction(commands.Cog):
             # Отправляем начальное сообщение
             message = await target_channel.send("Нужна роль? Нажми на соответствующую реакцию.")
             
-            # Сохраняем информацию о сообщении
+            # Сохраняем информацию о сообщении в кеше
             self.message_cache[ctx.guild.id] = (target_channel.id, message.id)
+            
+            # Сохраняем информацию о сообщении в базе данных
+            await self.data_manager.add_role_reaction(
+                ctx.guild.id, target_channel.id, message.id,
+                "placeholder", 0, "placeholder"
+            )
+            # Удаляем временную запись, она нужна только для хранения ID сообщения
+            await self.data_manager.remove_role_reaction(ctx.guild.id, "placeholder")
             
             # Подтверждаем создание сообщения
             await safe_send(
