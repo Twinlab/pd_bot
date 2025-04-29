@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands, tasks
 import logging
 import os
-import asyncio
 
 logger = logging.getLogger("bot")
 CHECK_INTERVAL_SECONDS = 5
@@ -21,12 +20,8 @@ class LoggingCog(commands.Cog):
         self.last_read_position = 0
         self._tail_task_started = False
 
-    async def cog_load(self):
-        """Вызывается при загрузке кога — запускает задачу инициализации после полной готовности бота."""
-        logger.info("[LogCog] cog_load вызван.")
-        self.bot.loop.create_task(self._delayed_start())
-
-    async def _delayed_start(self):
+    async def setup(self):
+        logger.info("[LogCog] setup вызван.")
         await self.bot.wait_until_ready()
         await self._send_full_log_and_start_tail()
 
@@ -107,4 +102,6 @@ class LoggingCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     """Добавляет LoggingCog к боту."""
-    await bot.add_cog(LoggingCog(bot))
+    cog = LoggingCog(bot)
+    await bot.add_cog(cog)
+    await cog.setup()
