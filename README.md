@@ -140,7 +140,9 @@ pip install -r requirements.txt
   "PREFIX": "!",
   "PROXY_URL": "",
   "REPORT_CHANNEL_ID": 573665353327181824,
-  "ANIME_CHANNEL_ID": 298811309640646666
+  "ANIME_CHANNEL_ID": 298811309640646666,
+  "TWITCH_CLIENT_ID": "ваш-client-id-twitch-api",
+  "TWITCH_CLIENT_SECRET": "ваш-client-secret-twitch-api"
 }
 ```
 *   `BOT_TOKEN`: Токен вашего Discord бота.
@@ -149,6 +151,8 @@ pip install -r requirements.txt
 *   `PROXY_URL`: URL прокси-сервера для yt-dlp (опционально).
 *   `REPORT_CHANNEL_ID`: ID канала для отчетов активности. Бот использует это значение для отправки ежедневных и ежемесячных отчетов. Если ключ отсутствует, используется значение по умолчанию `573665353327181824`.
 *   `ANIME_CHANNEL_ID`: ID текстового канала для автоматической публикации аниме-изображений.
+*   `TWITCH_CLIENT_ID`: Client ID приложения Twitch для API (необходим для модуля отслеживания стримов).
+*   `TWITCH_CLIENT_SECRET`: Client Secret приложения Twitch для API (необходим для модуля отслеживания стримов).
 
 **ВАЖНО:** Не добавляйте файлы `data/config.json` и `data/bot_data.db` в систему контроля версий (Git). Убедитесь, что `data/` добавлен в `.gitignore`.
 
@@ -330,7 +334,16 @@ logger.error("Ошибка при выполнении команды", exc_info
 import logging
 logger = logging.getLogger("bot.subsystem")
 ```
-## 8. Расширение функциональности
+## 8. Отслеживание Twitch-стримов (`cogs/twitch.py`)
+
+*   `/twitch_add <twitch_username> [channel]`: (Только для администраторов) Добавляет Twitch-стримера для отслеживания. Если канал не указан, уведомления будут отправляться в текущий канал.
+*   `/twitch_remove <twitch_username>`: (Только для администраторов) Удаляет Twitch-стримера из отслеживаемых.
+*   `/twitch_list`: Показывает список отслеживаемых Twitch-стримеров.
+*   **Автоматические уведомления:** Бот автоматически отправляет уведомления в указанные каналы, когда отслеживаемые стримеры начинают стрим.
+*   **Требования:** Для работы модуля необходимо указать `TWITCH_CLIENT_ID` и `TWITCH_CLIENT_SECRET` в файле конфигурации `data/config.json`. Эти ключи можно получить, создав приложение на [Twitch Developer Console](https://dev.twitch.tv/console/apps).
+*   **Хранение данных:** Информация о стримерах хранится в базе данных SQLite (`data/bot_data.db`) в таблице `twitch_streamers`.
+
+## 9. Расширение функциональности
 
 Для добавления новых команд:
 

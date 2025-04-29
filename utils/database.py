@@ -74,6 +74,25 @@ async def initialize_database():
                 )
             """)
             logger.info("Таблица 'role_reactions' проверена/создана.")
+            
+            # Таблица для Twitch-стримеров
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS twitch_streamers (
+                    guild_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    twitch_username TEXT NOT NULL,
+                    twitch_id TEXT,
+                    is_live BOOLEAN DEFAULT 0,
+                    last_stream_id TEXT,
+                    last_notification_time INTEGER DEFAULT 0,
+                    PRIMARY KEY (guild_id, twitch_username)
+                )
+            """)
+            # Индекс для быстрого поиска по имени пользователя
+            await db.execute("""
+                CREATE INDEX IF NOT EXISTS idx_twitch_streamers_username ON twitch_streamers (twitch_username);
+            """)
+            logger.info("Таблица 'twitch_streamers' и индекс проверены/созданы.")
 
             await db.commit()
             logger.info(f"База данных инициализирована: {DB_PATH}")
