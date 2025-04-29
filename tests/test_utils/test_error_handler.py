@@ -2,18 +2,22 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from utils.error_handler import command_error_handler, safe_send_error, safe_send
 
+from unittest.mock import AsyncMock, patch
+
 @pytest.mark.asyncio
 async def test_safe_send():
     ctx = MagicMock()
     ctx.send = AsyncMock()
-    await safe_send(ctx, "test", embed=None)
+    with patch("utils.error_handler.logger"):
+        await safe_send(ctx, "test", embed=None)
     ctx.send.assert_awaited_with("test", embed=None)
 
 @pytest.mark.asyncio
 async def test_safe_send_error():
     ctx = MagicMock()
     ctx.send = AsyncMock()
-    await safe_send_error(ctx, Exception("err"))
+    with patch("utils.error_handler.logger"):
+        await safe_send_error(ctx, Exception("err"))
     ctx.send.assert_awaited()
 
 @pytest.mark.asyncio
