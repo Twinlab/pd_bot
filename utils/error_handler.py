@@ -34,7 +34,7 @@ async def safe_send_error(ctx, error):
         if hasattr(ctx, 'interaction') and ctx.interaction:
             # Для slash-команд с активным взаимодействием
             if not ctx.interaction.response.is_done():
-                await ctx.respond(f"Произошла ошибка: {error}", ephemeral=True)
+                await ctx.interaction.response.send_message(f"Произошла ошибка: {error}", ephemeral=True)
             else:
                 try:
                     await ctx.interaction.followup.send(f"Произошла ошибка: {error}", ephemeral=True)
@@ -56,7 +56,7 @@ async def safe_send(ctx, content, **kwargs):
         if is_slash:
             # Для slash-команд
             if not ctx.interaction.response.is_done():
-                await ctx.respond(content, **kwargs)
+                await ctx.interaction.response.send_message(content, **kwargs)
             else:
                 await ctx.interaction.followup.send(content, **kwargs)
         else:

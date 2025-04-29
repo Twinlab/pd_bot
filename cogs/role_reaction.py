@@ -149,12 +149,11 @@ class RoleReaction(commands.Cog):
             self.message_cache[ctx.guild.id] = (target_channel.id, message.id)
             
             # Сохраняем информацию о сообщении в базе данных
+            # Используем специальный эмодзи, который не будет удален
             await self.data_manager.add_role_reaction(
                 ctx.guild.id, target_channel.id, message.id,
-                "placeholder", 0, "placeholder"
+                "✅", 0, "Системная запись - не удалять"
             )
-            # Удаляем временную запись, она нужна только для хранения ID сообщения
-            await self.data_manager.remove_role_reaction(ctx.guild.id, "placeholder")
             
             # Подтверждаем создание сообщения
             await safe_send(
