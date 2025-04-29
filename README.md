@@ -63,7 +63,7 @@ pd_bot/
 │   ├── cache/             # Кэш API (match_cache.json, items_cache.json)
 │   └── activity_archives/ # (Устарело, данные теперь в bot_data.db)
 ├── downloads/             # Скачанные музыкальные треки (временные)
-├── bot.log                # Файл логов
+├── logs/                  # Логи работы бота (отдельный файл для каждого запуска)
 └── requirements.txt       # Зависимости Python
 ```
 ## 3. Технические особенности
@@ -242,7 +242,7 @@ python main.py
 ### 4.10 Логирование (`cogs/logging_cog.py`)
 
 *   Этот ког не предоставляет команд пользователю.
-*   Он автоматически отслеживает файл `bot.log` и пересылает новые строки в заданный Discord канал.
+*   При каждом запуске бота отправляет весь текущий лог-файл (создаётся в папке `logs/` с уникальным именем) в заданный Discord канал, а затем автоматически пересылает все новые строки, которые появляются в этом файле (реализация tail -f).
 *   **Примечание:** ID канала для логирования в настоящее время жестко задан в коде (`cogs/logging_cog.py`). В будущем его следует вынести в конфигурационный файл `data/config.json`.
 
 ## 5. Обработка ошибок (`utils/error_handler.py`)
@@ -270,18 +270,26 @@ python main.py
 ```python
 import logging
 
+from pathlib import Path
+from datetime import datetime
+
+LOGS_DIR = Path("logs")
+LOGS_DIR.mkdir(exist_ok=True)
+log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
+log_path = LOGS_DIR / log_filename
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("bot.log"),
+        logging.FileHandler(log_path, mode="a", encoding=None, delay=False, buffering=1),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger("bot")
 ```
 
-- Все логи пишутся в файл `bot.log` и выводятся в консоль.
+- Все логи пишутся в отдельный файл в папке `logs/` для каждого запуска бота (например, `logs/2025-04-30_01-16-00.log`) и выводятся в консоль.
 - Формат логов: время, имя логгера, уровень, сообщение.
 
 ### 7.2 Именование логгеров
@@ -320,7 +328,8 @@ logger.error("Ошибка при выполнении команды", exc_info
 
 ### 7.5 Пересылка логов в Discord
 
-- Все новые записи из `bot.log` автоматически пересылаются в специальный Discord-канал через ког `cogs/logging_cog.py`.
+- При каждом запуске бота весь текущий лог-файл (из папки `logs/`) автоматически отправляется в специальный Discord-канал через ког `cogs/logging_cog.py`.
+- После этого все новые строки, появляющиеся в этом файле, также автоматически пересылаются в этот канал (реализация tail -f).
 - ID канала для логирования задается в коде (см. комментарии в `cogs/logging_cog.py`).
 
 ### 7.6 Требования к новым модулям

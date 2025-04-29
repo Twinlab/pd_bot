@@ -1,177 +1,104 @@
 import discord
 from discord.ext import commands, tasks
-import asyncio
 import logging
 import os
+import asyncio
 
 logger = logging.getLogger("bot")
-LOG_FILE_PATH = "bot.log"
 CHECK_INTERVAL_SECONDS = 5
-MAX_MESSAGE_LENGTH = 1990 # Макс. длина сообщения Discord (с запасом для ```)
+MAX_MESSAGE_LENGTH = 1990  # Discord limit with margin for code block
 
 class LoggingCog(commands.Cog):
     """
-    Ког для пересылки новых строк из файла логов в указанный Discord канал.
-    Отслеживает файл bot.log и отправляет новые записи в заданный канал.
+    Ког для отправки всего текущего файла логов в указанный Discord канал при запуске,
+    а затем отправки новых строк по мере их появления (tail -f).
     """
-
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        # TODO: Перенести LOG_CHANNEL_ID в config.py или переменные окружения
-        self.log_channel_id = 1365045098785542224 # Жестко заданный ID канала для логов
-        self.log_channel = None # Объект канала Discord (получается при первом запуске цикла)
+        self.log_channel_id = 1365045098785542224  # Жестко заданный ID канала для логов
+        self.log_channel = None
+        self.log_file_path = getattr(bot, "log_file_path", "bot.log")
         self.last_read_position = 0
-        self.log_file_path = LOG_FILE_PATH
-        self._task_started = False # Флаг для отслеживания запуска задачи
-
-        if not self.log_channel_id:
-            logger.warning("[LogCog] ID канала логирования не установлен. Логирование в Discord отключено.")
-            return
-
-        # Определяем начальную позицию для чтения файла логов (сразу при инициализации)
-        try:
-            # logger.info("[LogCog] Попытка определить начальную позицию чтения лога...") # Убрано
-            if os.path.exists(self.log_file_path):
-                self.last_read_position = 0
-                logger.info(f"[LogCog] Начальная позиция чтения лога установлена в НАЧАЛО файла '{self.log_file_path}'. Все строки будут отправлены в Discord.")
-            else:
-                logger.warning(f"[LogCog] Файл логов '{self.log_file_path}' не найден при инициализации. Чтение начнется с начала после создания файла.")
-                self.last_read_position = 0
-
-            # logger.info("[LogCog] Попытка запуска задачи tail_log_file...") # Убрано
-            self.tail_log_file.start()
-            self._task_started = True
-            logger.info("[LogCog] Задача чтения логов tail_log_file успешно запущена.")
-
-        except Exception as e:
-            logger.error(f"[LogCog] Критическая ошибка при получении начального размера файла логов '{self.log_file_path}' в __init__: {e}. Задача чтения логов не будет запущена.", exc_info=True)
+        self._tail_task_started = False
 
     async def cog_load(self):
-        """Вызывается при загрузке кога (теперь только логирует)."""
+        """Вызывается при загрузке кога — отправляет весь лог и запускает tail."""
         logger.info("[LogCog] cog_load вызван.")
-        if not self._task_started:
-            logger.warning("[LogCog] Задача чтения логов не была запущена в __init__.")
-        # Логика получения канала и wait_until_ready удалена, т.к. она есть в цикле
+        await self.bot.wait_until_ready()
+        # Получаем канал
+        self.log_channel = self.bot.get_channel(self.log_channel_id)
+        if not self.log_channel:
+            logger.error(f"[LogCog] Не удалось получить канал логирования (ID: {self.log_channel_id}). Проверьте ID и права бота.")
+            return
+        permissions = self.log_channel.permissions_for(self.log_channel.guild.me)
+        if not permissions.send_messages:
+            logger.error(f"[LogCog] У бота нет прав на отправку сообщений в канал {self.log_channel.name} ({self.log_channel_id})")
+            return
 
-    def cog_unload(self):
-        """Останавливает задачу при выгрузке кога."""
-        # logger.info("[LogCog] cog_unload вызван.") # Убрано
-        if self._task_started:
-            self.tail_log_file.cancel()
-            logger.info("[LogCog] Задача логирования в Discord остановлена.")
+        # Читаем и отправляем весь лог
+        if not os.path.exists(self.log_file_path):
+            logger.warning(f"[LogCog] Файл логов '{self.log_file_path}' не найден.")
+            return
+
+        try:
+            with open(self.log_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                buffer = ""
+                for line in f:
+                    if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
+                        await self.send_log_message(buffer)
+                        buffer = line
+                    else:
+                        buffer += line
+                if buffer:
+                    await self.send_log_message(buffer)
+                self.last_read_position = f.tell()
+            logger.info(f"[LogCog] Весь лог '{self.log_file_path}' отправлен в канал {self.log_channel.name}.")
+        except Exception as e:
+            logger.error(f"[LogCog] Ошибка при отправке лога: {e}", exc_info=True)
+
+        # Запускаем задачу tail
+        if not self._tail_task_started:
+            self.tail_log_file.start()
+            self._tail_task_started = True
+            logger.info("[LogCog] Задача tail_log_file успешно запущена.")
 
     @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
     async def tail_log_file(self):
         """Периодически проверяет файл логов на новые записи и отправляет их в Discord."""
-        # logger.debug("[LogCog] Итерация цикла tail_log_file.")
-
         if self.log_channel is None:
-            if not self.bot.is_ready():
-                # logger.debug("[LogCog] Бот еще не готов, канал не может быть получен. Пропуск итерации.")
-                return
-
-            # logger.info(f"[LogCog] Попытка получить канал логирования (ID: {self.log_channel_id})...") # Убрано
-            self.log_channel = self.bot.get_channel(self.log_channel_id)
-
-            if not self.log_channel:
-                logger.error(f"[LogCog] Не удалось получить канал логирования (ID: {self.log_channel_id}). Проверьте ID канала и права бота.")
-                
-                # Попробуем получить список всех доступных каналов для диагностики
-                available_channels = []
-                for guild in self.bot.guilds:
-                    for channel in guild.text_channels:
-                        available_channels.append(f"{channel.name} (ID: {channel.id})")
-                
-                if available_channels:
-                    logger.info(f"[LogCog] Доступные текстовые каналы: {', '.join(available_channels[:10])}" +
-                               (f" и еще {len(available_channels) - 10}..." if len(available_channels) > 10 else ""))
-                
-                return
-            else:
-                # Проверяем права бота в канале
-                permissions = self.log_channel.permissions_for(self.log_channel.guild.me)
-                if not permissions.send_messages:
-                    logger.error(f"[LogCog] У бота нет прав на отправку сообщений в канал {self.log_channel.name} ({self.log_channel_id})")
-                    return
-                
-                logger.info(f"[LogCog] Канал для логирования '{self.log_channel.name}' ({self.log_channel_id}) успешно получен в цикле.")
-
+            return
+        if not os.path.exists(self.log_file_path):
+            return
         try:
-            # logger.debug(f"[LogCog] Проверка файла: {self.log_file_path}")
-            file_exists = os.path.exists(self.log_file_path)
-            # logger.debug(f"[LogCog] Файл существует: {file_exists}")
-            if not file_exists:
-                return
-
-            current_size = os.path.getsize(self.log_file_path)
-            # logger.debug(f"[LogCog] Текущий размер: {current_size}, Последняя позиция: {self.last_read_position}")
-
-            if current_size < self.last_read_position:
-                logger.info(f"[LogCog] Файл логов '{self.log_file_path}' был усечен (с {self.last_read_position} до {current_size} байт). Чтение продолжится с начала.")
-                self.last_read_position = 0
-
-            if current_size > self.last_read_position:
-                # logger.debug(f"[LogCog] Файл вырос. Чтение с позиции {self.last_read_position}")
-                with open(self.log_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    # logger.debug(f"[LogCog] Seeking to position: {self.last_read_position}")
-                    f.seek(self.last_read_position)
-                    new_lines = f.readlines()
-                    new_position = f.tell()
-                    # logger.debug(f"[LogCog] Прочитано {len(new_lines)} строк. Новая позиция: {new_position}")
-
-                if new_lines:
-                    # logger.info(f"[LogCog] Обнаружено {len(new_lines)} новых строк лога для отправки.")
-                    buffer = ""
-                    for line in new_lines:
-                        if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
-                            if buffer:
-                                # logger.debug(f"[LogCog] Отправка буфера (переполнение): {buffer[:100]}...")
-                                await self.send_log_message(buffer)
-                            buffer = line
-                        else:
-                            buffer += line
-                    if buffer:
-                        # logger.debug(f"[LogCog] Отправка остатка буфера: {buffer[:100]}...")
+            with open(self.log_file_path, "r", encoding="utf-8", errors="ignore") as f:
+                f.seek(self.last_read_position)
+                new_lines = f.readlines()
+                new_position = f.tell()
+            if new_lines:
+                buffer = ""
+                for line in new_lines:
+                    if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
                         await self.send_log_message(buffer)
-
-                # logger.debug(f"[LogCog] Обновление позиции чтения на {new_position}")
-                self.last_read_position = new_position
-            # else:
-                # logger.debug("[LogCog] Размер файла не изменился.")
-
-        except FileNotFoundError:
-             logger.warning(f"[LogCog] Файл логов '{self.log_file_path}' не найден во время чтения.")
-             self.last_read_position = 0
+                        buffer = line
+                    else:
+                        buffer += line
+                if buffer:
+                    await self.send_log_message(buffer)
+            self.last_read_position = new_position
         except Exception as e:
-            logger.error(f"[LogCog] Ошибка в цикле чтения/отправки логов: {e}", exc_info=True)
+            logger.error(f"[LogCog] Ошибка в tail_log_file: {e}", exc_info=True)
 
     async def send_log_message(self, message: str):
         """Отправляет отформатированное сообщение лога в Discord канал."""
         if not self.log_channel:
             return
-
-        logger.info(f"[LogCog] Попытка отправки сообщения в канал {self.log_channel.name}")
         try:
             await self.log_channel.send(f"```\n{message.strip()}\n```")
-            logger.info(f"[LogCog] Сообщение успешно отправлено в канал {self.log_channel.name}")
         except discord.HTTPException as e:
             logger.error(f"[LogCog] Ошибка Discord API при отправке лога: {e}")
-            if e.status == 403:
-                logger.error(f"[LogCog] Ошибка прав доступа (403) при отправке в канал {self.log_channel_id}. Отменяем задачу логирования.")
-                self.tail_log_file.cancel()
-                self.log_channel = None
         except Exception as e:
             logger.error(f"[LogCog] Неизвестная ошибка при отправке лога: {e}")
 
-    @tail_log_file.before_loop
-    async def before_tail_log_file(self):
-        """Ожидание готовности бота перед первым запуском цикла."""
-        # logger.info("[LogCog] before_loop: Ожидание готовности бота...") # Убрано
-        await self.bot.wait_until_ready()
-        # logger.info("[LogCog] before_loop: Бот готов.") # Убрано
-
-
 async def setup(bot: commands.Bot):
     """Добавляет LoggingCog к боту."""
-    # logger.info("[LogCog] Вызов setup для LoggingCog.") # Убрано
     await bot.add_cog(LoggingCog(bot))
