@@ -53,7 +53,10 @@ class MusicCog(commands.Cog, name="Music"):
 
     async def _ensure_voice(self, interaction: discord.Interaction) -> bool:
         if not isinstance(interaction.user, discord.Member) or not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.response.send_message("Вы должны быть в голосовом канале, чтобы использовать эту команду!", ephemeral=True)
+            if interaction.response.is_done():
+                await interaction.followup.send("Вы должны быть в голосовом канале, чтобы использовать эту команду!", ephemeral=True)
+            else:
+                await interaction.response.send_message("Вы должны быть в голосовом канале, чтобы использовать эту команду!", ephemeral=True)
             return False
         return True
 

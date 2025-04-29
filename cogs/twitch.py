@@ -472,11 +472,32 @@ class TwitchCog(commands.Cog):
                 status = "🔴 В сети" if streamer['is_live'] else "⚫ Не в сети"
                 streamers_list.append(f"[{username}](https://twitch.tv/{username}) - {status}")
             
-            embed.add_field(
-                name=f"Канал: {channel_name}",
-                value="\n".join(streamers_list) or "Нет стримеров",
-                inline=False
-            )
+            # Разбиваем список стримеров на чанки по 900 символов (с запасом)
+            chunk = []
+            chunk_len = 0
+            for entry in streamers_list:
+                if chunk_len + len(entry) + 1 > 900:
+                    embed.add_field(
+                        name=f"Канал: {channel_name}",
+                        value="\n".join(chunk),
+                        inline=False
+                    )
+                    chunk = []
+                    chunk_len = 0
+                chunk.append(entry)
+                chunk_len += len(entry) + 1
+            if chunk:
+                embed.add_field(
+                    name=f"Канал: {channel_name}",
+                    value="\n".join(chunk),
+                    inline=False
+                )
+            if not streamers_list:
+                embed.add_field(
+                    name=f"Канал: {channel_name}",
+                    value="Нет стримеров",
+                    inline=False
+                )
         
         # Добавляем футер
         embed.set_footer(text=f"Всего отслеживается {len(streamers)} стримеров")
