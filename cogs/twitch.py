@@ -244,9 +244,6 @@ class TwitchCog(commands.Cog):
             # Добавляем информацию о зрителях
             embed.add_field(name="Зрители", value=str(stream_data['viewer_count']), inline=True)
             
-            # Добавляем информацию о языке
-            embed.add_field(name="Язык", value=stream_data['language'], inline=True)
-            
             # Добавляем футер
             embed.set_footer(text="Twitch Stream Notification")
             
@@ -263,8 +260,7 @@ class TwitchCog(commands.Cog):
             # Отправляем уведомление
             try:
                 # Проверяем, можно ли упоминать @everyone
-                can_mention = permissions.mention_everyone
-                mention_text = "@everyone " if can_mention else ""
+                mention_text = ""
                 
                 if permissions.embed_links:
                     logger.info(f"Отправка сообщения с эмбедом в канал {channel.name}")
