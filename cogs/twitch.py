@@ -138,23 +138,25 @@ class TwitchCog(commands.Cog):
                 
                 # Если стример только что начал стрим
                 if is_live and status_changed:
-                    logger.info(f"Стример {username} начал стрим: {stream_data['title']}")
+                    logger.info(f"ОБНАРУЖЕН НОВЫЙ СТРИМ: Стример {username} начал стрим: {stream_data['title']}")
                     
                     # Обновляем статус в БД
                     await self.data_manager.update_streamer_status(username, True, stream_data['id'])
                     
-                    # Отправляем уведомления на все серверы, где отслеживается этот стример
-                    for streamer_info in user_streamers:
+                    # Берем первую запись стримера (так как бот работает только на одном сервере)
+                    if user_streamers:
+                        streamer_info = user_streamers[0]
                         guild_id = streamer_info['guild_id']
                         channel_id = streamer_info['channel_id']
                         
-                        # Проверяем, не отправляли ли мы уже уведомление для этого стрима
-                        if streamer_info['last_stream_id'] != stream_data['id']:
-                            await self.send_stream_notification(
-                                guild_id, channel_id, username, stream_data
-                            )
-                            # Обновляем время последнего уведомления и ID стрима
-                            await self.data_manager.update_notification_time(username, guild_id, stream_data['id'])
+                        # Всегда отправляем уведомление при обнаружении нового стрима
+                        logger.info(f"Отправка уведомления о стриме {username} в канал {channel_id}")
+                        await self.send_stream_notification(
+                            guild_id, channel_id, username, stream_data
+                        )
+                        
+                        # Обновляем время последнего уведомления и ID стрима
+                        await self.data_manager.update_notification_time(username, guild_id, stream_data['id'])
                 
                 # Если стример закончил стрим
                 elif not is_live and status_changed:
@@ -187,23 +189,25 @@ class TwitchCog(commands.Cog):
             stream_data: Данные о стриме
         """
         try:
-            logger.info(f"НАЧАЛО: Отправка уведомления о стриме {username} на сервер {guild_id} в канал {channel_id}")
+            logger.info(f"НАЧАЛО: Отправка уведомления о стриме {username} в канал {channel_id}")
             
             # Проверяем, что бот готов
             if not self.bot.is_ready():
                 logger.error(f"Бот не готов при попытке отправить уведомление о стриме {username}")
                 return
-                
-            # Получаем объект сервера
-            guild = self.bot.get_guild(guild_id)
-            if not guild:
-                logger.error(f"Не найден сервер с ID {guild_id}. Доступные серверы: {[g.name for g in self.bot.guilds]}")
+            
+            # Получаем объект сервера (первый сервер, так как бот работает только на одном сервере)
+            if not self.bot.guilds:
+                logger.error("Бот не подключен ни к одному серверу")
                 return
+                
+            guild = self.bot.guilds[0]
+            logger.info(f"Используем сервер: {guild.name} (ID: {guild.id})")
             
             # Получаем объект канала
             channel = guild.get_channel(channel_id)
             if not channel:
-                logger.error(f"Не найден канал с ID {channel_id} на сервере {guild.name}. Доступные каналы: {[c.name for c in guild.text_channels]}")
+                logger.error(f"Не найден канал с ID {channel_id} на сервере {guild.name}")
                 
                 # Пробуем найти канал по умолчанию
                 default_channel_id = 1113813039083442296
@@ -212,15 +216,8 @@ class TwitchCog(commands.Cog):
                     logger.info(f"Используем канал по умолчанию {default_channel.name} ({default_channel_id})")
                     channel = default_channel
                 else:
-                    logger.error(f"Канал по умолчанию {default_channel_id} также не найден на сервере {guild.name}")
-                    
-                    # Пробуем использовать первый доступный текстовый канал
-                    if guild.text_channels:
-                        channel = guild.text_channels[0]
-                        logger.info(f"Используем первый доступный канал: {channel.name} ({channel.id})")
-                    else:
-                        logger.error(f"На сервере {guild.name} нет доступных текстовых каналов")
-                        return
+                    logger.error(f"Канал по умолчанию {default_channel_id} не найден")
+                    return
             
             # Создаем эмбед с информацией о стриме
             embed = discord.Embed(
@@ -265,17 +262,25 @@ class TwitchCog(commands.Cog):
             
             # Отправляем уведомление
             try:
+                # Проверяем, можно ли упоминать @everyone
+                can_mention = permissions.mention_everyone
+                mention_text = "@everyone " if can_mention else ""
+                
                 if permissions.embed_links:
-                    await channel.send(
-                        content=f"@everyone **{stream_data['user_name']}** начал(а) стрим на Twitch!",
+                    logger.info(f"Отправка сообщения с эмбедом в канал {channel.name}")
+                    message = await channel.send(
+                        content=f"{mention_text}**{stream_data['user_name']}** начал(а) стрим на Twitch!",
                         embed=embed
                     )
+                    logger.info(f"Сообщение успешно отправлено: {message.id}")
                 else:
-                    await channel.send(
-                        content=f"@everyone **{stream_data['user_name']}** начал(а) стрим на Twitch!\n"
+                    logger.info(f"Отправка текстового сообщения в канал {channel.name}")
+                    message = await channel.send(
+                        content=f"{mention_text}**{stream_data['user_name']}** начал(а) стрим на Twitch!\n"
                                 f"Название: {stream_data['title']}\n"
                                 f"Ссылка: https://twitch.tv/{username}"
                     )
+                    logger.info(f"Сообщение успешно отправлено: {message.id}")
                 
                 logger.info(f"УСПЕХ: Отправлено уведомление о стриме {username} на сервер {guild.name} в канал {channel.name}")
             except Exception as e:
@@ -360,9 +365,19 @@ class TwitchCog(commands.Cog):
                 self.streamers_cache[user['login'].lower()]['is_live'] = True
                 self.streamers_cache[user['login'].lower()]['stream_data'] = stream_data
                 
+                # Отправляем уведомление о стриме
+                logger.info(f"Стример {user['login']} уже в сети, отправляем уведомление")
+                await self.send_stream_notification(
+                    interaction.guild_id, notification_channel.id, user['login'], stream_data
+                )
+                
+                # Обновляем время последнего уведомления и ID стрима
+                await self.data_manager.update_notification_time(user['login'].lower(), interaction.guild_id, stream_data['id'])
+                
                 await interaction.response.send_message(
                     f"Стример **{user['display_name']}** добавлен для отслеживания в канале {notification_channel.mention}.\n"
-                    f"Стример сейчас в сети! Стрим: **{stream_data['title']}**",
+                    f"Стример сейчас в сети! Стрим: **{stream_data['title']}**\n"
+                    f"Уведомление отправлено в канал.",
                     ephemeral=True
                 )
             else:
