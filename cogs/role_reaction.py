@@ -66,11 +66,17 @@ class RoleReaction(commands.Cog):
         # Формируем новое содержимое сообщения
         content = "Нужна роль? Нажми на соответствующую реакцию.\n\n"
         
-        # Добавляем описания ролей и эмодзи
+        # Фильтруем системные записи (с role_id = 0) и собираем валидные эмодзи
+        valid_reactions = []
         for reaction in role_reactions:
+            # Пропускаем системную запись
+            if reaction['role_id'] == 0:
+                continue
+                
             role = guild.get_role(reaction['role_id'])
             if role:
                 content += f"{reaction['emoji']} - {role.mention}: {reaction['description']}\n"
+                valid_reactions.append(reaction)
             else:
                 logger.warning(f"Не найдена роль с ID {reaction['role_id']} на сервере {guild_id}")
 
@@ -79,13 +85,22 @@ class RoleReaction(commands.Cog):
             await message.edit(content=content)
             logger.info(f"Обновлено сообщение с реакциями для сервера {guild_id}")
             
-            # Убираем все реакции и добавляем нужные
-            await message.clear_reactions()
-            for reaction in role_reactions:
-                try:
-                    await message.add_reaction(reaction['emoji'])
-                except discord.HTTPException as e:
-                    logger.error(f"Не удалось добавить реакцию {reaction['emoji']}: {e}")
+            # Получаем текущие реакции на сообщении
+            existing_reactions = set()
+            for reaction in message.reactions:
+                if hasattr(reaction.emoji, 'id') and reaction.emoji.id:
+                    emoji_str = f"{reaction.emoji.name}:{reaction.emoji.id}"
+                else:
+                    emoji_str = reaction.emoji
+                existing_reactions.add(str(emoji_str))
+            
+            # Добавляем только новые реакции
+            for reaction in valid_reactions:
+                if reaction['emoji'] not in existing_reactions:
+                    try:
+                        await message.add_reaction(reaction['emoji'])
+                    except discord.HTTPException as e:
+                        logger.error(f"Не удалось добавить реакцию {reaction['emoji']}: {e}")
             
             return True
         except Exception as e:
@@ -242,12 +257,31 @@ class RoleReaction(commands.Cog):
                     "Не удалось добавить привязку роли. Проверьте журнал ошибок.",
                     ephemeral=True
                 )
+        except discord.NotFound as e:
+            # Если это ошибка "Unknown interaction", просто логируем
+            error_str = str(e).lower()
+            if "unknown interaction" in error_str:
+                logger.info(f"Взаимодействие не найдено при добавлении роли: {e}")
+                return
+            
+            # Для других ошибок NotFound пытаемся отправить сообщение
+            logger.error(f"Ошибка 'Not Found' при добавлении привязки роли: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    f"Произошла ошибка: {str(e)}",
+                    ephemeral=True
+                )
+            except:
+                pass
         except Exception as e:
             logger.error(f"Ошибка при добавлении привязки роли: {e}", exc_info=True)
-            await interaction.response.send_message(
-                f"Произошла ошибка: {str(e)}",
-                ephemeral=True
-            )
+            try:
+                await interaction.response.send_message(
+                    f"Произошла ошибка: {str(e)}",
+                    ephemeral=True
+                )
+            except:
+                pass
             
     @app_commands.command(
         name="role_remove",
@@ -304,12 +338,31 @@ class RoleReaction(commands.Cog):
                     f"Не найдена привязка роли к эмодзи {emoji}.",
                     ephemeral=True
                 )
+        except discord.NotFound as e:
+            # Если это ошибка "Unknown interaction", просто логируем
+            error_str = str(e).lower()
+            if "unknown interaction" in error_str:
+                logger.info(f"Взаимодействие не найдено при удалении роли: {e}")
+                return
+            
+            # Для других ошибок NotFound пытаемся отправить сообщение
+            logger.error(f"Ошибка 'Not Found' при удалении привязки роли: {e}", exc_info=True)
+            try:
+                await interaction.response.send_message(
+                    f"Произошла ошибка: {str(e)}",
+                    ephemeral=True
+                )
+            except:
+                pass
         except Exception as e:
             logger.error(f"Ошибка при удалении привязки роли: {e}", exc_info=True)
-            await interaction.response.send_message(
-                f"Произошла ошибка: {str(e)}",
-                ephemeral=True
-            )
+            try:
+                await interaction.response.send_message(
+                    f"Произошла ошибка: {str(e)}",
+                    ephemeral=True
+                )
+            except:
+                pass
     
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
