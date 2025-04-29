@@ -201,18 +201,21 @@ class TwitchDataManager:
             
             async with aiosqlite.connect(self.db_path) as db:
                 if is_live and stream_id:
+                    # Обновляем только статус is_live, но не last_stream_id
+                    # last_stream_id будет обновляться отдельно для каждого сервера
+                    # при отправке уведомления через update_notification_time
                     await db.execute(
                         """
-                        UPDATE twitch_streamers 
-                        SET is_live = 1, last_stream_id = ?
+                        UPDATE twitch_streamers
+                        SET is_live = 1
                         WHERE twitch_username = ?
                         """,
-                        (stream_id, twitch_username)
+                        (twitch_username,)
                     )
                 else:
                     await db.execute(
                         """
-                        UPDATE twitch_streamers 
+                        UPDATE twitch_streamers
                         SET is_live = 0
                         WHERE twitch_username = ?
                         """,
@@ -226,13 +229,14 @@ class TwitchDataManager:
             logger.error(f"Ошибка при обновлении статуса стримера {twitch_username}: {e}", exc_info=True)
             return False
     
-    async def update_notification_time(self, twitch_username: str, guild_id: int) -> bool:
+    async def update_notification_time(self, twitch_username: str, guild_id: int, stream_id: str = None) -> bool:
         """
-        Обновляет время последнего уведомления о стриме.
+        Обновляет время последнего уведомления о стриме и ID стрима для конкретного сервера.
         
         Args:
             twitch_username: Имя пользователя Twitch
             guild_id: ID сервера Discord
+            stream_id: ID текущего стрима (если не указан, обновляется только время)
             
         Returns:
             bool: True если обновлено успешно, False в случае ошибки
@@ -243,16 +247,30 @@ class TwitchDataManager:
             current_time = int(time.time())
             
             async with aiosqlite.connect(self.db_path) as db:
-                await db.execute(
-                    """
-                    UPDATE twitch_streamers 
-                    SET last_notification_time = ?
-                    WHERE twitch_username = ? AND guild_id = ?
-                    """,
-                    (current_time, twitch_username, guild_id)
-                )
+                if stream_id:
+                    # Обновляем и время уведомления, и ID стрима
+                    await db.execute(
+                        """
+                        UPDATE twitch_streamers
+                        SET last_notification_time = ?, last_stream_id = ?
+                        WHERE twitch_username = ? AND guild_id = ?
+                        """,
+                        (current_time, stream_id, twitch_username, guild_id)
+                    )
+                    logger.debug(f"Обновлено время уведомления и ID стрима ({stream_id}) для стримера {twitch_username} на сервере {guild_id}")
+                else:
+                    # Обновляем только время уведомления
+                    await db.execute(
+                        """
+                        UPDATE twitch_streamers
+                        SET last_notification_time = ?
+                        WHERE twitch_username = ? AND guild_id = ?
+                        """,
+                        (current_time, twitch_username, guild_id)
+                    )
+                    logger.debug(f"Обновлено время уведомления для стримера {twitch_username} на сервере {guild_id}")
+                
                 await db.commit()
-                logger.debug(f"Обновлено время уведомления для стримера {twitch_username} на сервере {guild_id}")
                 return True
         except Exception as e:
             logger.error(f"Ошибка при обновлении времени уведомления для {twitch_username}: {e}", exc_info=True)

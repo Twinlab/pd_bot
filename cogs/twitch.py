@@ -153,8 +153,8 @@ class TwitchCog(commands.Cog):
                             await self.send_stream_notification(
                                 guild_id, channel_id, username, stream_data
                             )
-                            # Обновляем время последнего уведомления
-                            await self.data_manager.update_notification_time(username, guild_id)
+                            # Обновляем время последнего уведомления и ID стрима
+                            await self.data_manager.update_notification_time(username, guild_id, stream_data['id'])
                 
                 # Если стример закончил стрим
                 elif not is_live and status_changed:
@@ -187,6 +187,8 @@ class TwitchCog(commands.Cog):
             stream_data: Данные о стриме
         """
         try:
+            logger.info(f"Отправка уведомления о стриме {username} на сервер {guild_id} в канал {channel_id}")
+            
             guild = self.bot.get_guild(guild_id)
             if not guild:
                 logger.warning(f"Не найден сервер с ID {guild_id}")
@@ -195,7 +197,15 @@ class TwitchCog(commands.Cog):
             channel = guild.get_channel(channel_id)
             if not channel:
                 logger.warning(f"Не найден канал с ID {channel_id} на сервере {guild.name}")
-                return
+                # Пробуем найти канал по умолчанию
+                default_channel_id = 1113813039083442296
+                default_channel = guild.get_channel(default_channel_id)
+                if default_channel:
+                    logger.info(f"Используем канал по умолчанию {default_channel.name} ({default_channel_id})")
+                    channel = default_channel
+                else:
+                    logger.error(f"Канал по умолчанию {default_channel_id} также не найден на сервере {guild.name}")
+                    return
             
             # Создаем эмбед с информацией о стриме
             embed = discord.Embed(
@@ -269,7 +279,18 @@ class TwitchCog(commands.Cog):
             return
         
         # Определяем канал для уведомлений
-        notification_channel = channel or interaction.channel
+        default_channel_id = 1113813039083442296
+        if channel:
+            notification_channel = channel
+        else:
+            # Пытаемся найти канал по умолчанию
+            default_channel = interaction.guild.get_channel(default_channel_id)
+            if default_channel:
+                notification_channel = default_channel
+                logger.info(f"Используется канал по умолчанию {default_channel.name} ({default_channel_id})")
+            else:
+                notification_channel = interaction.channel
+                logger.warning(f"Канал по умолчанию {default_channel_id} не найден, используется текущий канал")
         
         # Проверяем, существует ли пользователь Twitch
         user = await self.twitch_api.get_user_by_username(twitch_username)

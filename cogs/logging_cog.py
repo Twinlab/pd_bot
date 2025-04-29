@@ -74,7 +74,18 @@ class LoggingCog(commands.Cog):
             self.log_channel = self.bot.get_channel(self.log_channel_id)
 
             if not self.log_channel:
-                # logger.warning(f"[LogCog] Не удалось получить канал логирования (ID: {self.log_channel_id}). Пропуск итерации.") # Может спамить
+                logger.error(f"[LogCog] Не удалось получить канал логирования (ID: {self.log_channel_id}). Проверьте ID канала и права бота.")
+                
+                # Попробуем получить список всех доступных каналов для диагностики
+                available_channels = []
+                for guild in self.bot.guilds:
+                    for channel in guild.text_channels:
+                        available_channels.append(f"{channel.name} (ID: {channel.id})")
+                
+                if available_channels:
+                    logger.info(f"[LogCog] Доступные текстовые каналы: {', '.join(available_channels[:10])}" +
+                               (f" и еще {len(available_channels) - 10}..." if len(available_channels) > 10 else ""))
+                
                 return
             else:
                 logger.info(f"[LogCog] Канал для логирования '{self.log_channel.name}' ({self.log_channel_id}) успешно получен в цикле.")
