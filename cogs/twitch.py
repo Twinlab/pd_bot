@@ -23,11 +23,11 @@ class TwitchCog(commands.Cog):
         self.data_manager = TwitchDataManager()
         
         # Получаем Twitch API ключи из конфигурации
-        self.client_id = self.bot.config.get("TWITCH_CLIENT_ID")
-        self.client_secret = self.bot.config.get("TWITCH_CLIENT_SECRET")
+        self.client_id = self.bot.config.get("TWITCH_CLIENT_ID", "")
+        self.client_secret = self.bot.config.get("TWITCH_CLIENT_SECRET", "")
         
-        # Проверяем наличие ключей
-        if not self.client_id or not self.client_secret:
+        # Проверяем наличие ключей и что они не пустые
+        if not self.client_id.strip() or not self.client_secret.strip():
             logger.warning("Не указаны TWITCH_CLIENT_ID и/или TWITCH_CLIENT_SECRET в конфигурации. "
                           "Функциональность отслеживания Twitch-стримов будет ограничена.")
             self.twitch_api = None
