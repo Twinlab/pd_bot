@@ -22,9 +22,15 @@ class LoggingCog(commands.Cog):
         self._tail_task_started = False
 
     async def cog_load(self):
-        """Вызывается при загрузке кога — отправляет весь лог и запускает tail."""
+        """Вызывается при загрузке кога — запускает задачу инициализации после полной готовности бота."""
         logger.info("[LogCog] cog_load вызван.")
+        self.bot.loop.create_task(self._delayed_start())
+
+    async def _delayed_start(self):
         await self.bot.wait_until_ready()
+        await self._send_full_log_and_start_tail()
+
+    async def _send_full_log_and_start_tail(self):
         # Получаем канал
         self.log_channel = self.bot.get_channel(self.log_channel_id)
         if not self.log_channel:
