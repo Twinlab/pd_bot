@@ -60,6 +60,20 @@ async def initialize_database():
                 CREATE INDEX IF NOT EXISTS idx_monthly_activity_user_month ON monthly_activity (discord_user_id, year, month);
             """)
             logger.info("Таблица 'monthly_activity' и индекс проверены/созданы.")
+            
+            # Таблица для реакций-ролей
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS role_reactions (
+                    guild_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    message_id INTEGER NOT NULL,
+                    emoji TEXT NOT NULL,
+                    role_id INTEGER NOT NULL,
+                    description TEXT,
+                    PRIMARY KEY (guild_id, message_id, emoji)
+                )
+            """)
+            logger.info("Таблица 'role_reactions' проверена/создана.")
 
             await db.commit()
             logger.info(f"База данных инициализирована: {DB_PATH}")
