@@ -11,7 +11,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("bot.log"),
+        logging.FileHandler("bot.log", mode="a", encoding=None, delay=False, buffering=1),
         logging.StreamHandler()
     ]
 )

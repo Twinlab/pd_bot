@@ -32,8 +32,8 @@ class LoggingCog(commands.Cog):
         try:
             # logger.info("[LogCog] Попытка определить начальную позицию чтения лога...") # Убрано
             if os.path.exists(self.log_file_path):
-                self.last_read_position = os.path.getsize(self.log_file_path)
-                logger.info(f"[LogCog] Начальная позиция чтения лога установлена в конец файла '{self.log_file_path}' ({self.last_read_position} байт).")
+                self.last_read_position = 0
+                logger.info(f"[LogCog] Начальная позиция чтения лога установлена в НАЧАЛО файла '{self.log_file_path}'. Все строки будут отправлены в Discord.")
             else:
                 logger.warning(f"[LogCog] Файл логов '{self.log_file_path}' не найден при инициализации. Чтение начнется с начала после создания файла.")
                 self.last_read_position = 0
