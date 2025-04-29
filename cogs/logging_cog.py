@@ -19,10 +19,14 @@ class LoggingCog(commands.Cog):
         self.log_file_path = getattr(bot, "log_file_path", "bot.log")
         self.last_read_position = 0
         self._tail_task_started = False
+        self._log_init_done = False
 
-    async def setup(self):
-        logger.info("[LogCog] setup вызван.")
-        await self.bot.wait_until_ready()
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self._log_init_done:
+            return
+        self._log_init_done = True
+        logger.info("[LogCog] on_ready: запуск логирования")
         await self._send_full_log_and_start_tail()
 
     async def _send_full_log_and_start_tail(self):
@@ -102,6 +106,4 @@ class LoggingCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     """Добавляет LoggingCog к боту."""
-    cog = LoggingCog(bot)
-    await bot.add_cog(cog)
-    await cog.setup()
+    await bot.add_cog(LoggingCog(bot))
