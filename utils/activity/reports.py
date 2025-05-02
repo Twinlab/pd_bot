@@ -212,16 +212,12 @@ async def send_monthly_report(
         
         # Находим топ-3 игроков по игровому времени
         top_players = sorted(users_with_names, key=lambda x: x[3], reverse=True)[:3]
-        
-        # Максимальная длина сообщения Discord
-        max_message_length = 1900  # Оставляем запас для форматирования
-        
-        # Формируем содержимое отчета
-        current_message = content
-        
+
+        # Формируем содержимое отчета для всех пользователей
+        all_users_content = ""
         for user_id, activities, username, total_time_user in sorted_users:
-            # Формируем строку для пользователя
-            user_line = f"**{username}** (**{format_time_short(total_time_user)}**): "
+            # Формируем строку для пользователя с курсивом для времени
+            user_line = f"**{username}** (*{format_time_short(total_time_user)}*): "
             
             # Сортируем игры пользователя по времени
             sorted_activities = sorted(activities.items(), key=lambda item: item[1], reverse=True)
@@ -232,57 +228,50 @@ async def send_monthly_report(
                 for game_name, time_spent in sorted_activities
             ]
             
-            user_content = user_line + ", ".join(games_list) + "\n\n"
-            
-            # Проверяем, поместится ли пользователь в текущее сообщение
-            if len(current_message) + len(user_content) > max_message_length:
-                # Если не поместится, добавляем текущее сообщение в content и начинаем новое
-                content = current_message
-                current_message = user_content
-            else:
-                # Если поместится, добавляем к текущему сообщению
-                current_message += user_content
+            all_users_content += user_line + ", ".join(games_list) + "\n"
         
-        # Добавляем последнее сообщение
-        content = current_message
-
         # Формируем информацию о топ-3 игроках
         top_players_text = "## 🏆 Топ-3 игрока по игровому времени\n"
         for i, (_, _, username, total_time) in enumerate(top_players, 1):
-            top_players_text += f"{i}. **{username}** ({format_time_short(total_time)})\n"
-        top_players_text += "\n"
+            top_players_text += f"{i}. **{username}** (*{format_time_short(total_time)}*)\n"
         
         # Добавляем общую статистику
         summary_text = _get_monthly_summary_text(data, month, year)
         
         # Отправка сообщения (с разбивкой, если длинное)
-        full_report = header + content + top_players_text + summary_text
+        full_content = content + all_users_content + top_players_text + summary_text
         
-        if len(full_report) <= 2000:
-            await channel.send(full_report)
+        if len(header + full_content) <= 2000:
+            await channel.send(header + full_content)
         else:
             # Отправляем заголовок
             await channel.send(header)
             
-            # Отправляем основное содержимое
-            if len(content) <= 2000:
-                await channel.send(content)
-            else:
-                # Разбиваем на части, если содержимое слишком длинное
-                # Используем более умный алгоритм разбивки, чтобы не разрывать информацию о пользователях
-                current_chunk = ""
-                lines = content.split("\n\n")
-                
-                for line in lines:
-                    if len(current_chunk) + len(line) + 2 > 1990:  # +2 для "\n\n"
-                        await channel.send(current_chunk)
-                        current_chunk = line + "\n\n"
-                        await asyncio.sleep(1)  # Небольшая задержка между частями
-                    else:
-                        current_chunk += line + "\n\n"
-                
-                if current_chunk:
+            # Разбиваем содержимое на части, чтобы не разрывать информацию о пользователях
+            # Максимальная длина сообщения Discord
+            max_message_length = 1900  # Оставляем запас для форматирования
+            
+            # Сначала отправляем заголовок содержимого
+            await channel.send(content)
+            
+            # Разбиваем пользователей на части
+            current_chunk = ""
+            lines = all_users_content.split("\n")
+            
+            for line in lines:
+                if not line:  # Пропускаем пустые строки
+                    continue
+                    
+                if len(current_chunk) + len(line) + 1 > max_message_length:  # +1 для "\n"
                     await channel.send(current_chunk)
+                    current_chunk = line + "\n"
+                    await asyncio.sleep(1)  # Небольшая задержка между частями
+                else:
+                    current_chunk += line + "\n"
+            
+            # Отправляем последний чанк с пользователями, если он есть
+            if current_chunk:
+                await channel.send(current_chunk)
             
             # Отправляем топ-3 игроков и общую статистику
             final_part = top_players_text + summary_text

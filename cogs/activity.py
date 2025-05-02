@@ -12,7 +12,7 @@ from typing import Dict, Tuple, Optional, List # Убираем Set, DefaultDict
 from utils.activity_data_manager import ActivityDataManager
 # Импортируем компоненты из нового пакета utils.activity
 from utils.activity.views import ActivityView, StatsView
-from utils.activity.reports import run_automatic_daily_report, run_automatic_monthly_report, send_daily_report, send_monthly_report
+from utils.activity.reports import run_automatic_daily_report, run_automatic_monthly_report, send_daily_report, send_monthly_report, MONTH_NAMES_RU
 from utils.activity.helpers import format_time_short, is_application
 
 # Логгер для кога
@@ -558,7 +558,14 @@ class ActivityTracker(commands.Cog):
 
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды /report_daily: {e}", exc_info=True)
-            await ctx.followup.send(f"Произошла критическая ошибка при выполнении команды: {e}", ephemeral=True)
+            try:
+                # Используем followup, если взаимодействие было отложено (defer)
+                if hasattr(ctx, 'interaction') and ctx.interaction and ctx.interaction.response.is_done():
+                    await ctx.followup.send(f"Произошла критическая ошибка при выполнении команды: {e}", ephemeral=True)
+                else:
+                    await ctx.send(f"Произошла критическая ошибка при выполнении команды: {e}")
+            except Exception as send_error:
+                logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
 
 
     @commands.hybrid_command(
@@ -611,7 +618,14 @@ class ActivityTracker(commands.Cog):
 
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды /report_monthly: {e}", exc_info=True)
-            await ctx.followup.send(f"Произошла критическая ошибка при выполнении команды: {e}", ephemeral=True)
+            try:
+                # Используем followup, если взаимодействие было отложено (defer)
+                if hasattr(ctx, 'interaction') and ctx.interaction and ctx.interaction.response.is_done():
+                    await ctx.followup.send(f"Произошла критическая ошибка при выполнении команды: {e}", ephemeral=True)
+                else:
+                    await ctx.send(f"Произошла критическая ошибка при выполнении команды: {e}")
+            except Exception as send_error:
+                logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
 
 
     # --- Обработчики ошибок для команд кога ---
