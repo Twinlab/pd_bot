@@ -29,57 +29,6 @@ def is_application(member: discord.Member) -> bool:
 
     return False
 
-def format_time(seconds: int) -> str:
-    """
-    Formats time in seconds into a human-readable string (e.g., "1 час и 5 минут").
-    Handles Russian pluralization for hours and minutes.
-
-    Args:
-        seconds: The total number of seconds.
-
-    Returns:
-        A formatted string representing the duration.
-    """
-    if seconds <= 0:
-        return "0 минут" # Return "0 minutes" if time is zero or negative
-
-    hours, remainder = divmod(seconds, 3600)
-    minutes, _ = divmod(remainder, 60)
-
-    hours_str = ""
-    minutes_str = ""
-
-    # Format hours with Russian pluralization
-    if hours > 0:
-        if hours % 10 == 1 and hours % 100 != 11:
-            hours_str = f"{hours} час"
-        elif 2 <= hours % 10 <= 4 and (hours % 100 < 10 or hours % 100 >= 20):
-            hours_str = f"{hours} часа"
-        else:
-            hours_str = f"{hours} часов"
-
-    # Format minutes with Russian pluralization
-    if minutes > 0:
-        if minutes % 10 == 1 and minutes % 100 != 11:
-            minutes_str = f"{minutes} минута"
-        elif 2 <= minutes % 10 <= 4 and (minutes % 100 < 10 or minutes % 100 >= 20):
-            minutes_str = f"{minutes} минуты"
-        else:
-            minutes_str = f"{minutes} минут"
-
-    # Combine hours and minutes strings
-    if hours_str and minutes_str:
-        return f"{hours_str} и {minutes_str}"
-    elif hours_str:
-        return hours_str
-    elif minutes_str:
-        return minutes_str
-    else:
-        # Should only happen if seconds is > 0 but less than 60
-        # Technically possible if input is e.g. 30 seconds, resulting in 0 hours, 0 minutes
-        # Let's return minutes in this case, even if 0.
-        return "0 минут"
-
 
 def format_time_short(seconds: int) -> str:
     """

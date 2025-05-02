@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import MagicMock
-from utils.activity.helpers import is_application, format_time, format_time_short
+from utils.activity.helpers import is_application, format_time_short
 
 # Тесты для is_application
 def test_is_application_bot_flag():
@@ -44,39 +44,6 @@ def test_is_application_normal_user():
     member.roles = [role]
     
     assert is_application(member) is False
-
-# Тесты для format_time
-@pytest.mark.parametrize("seconds, expected", [
-    (0, "0 минут"),
-    (-10, "0 минут"),
-    (30, "0 минут"),  # Меньше минуты
-    (60, "1 минута"),
-    (120, "2 минуты"),
-    (300, "5 минут"),
-    (660, "11 минут"),
-    (720, "12 минут"),
-    (1200, "20 минут"),
-    (1260, "21 минута"),
-    (3600, "1 час"),
-    (3660, "1 час и 1 минута"),
-    (3720, "1 час и 2 минуты"),
-    (7200, "2 часа"),
-    (7260, "2 часа и 1 минута"),
-    (7320, "2 часа и 2 минуты"),
-    (10800, "3 часа"),
-    (11700, "3 часа и 15 минут"),
-    (12600, "3 часа и 30 минут"),
-    (13500, "3 часа и 45 минут"),
-    (18000, "5 часов"),
-    (21600, "6 часов"),
-    (43200, "12 часов"),
-    (86400, "24 часа"),
-    (90000, "25 часов"),
-    (126000, "35 часов"),
-])
-def test_format_time(seconds, expected):
-    """Проверяет правильность форматирования времени с учетом русской грамматики"""
-    assert format_time(seconds) == expected
 
 # Тесты для format_time_short
 @pytest.mark.parametrize("seconds, expected", [

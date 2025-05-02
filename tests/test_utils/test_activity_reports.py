@@ -122,7 +122,7 @@ def test_get_monthly_summary_text_empty_data():
     assert "Май 2024" in summary
     assert "Всего активных игроков: **0**" in summary
     assert "Уникальных игр: **0**" in summary
-    assert "Общее время в играх: **0 минут**" in summary
+    assert "Общее время в играх: **0m**" in summary
 
 def test_get_monthly_summary_text_with_data(sample_activity_data):
     """Проверяет формирование сводки для тестовых данных."""
@@ -197,8 +197,15 @@ async def test_send_daily_report_with_data(mock_bot, mock_channel, mock_data_man
         result = await send_daily_report(date.today(), mock_bot, mock_data_manager, mock_config)
         
         assert result is True
-        # Проверяем, что был создан ActivityView
-        MockActivityView.assert_called_once_with(mock_bot, sample_activity_data, report_type="daily")
+        # Проверяем, что был создан ActivityView с правильными параметрами
+        # Используем assert_called_once() вместо assert_called_once_with(),
+        # так как date_str формируется динамически на основе текущей даты
+        MockActivityView.assert_called_once()
+        call_args = MockActivityView.call_args
+        assert call_args.args[0] == mock_bot
+        assert call_args.args[1] == sample_activity_data
+        assert call_args.kwargs['report_type'] == 'daily'
+        assert 'date_str' in call_args.kwargs  # Проверяем наличие параметра date_str
         # Проверяем, что было отправлено сообщение с контентом и view
         mock_channel.send.assert_called_once_with(content="Test Content", view=mock_view)
         # Проверяем, что сообщение было сохранено в view

@@ -9,7 +9,7 @@ from typing import Dict, Any, Optional
 # Импортируем необходимые компоненты
 from utils.activity_data_manager import ActivityDataManager
 from .views import ActivityView
-from .helpers import format_time, format_time_short # Импортируем обе функции форматирования
+from .helpers import format_time_short # Импортируем только краткий формат времени
 
 # Логгер для этого модуля
 # Используем иерархическое имя в соответствии с README
@@ -48,7 +48,8 @@ async def send_daily_report(
     target_date: date,
     bot: discord.Client,
     data_manager: ActivityDataManager,
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    channel: Optional[discord.TextChannel] = None
 ) -> bool:
     """
     Получает данные за указанную дату и отправляет ежедневный отчет в виде ActivityView.
@@ -58,14 +59,18 @@ async def send_daily_report(
         bot: Экземпляр бота Discord.
         data_manager: Экземпляр ActivityDataManager.
         config: Словарь конфигурации бота.
+        channel: Канал для отправки отчета. Если None, будет использован канал из конфигурации.
 
     Returns:
         True, если отчет успешно отправлен (или данных не было), False при ошибке.
     """
     logger.info(f"Запрос на отправку ежедневного отчета за {target_date.isoformat()}")
-    channel = await _get_report_channel(bot, config)
-    if not channel:
-        return False # Ошибка уже залогирована в _get_report_channel
+    
+    # Если канал не указан, получаем его из конфигурации
+    if channel is None:
+        channel = await _get_report_channel(bot, config)
+        if not channel:
+            return False # Ошибка уже залогирована в _get_report_channel
 
     try:
         daily_data = await data_manager.get_daily_stats(target_date)
@@ -75,8 +80,10 @@ async def send_daily_report(
             logger.info(f"Отправлено уведомление об отсутствии данных для ежедневного отчета за {target_date.isoformat()}.")
             return True # Считаем успехом, т.к. обработали случай отсутствия данных
         else:
+            # Форматируем дату для отображения в отчете
+            formatted_date = target_date.strftime("%d.%m.%Y")
             # Используем ActivityView для интерактивного отчета
-            view = ActivityView(bot, daily_data, report_type="daily")
+            view = ActivityView(bot, daily_data, report_type="daily", date_str=f" ({formatted_date})")
             message = await channel.send(content=view.get_current_content(), view=view)
             view.message = message # Сохраняем сообщение для возможности отключения кнопок по таймауту
             logger.info(f"Отправлен ежедневный отчет за {target_date.isoformat()}")
@@ -93,7 +100,7 @@ async def send_daily_report(
 def _get_monthly_summary_text(data: Dict[int, Dict[str, int]], month: int, year: int) -> str:
     """
     Формирует текстовую сводку для ежемесячного отчета.
-    Использует полные функции форматирования времени.
+    Использует краткий формат времени.
 
     Args:
         data: Словарь с данными активности {user_id: {game_name: seconds}}.
@@ -133,14 +140,14 @@ def _get_monthly_summary_text(data: Dict[int, Dict[str, int]], month: int, year:
     summary = f"## 📊 Общая статистика за {month_str} {year}\n"
     summary += f"👥 Всего активных игроков: **{total_users}**\n"
     summary += f"🎮 Уникальных игр: **{total_unique_games}**\n"
-    summary += f"⏱️ Общее время в играх: **{format_time(total_time_all_games)}**\n\n" # Полный формат времени
+    summary += f"⏱️ Общее время в играх: **{format_time_short(total_time_all_games)}**\n\n" # Краткий формат времени
 
     if most_popular_game_name:
         players_str = f"{max_players} {'игрока' if 2 <= max_players <= 4 else 'игроков'}" if max_players > 1 else "1 игрок"
         summary += f"🏆 Самая популярная игра: **{most_popular_game_name}** ({players_str})\n"
     if most_time_game_name and most_time_game_name != most_popular_game_name:
          # Показываем игру с наибольшим временем, только если она не совпадает с самой популярной
-        summary += f"⭐ Игра с наибольшим временем: **{most_time_game_name}** ({format_time(max_time)})\n" # Полный формат времени
+         summary += f"⭐ Игра с наибольшим временем: **{most_time_game_name}** ({format_time_short(max_time)})\n" # Краткий формат времени
 
     return summary
 
@@ -149,7 +156,8 @@ async def send_monthly_report(
     month: int,
     bot: discord.Client,
     data_manager: ActivityDataManager,
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    channel: Optional[discord.TextChannel] = None
 ) -> bool:
     """
     Получает данные за указанный месяц/год и отправляет ежемесячный отчет.
@@ -160,15 +168,19 @@ async def send_monthly_report(
         bot: Экземпляр бота Discord.
         data_manager: Экземпляр ActivityDataManager.
         config: Словарь конфигурации бота.
+        channel: Канал для отправки отчета. Если None, будет использован канал из конфигурации.
 
     Returns:
         True, если отчет успешно отправлен (или данных не было), False при ошибке.
     """
     month_name = MONTH_NAMES_RU.get(month, f"Месяц {month}")
     logger.info(f"Запрос на отправку ежемесячного отчета за {month_name} {year}")
-    channel = await _get_report_channel(bot, config)
-    if not channel:
-        return False
+    
+    # Если канал не указан, получаем его из конфигурации
+    if channel is None:
+        channel = await _get_report_channel(bot, config)
+        if not channel:
+            return False
 
     try:
         # Загружаем агрегированные данные за указанный месяц из БД
@@ -184,18 +196,30 @@ async def send_monthly_report(
         content = "## 👤 Активность всех пользователей\n"
         guild = channel.guild # Получаем гильдию из канала для поиска участников
 
-        # Сортируем пользователей по общему времени
-        def get_total_user_time(user_data_tuple):
-            return sum(user_data_tuple[1].values())
-
-        sorted_users = sorted(data.items(), key=get_total_user_time, reverse=True)
-
-        for user_id, activities in sorted_users:
+        # Получаем имена пользователей для сортировки по алфавиту
+        users_with_names = []
+        for user_id, activities in data.items():
             member = guild.get_member(user_id)
             username = member.name if member else f"Пользователь {user_id}"
-            total_time_user = get_total_user_time((user_id, activities))
-            # Используем полный формат времени для общего времени пользователя
-            content += f"**{username}** (всего: {format_time(total_time_user)}): "
+            total_time = sum(activities.values())
+            users_with_names.append((user_id, activities, username, total_time))
+
+        # Сортируем пользователей по имени (алфавитный порядок)
+        sorted_users = sorted(users_with_names, key=lambda x: x[2].lower())
+
+        # Ограничиваем количество пользователей на странице до 10
+        max_users_per_page = 10
+        
+        # Разбиваем пользователей на страницы
+        page_number = 1
+        for i, (user_id, activities, username, total_time_user) in enumerate(sorted_users):
+            # Если начинается новая страница, добавляем заголовок страницы
+            if i % max_users_per_page == 0 and i > 0:
+                content += f"\n## 👤 Активность всех пользователей (страница {page_number + 1})\n"
+                page_number += 1
+                
+            # Используем краткий формат времени для общего времени пользователя
+            content += f"**{username}** (всего: {format_time_short(total_time_user)}): "
 
             # Сортируем игры пользователя по времени
             sorted_activities = sorted(activities.items(), key=lambda item: item[1], reverse=True)

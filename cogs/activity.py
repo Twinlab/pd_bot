@@ -13,7 +13,7 @@ from utils.activity_data_manager import ActivityDataManager
 # Импортируем компоненты из нового пакета utils.activity
 from utils.activity.views import ActivityView, StatsView
 from utils.activity.reports import run_automatic_daily_report, run_automatic_monthly_report, send_daily_report, send_monthly_report
-from utils.activity.helpers import format_time_short, is_application, format_time # Добавляем format_time
+from utils.activity.helpers import format_time_short, is_application
 
 # Логгер для кога
 logger = logging.getLogger("bot.activity") # Используем иерархическое имя
@@ -278,6 +278,11 @@ class ActivityTracker(commands.Cog):
             logger.debug("before_periodic_save: Ожидание готовности бота...")
             await self.bot.wait_until_ready()
             logger.info("Задача periodic_save готова к запуску.")
+        except RuntimeError as e:
+            if "Client has not been properly initialised" in str(e):
+                logger.debug("before_periodic_save: Бот еще не инициализирован, задача будет запущена позже.")
+            else:
+                logger.error(f"Ошибка в before_periodic_save: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Ошибка в before_periodic_save: {e}", exc_info=True)
 
@@ -297,6 +302,11 @@ class ActivityTracker(commands.Cog):
             logger.debug("before_monthly_report: Ожидание готовности бота...")
             await self.bot.wait_until_ready()
             logger.info("Задача monthly_report готова к запуску.")
+        except RuntimeError as e:
+            if "Client has not been properly initialised" in str(e):
+                logger.debug("before_monthly_report: Бот еще не инициализирован, задача будет запущена позже.")
+            else:
+                logger.error(f"Ошибка в before_monthly_report: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Ошибка в before_monthly_report: {e}", exc_info=True)
 
@@ -317,6 +327,11 @@ class ActivityTracker(commands.Cog):
             logger.debug("before_daily_report: Ожидание готовности бота...")
             await self.bot.wait_until_ready()
             logger.info("Задача daily_report готова к запуску.")
+        except RuntimeError as e:
+            if "Client has not been properly initialised" in str(e):
+                logger.debug("before_daily_report: Бот еще не инициализирован, задача будет запущена позже.")
+            else:
+                logger.error(f"Ошибка в before_daily_report: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Ошибка в before_daily_report: {e}", exc_info=True)
 
@@ -526,12 +541,20 @@ class ActivityTracker(commands.Cog):
         try:
             await ctx.defer(ephemeral=True) # Даем боту время на генерацию
             config = getattr(self.bot, 'config', {})
-            success = await send_daily_report(target_date, self.bot, self.data_manager, config)
+            # Передаем текущий канал в функцию send_daily_report
+            success = await send_daily_report(target_date, self.bot, self.data_manager, config, channel=ctx.channel)
 
             if success:
-                await ctx.followup.send(f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} успешно отправлен (или данных не было).", ephemeral=True)
+                # Проверяем, является ли команда слэш-командой
+                if hasattr(ctx, 'interaction') and ctx.interaction:
+                    await ctx.followup.send(f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} успешно отправлен (или данных не было).", ephemeral=True)
+                else:
+                    await ctx.send(f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} успешно отправлен (или данных не было).")
             else:
-                await ctx.followup.send(f"Не удалось отправить ежедневный отчет за {target_date.strftime('%d.%m.%Y')}. Проверьте логи.", ephemeral=True)
+                if hasattr(ctx, 'interaction') and ctx.interaction:
+                    await ctx.followup.send(f"Не удалось отправить ежедневный отчет за {target_date.strftime('%d.%m.%Y')}. Проверьте логи.", ephemeral=True)
+                else:
+                    await ctx.send(f"Не удалось отправить ежедневный отчет за {target_date.strftime('%d.%m.%Y')}. Проверьте логи.")
 
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды /report_daily: {e}", exc_info=True)
@@ -571,13 +594,20 @@ class ActivityTracker(commands.Cog):
         try:
             await ctx.defer(ephemeral=True) # Даем боту время на генерацию
             config = getattr(self.bot, 'config', {})
-            success = await send_monthly_report(year, month, self.bot, self.data_manager, config)
+            # Передаем текущий канал в функцию send_monthly_report
+            success = await send_monthly_report(year, month, self.bot, self.data_manager, config, channel=ctx.channel)
 
             if success:
                 month_name = MONTH_NAMES_RU.get(month, str(month))
-                await ctx.followup.send(f"Ежемесячный отчет за {month_name} {year} успешно отправлен (или данных не было).", ephemeral=True)
+                if hasattr(ctx, 'interaction') and ctx.interaction:
+                    await ctx.followup.send(f"Ежемесячный отчет за {month_name} {year} успешно отправлен (или данных не было).", ephemeral=True)
+                else:
+                    await ctx.send(f"Ежемесячный отчет за {month_name} {year} успешно отправлен (или данных не было).")
             else:
-                await ctx.followup.send(f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. Проверьте логи.", ephemeral=True)
+                if hasattr(ctx, 'interaction') and ctx.interaction:
+                    await ctx.followup.send(f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. Проверьте логи.", ephemeral=True)
+                else:
+                    await ctx.send(f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. Проверьте логи.")
 
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды /report_monthly: {e}", exc_info=True)

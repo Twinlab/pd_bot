@@ -19,7 +19,7 @@ class ActivityView(ui.View):
     а также листать страницы с помощью кнопок.
     """
 
-    def __init__(self, bot: discord.Client, data: Dict[int, Dict[str, int]], ctx: Optional[commands.Context] = None, report_type: str = "daily"):
+    def __init__(self, bot: discord.Client, data: Dict[int, Dict[str, int]], ctx: Optional[commands.Context] = None, report_type: str = "daily", date_str: str = ""):
         """
         Инициализирует представление статистики активности.
 
@@ -28,12 +28,14 @@ class ActivityView(ui.View):
             data: Словарь с данными активности {user_id: {game_name: seconds}}.
             ctx: Контекст команды (если вызвано командой, для получения гильдии).
             report_type: Тип отчета ("daily" для автоматического, "command" для ручного).
+            date_str: Строка с датой для добавления к заголовку (например, " (01.05.2025)").
         """
         super().__init__(timeout=86400)  # 24 часа таймаут
         self.bot = bot
         self.data = data  # Все данные о активности (дневные или месячные)
         self.ctx = ctx
         self.report_type = report_type  # "daily" или "command"
+        self.date_str = date_str  # Строка с датой для заголовка
         self.current_page = 0
         self.view_mode = "users"  # "users" или "games"
         self.max_items_per_page = 20
@@ -133,7 +135,7 @@ class ActivityView(ui.View):
             Строка с отформатированным отчетом для отправки в Discord.
         """
         report_title = 'Ежедневный отчет' if self.report_type == 'daily' else 'Статистика'
-        header = f"# 📊 {report_title} игровой активности\n\n"
+        header = f"# 📊 {report_title} игровой активности{self.date_str}\n\n"
 
         if self.view_mode == "users":
             content = self._get_users_content()
