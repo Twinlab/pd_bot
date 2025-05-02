@@ -8,6 +8,8 @@ ffmpeg-python
 matplotlib
 Pillow
 PyNaCl
+pytest
+pytest-acynsio
 python-dotenv
 pytz
 requests

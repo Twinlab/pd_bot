@@ -7,9 +7,13 @@ def manager(monkeypatch):
         async def execute(self, *a, **kw): return DummyCursor()
         async def commit(self): return None
         async def close(self): return None
+        # Добавляем методы для асинхронного контекстного менеджера
+        async def __aenter__(self): return self
+        async def __aexit__(self, exc_type, exc_val, exc_tb): return None
     class DummyCursor:
         async def fetchone(self): return None
         async def fetchall(self): return []
+    # Создаем правильный асинхронный мок для connect
     async def dummy_connect(*a, **kw): return DummyConn()
     monkeypatch.setattr("aiosqlite.connect", dummy_connect)
     return ActivityDataManager(db_path=":memory:")

@@ -221,8 +221,10 @@ def format_match_stats(match_data: Dict[str, Any], player_id: int) -> Dict[str, 
             match_data.get('lobbyType', None)
         )
         result['duration'] = match_data.get('durationSeconds', 0)
-        result['start_time'] = datetime.utcfromtimestamp(match_data.get('startDateTime', 0))
-        
+        # Используем timezone-aware datetime с UTC
+        start_timestamp = match_data.get('startDateTime', 0)
+        result['start_time'] = datetime.fromtimestamp(start_timestamp, timezone.utc) if start_timestamp else None
+
         # Находим и извлекаем данные конкретного игрока
         player_data = None
         for player in match_data.get('players', []):
