@@ -199,11 +199,14 @@ async def send_monthly_report(
 
         # Получаем имена пользователей для сортировки по алфавиту
         users_with_names = []
+        # Получаем порог из конфига, используем 1800 секунд (30 минут) по умолчанию
+        min_time_threshold = config.get("ACTIVITY_MONTHLY_REPORT_MIN_TIME_SECONDS", 1800)
+
         for user_id, activities in data.items():
             member = guild.get_member(user_id)
             username = member.name if member else f"Пользователь {user_id}"
-            # Фильтруем игры с временем менее 30 минут (1800 секунд)
-            filtered_activities = {game: time for game, time in activities.items() if time >= 1800}
+            # Фильтруем игры с временем менее заданного порога
+            filtered_activities = {game: time for game, time in activities.items() if time >= min_time_threshold}
             total_time = sum(activities.values())  # Общее время считаем по всем играм
             users_with_names.append((user_id, filtered_activities, username, total_time))
 

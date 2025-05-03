@@ -14,7 +14,8 @@ class LoggingCog(commands.Cog):
     """
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.log_channel_id = 1365045098785542224  # Жестко заданный ID канала для логов
+        # Получаем ID канала из конфига, используем 1365045098785542224 как значение по умолчанию
+        self.log_channel_id = self.bot.config.get("LOGGING_CHANNEL_ID", 1365045098785542224)
         self.log_channel = None
         self.log_file_path = getattr(bot, "log_file_path", "bot.log")
         self.last_read_position = 0

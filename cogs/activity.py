@@ -146,10 +146,10 @@ class ActivityTracker(commands.Cog):
         for user_id, (game_name, start_time) in list(self.current_activities.items()):
             elapsed_seconds = int((now_utc - start_time).total_seconds())
 
-            # Минимальный порог для записи (например, 10 секунд)
-            min_record_threshold = 10
-            # Максимальный порог (например, 24 часа), чтобы избежать нереальных значений при сбоях
-            max_record_threshold = 86400 * 2 # 2 дня
+            # Получаем пороги из конфига, используем значения по умолчанию
+            min_record_threshold = self.bot.config.get("ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS", 10)
+            # Максимальный порог (2 дня = 172800 секунд), чтобы избежать нереальных значений при сбоях
+            max_record_threshold = self.bot.config.get("ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS", 172800)
 
             if elapsed_seconds >= min_record_threshold and elapsed_seconds < max_record_threshold:
                 # Добавляем задачу обновления в БД в список

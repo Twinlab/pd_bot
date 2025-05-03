@@ -9,7 +9,7 @@ matplotlib
 Pillow
 PyNaCl
 pytest
-pytest-acynsio
+pytest-asyncio
 python-dotenv
 pytz
 requests

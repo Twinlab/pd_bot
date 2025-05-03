@@ -113,14 +113,29 @@ class RoleReaction(commands.Cog):
     )
     @commands.has_permissions(administrator=True)
     @command_error_handler
-    async def setup_role_message(self, ctx, channel_id: str = "1366858138153910282"):
+    # Убираем channel_id из параметров команды, будем брать из контекста или конфига
+    async def setup_role_message(self, ctx):
         """
-        Создает сообщение для получения ролей через реакции.
+        Создает сообщение для получения ролей через реакции в указанном канале.
+        Канал берется из конфигурации (`ROLE_REACTION_DEFAULT_CHANNEL_ID`) или используется текущий.
         Это сообщение будет обновляться при добавлении новых ролей.
         
-        Параметры:
-        channel_id: ID канала для сообщения с ролями (по умолчанию 1366858138153910282).
         """
+        # Получаем ID канала из конфига или используем текущий
+        default_channel_id_str = str(self.bot.config.get("ROLE_REACTION_DEFAULT_CHANNEL_ID", ctx.channel.id))
+        target_channel = ctx.channel # По умолчанию текущий
+
+        try:
+            target_channel_id_int = int(default_channel_id_str)
+            specified_channel = self.bot.get_channel(target_channel_id_int)
+            if specified_channel:
+                target_channel = specified_channel
+                logger.info(f"Используется канал {target_channel.id} из конфигурации (ROLE_REACTION_DEFAULT_CHANNEL_ID).")
+            else:
+                logger.warning(f"Канал с ID {default_channel_id_str} из конфига не найден. Используется текущий канал {ctx.channel.id}.")
+        except ValueError:
+             logger.warning(f"Некорректный ID канала '{default_channel_id_str}' в конфиге. Используется текущий канал {ctx.channel.id}.")
+
         try:
             # Проверяем, существует ли уже сообщение для этого сервера
             existing_message = await self.data_manager.get_message_info(ctx.guild.id)
@@ -134,30 +149,7 @@ class RoleReaction(commands.Cog):
                 )
                 return
             
-            # Определяем канал для отправки сообщения
-            target_channel = ctx.channel
-            
-            # Если указан ID канала, используем его
-            if channel_id != str(ctx.channel.id):
-                try:
-                    channel_id_int = int(channel_id)
-                    specified_channel = self.bot.get_channel(channel_id_int)
-                    if specified_channel:
-                        target_channel = specified_channel
-                    else:
-                        await safe_send(
-                            ctx,
-                            f"Канал с ID {channel_id} не найден. Используется текущий канал.",
-                            ephemeral=True
-                        )
-                except ValueError:
-                    await safe_send(
-                        ctx,
-                        f"Некорректный ID канала: {channel_id}. Используется текущий канал.",
-                        ephemeral=True
-                    )
-            
-            # Отправляем начальное сообщение
+            # Отправляем начальное сообщение в определенный ранее target_channel
             message = await target_channel.send("Нужна роль? Нажми на соответствующую реакцию.")
             
             # Сохраняем информацию о сообщении в кеше
