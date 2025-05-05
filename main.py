@@ -37,7 +37,9 @@ logger = logging.getLogger("bot")
 from config import load_config
 # Импорт инициализатора БД
 from utils.database import initialize_database, DB_PATH
-
+# Импорт для инициализации кэша Dota API
+from utils import dota_api
+ 
 # Настройка интентов бота
 intents = Intents.default()
 intents.message_content = True
@@ -89,6 +91,8 @@ async def main():
     """Основная асинхронная функция для инициализации и запуска бота."""
     logger.info(f"Используется файл базы данных: {DB_PATH}")
     await initialize_database()
+    logger.info("Загрузка кэша Dota API с диска...")
+    await dota_api.load_cache_from_disk() # Загружаем кэш перед когами
     await load_cogs()
     try:
         await bot.start(config["BOT_TOKEN"])

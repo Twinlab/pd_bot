@@ -2,7 +2,7 @@ aiohttp
 aiosqlite
 async-timeout
 colorlog
-discord.py==2.3.2
+discord.py
 diskcache
 ffmpeg-python
 matplotlib
@@ -10,9 +10,8 @@ Pillow
 PyNaCl
 pytest
 pytest-asyncio
-python-dotenv
+freezegun
 pytz
-requests
 typing-extensions
 ujson
 yt-dlp

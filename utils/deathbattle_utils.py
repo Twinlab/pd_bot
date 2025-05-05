@@ -1,13 +1,13 @@
 import asyncio
 import random
 import discord
-import aiohttp # Заменяем requests на aiohttp
+import aiohttp 
 from PIL import Image, ImageOps
 from io import BytesIO
 import logging
 import os
 from typing import Tuple, Optional
-from discord.ext import commands # Возвращаем импорт commands
+from discord.ext import commands
 
 logger = logging.getLogger("bot")
 
