@@ -81,7 +81,7 @@ class PlayerControlView(discord.ui.View):
                 pass
             except Exception:
                 pass
-        self.stop()
+        super().stop()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         return True

@@ -636,10 +636,11 @@ class ActivityTracker(commands.Cog):
         # Обработка стандартных ошибок
         if isinstance(error, commands.MissingPermissions):
             await ctx.send("У вас недостаточно прав для использования этой команды.", ephemeral=True)
-        elif isinstance(error, commands.UserInputError):
-             await ctx.send(f"Ошибка ввода: {error}", ephemeral=True)
+        # Сначала проверяем UserNotFound, так как он наследуется от UserInputError
         elif isinstance(error, commands.UserNotFound):
              await ctx.send("Не удалось найти указанного пользователя. Проверьте правильность имени или ID.", ephemeral=True)
+        elif isinstance(error, commands.UserInputError):
+             await ctx.send(f"Ошибка ввода: {error}", ephemeral=True)
         # Обработка ошибок app_commands (например, при неверном типе параметра)
         elif isinstance(error, app_commands.AppCommandError):
              logger.warning(f"Ошибка AppCommand в ActivityTracker: {error}", exc_info=True)

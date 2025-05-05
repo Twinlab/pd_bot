@@ -98,6 +98,7 @@ class MusicCog(commands.Cog, name="Music"):
 
     @discord.app_commands.command(name="skip", description="Пропустить текущий трек.")
     async def skip(self, interaction: discord.Interaction):
+        print(f"[DEBUG] id(self.player)={id(self.player)}")
         if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
             await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
             return

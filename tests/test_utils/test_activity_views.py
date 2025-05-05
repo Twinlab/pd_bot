@@ -7,20 +7,8 @@ from collections import defaultdict
 
 class TestActivityView:
     """Тестовая версия ActivityView без наследования от discord.ui.View."""
-    
-    def __init__(self, bot, data, ctx=None, report_type="daily"):
-        self.bot = bot
-        self.data = data
-        self.ctx = ctx
-        self.report_type = report_type
-        self.current_page = 0
-        self.view_mode = "users"
-        self.max_items_per_page = 20
-        self.message = None
-        
-        # Инициализируем данные
-        self.prepare_data()
-    
+    # __init__ removed to avoid PytestCollectionWarning
+
     def _get_guild(self):
         if self.ctx and hasattr(self.ctx, 'guild'):
             return self.ctx.guild
@@ -165,16 +153,8 @@ class TestActivityView:
 
 class TestStatsView:
     """Тестовая версия StatsView без наследования от discord.ui.View."""
-    
-    def __init__(self, title, games_data, user=None, items_per_page=5):
-        self.title = title
-        self.games_data = games_data
-        self.user = user
-        self.items_per_page = items_per_page
-        self.current_page = 0
-        self.max_pages = max(1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page)
-        self.message = None
-    
+    # __init__ removed to avoid PytestCollectionWarning
+
     def get_current_embed(self):
         from utils.activity.helpers import format_time_short
         import discord
@@ -274,8 +254,17 @@ def mock_user():
 
 def test_activity_view_prepare_data(mock_bot, activity_data):
     """Проверяет правильность подготовки данных в ActivityView."""
-    view = TestActivityView(mock_bot, activity_data)
-    
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+
     # Проверяем данные пользователей
     assert len(view.users_data) == 3
     assert view.users_data[1]["Game1"] == 3600
@@ -292,8 +281,17 @@ def test_activity_view_prepare_data(mock_bot, activity_data):
 
 def test_activity_view_recalculate_max_pages(mock_bot, activity_data):
     """Проверяет правильность расчета количества страниц."""
-    view = TestActivityView(mock_bot, activity_data)
-    
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+
     # С 3 пользователями и 20 элементами на странице должна быть 1 страница
     view._recalculate_max_pages()
     assert view.max_pages == 1
@@ -310,9 +308,18 @@ def test_activity_view_recalculate_max_pages(mock_bot, activity_data):
 
 def test_activity_view_get_users_content(mock_bot, activity_data):
     """Проверяет правильность формирования контента для режима 'users'."""
-    view = TestActivityView(mock_bot, activity_data)
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
     content = view._get_users_content()
-    
+
     # Проверяем наличие заголовка
     assert "## 👤 По пользователям" in content
     
@@ -329,10 +336,18 @@ def test_activity_view_get_users_content(mock_bot, activity_data):
 
 def test_activity_view_get_games_content(mock_bot, activity_data):
     """Проверяет правильность формирования контента для режима 'games'."""
-    view = TestActivityView(mock_bot, activity_data)
-    view.view_mode = "games"
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "games" # Set view_mode here
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
     content = view._get_games_content()
-    
+
     # Проверяем наличие заголовка
     assert "## 🎮 По играм" in content
     
@@ -352,9 +367,18 @@ def test_activity_view_get_games_content(mock_bot, activity_data):
 
 def test_activity_view_get_summary(mock_bot, activity_data):
     """Проверяет правильность формирования общей статистики."""
-    view = TestActivityView(mock_bot, activity_data)
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
     summary = view._get_summary()
-    
+
     # Проверяем наличие заголовка
     assert "## 📊 Общая статистика" in summary
     
@@ -372,9 +396,18 @@ def test_activity_view_get_summary(mock_bot, activity_data):
 def test_activity_view_get_current_content(mock_bot, activity_data):
     """Проверяет правильность формирования полного контента."""
     # Используем report_type="command" для получения заголовка "Статистика"
-    view = TestActivityView(mock_bot, activity_data, report_type="command")
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "command" # Set report_type here
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
     content = view.get_current_content()
-    
+
     # Проверяем наличие заголовка отчета
     assert "# 📊 Статистика игровой активности" in content
     
@@ -391,9 +424,16 @@ def test_activity_view_get_current_content(mock_bot, activity_data):
 
 def test_stats_view_get_current_embed(stats_data, mock_user):
     """Проверяет правильность формирования эмбеда."""
-    view = TestStatsView("Статистика TestUser", stats_data, user=mock_user, items_per_page=3)
+    view = TestStatsView()
+    view.title = "Статистика TestUser"
+    view.games_data = stats_data
+    view.user = mock_user
+    view.items_per_page = 3
+    view.current_page = 0
+    view.max_pages = max(1, (len(view.games_data) + view.items_per_page - 1) // view.items_per_page)
+    view.message = None
     embed = view.get_current_embed()
-    
+
     # Проверяем заголовок эмбеда
     assert embed.title == "Статистика TestUser"
     
@@ -416,10 +456,16 @@ def test_stats_view_get_current_embed(stats_data, mock_user):
 
 def test_stats_view_second_page(stats_data, mock_user):
     """Проверяет правильность формирования эмбеда для второй страницы."""
-    view = TestStatsView("Статистика TestUser", stats_data, user=mock_user, items_per_page=3)
-    view.current_page = 1
+    view = TestStatsView()
+    view.title = "Статистика TestUser"
+    view.games_data = stats_data
+    view.user = mock_user
+    view.items_per_page = 3
+    view.current_page = 1 # Set current_page here
+    view.max_pages = max(1, (len(view.games_data) + view.items_per_page - 1) // view.items_per_page)
+    view.message = None
     embed = view.get_current_embed()
-    
+
     # Проверяем наличие игр второй страницы
     assert "4. Game4 - 15m" in embed.description
     assert "5. Game5 - 30m" in embed.description

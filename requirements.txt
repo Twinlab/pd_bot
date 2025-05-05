@@ -10,6 +10,7 @@ Pillow
 PyNaCl
 pytest
 pytest-asyncio
+pytest-cov
 freezegun
 pytz
 typing-extensions

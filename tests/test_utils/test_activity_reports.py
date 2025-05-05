@@ -81,6 +81,20 @@ def sample_activity_data():
         3: {"Game3": 5400, "Game2": 900}    # User3: 1.5 часа Game3, 15 минут Game2
     }
 
+@pytest.fixture
+def long_activity_data():
+    """Создает данные активности, которые точно приведут к разбивке сообщения."""
+    data = {}
+    for i in range(1, 51): # 50 пользователей
+        user_id = i
+        games = {}
+        for j in range(1, 6): # 5 игр у каждого
+            game_name = f"VeryLongGameNameThatTakesUpSpace_{i}_{j}"
+            time_spent = (i * j * 100) % 36000 + 1800 # Разное время > 30 мин
+            games[game_name] = time_spent
+        data[user_id] = games
+    return data
+
 # --- Тесты для _get_report_channel ---
 
 @pytest.mark.asyncio
@@ -268,14 +282,34 @@ async def test_send_monthly_report_with_data(mock_bot, mock_channel, mock_data_m
         # Проверяем, что была вызвана функция _get_monthly_summary_text
         mock_summary.assert_called_once_with(sample_activity_data, 5, 2024)
 
-# Пропускаем тест с длинным контентом, так как он вызывает рекурсию
-@pytest.mark.skip(reason="Вызывает рекурсию из-за сложной структуры моков")
+# Убираем skip и реализуем тест
+# @pytest.mark.skip(reason="Вызывает рекурсию из-за сложной структуры моков")
 @pytest.mark.asyncio
-async def test_send_monthly_report_long_content(mock_bot, mock_channel, mock_data_manager, mock_config):
+async def test_send_monthly_report_long_content(mock_bot, mock_channel, mock_data_manager, mock_config, long_activity_data):
     """Проверяет разбивку длинного отчета на части."""
-    # Этот тест пропущен, так как он вызывает рекурсию
-    # Функциональность разбивки длинного отчета на части проверяется вручную
-    pass
+    mock_bot.get_channel.return_value = mock_channel
+    mock_data_manager.get_aggregated_monthly_stats.return_value = long_activity_data
+
+    # Мокаем _get_monthly_summary_text и asyncio.sleep
+    with patch('utils.activity.reports._get_monthly_summary_text') as mock_summary, \
+         patch('utils.activity.reports.asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
+        mock_summary.return_value = "## 📊 Общая статистика\nТестовая статистика"
+
+        result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager, mock_config)
+
+        assert result is True
+        # Проверяем, что send был вызван несколько раз (заголовок + заголовок контента + чанки + финальная часть)
+        # Точное число зависит от данных, но должно быть > 3
+        assert mock_channel.send.call_count > 3
+        # Проверяем, что sleep вызывался между чанками
+        assert mock_sleep.called
+
+        # Дополнительно: проверим, что первый вызов - это заголовок
+        assert "# 📊 Ежемесячный отчет" in mock_channel.send.call_args_list[0].args[0]
+        # Проверим, что второй вызов - это заголовок контента
+        assert "## 👤 Активность всех пользователей" in mock_channel.send.call_args_list[1].args[0]
+        # Проверим, что последний вызов содержит общую статистику
+        assert "## 📊 Общая статистика" in mock_channel.send.call_args_list[-1].args[0]
 
 # --- Тесты для run_automatic_daily_report ---
 
