@@ -1,9 +1,10 @@
+"""Ког для отправки логов бота в указанный Discord канал в реальном времени."""
 import discord
 from discord.ext import commands, tasks
 import logging
 import os
 
-logger = logging.getLogger("bot")
+logger = logging.getLogger("bot.logging") # Иерархическое имя логгера
 CHECK_INTERVAL_SECONDS = 5
 MAX_MESSAGE_LENGTH = 1990  # Discord limit with margin for code block
 
@@ -13,6 +14,12 @@ class LoggingCog(commands.Cog):
     а затем отправки новых строк по мере их появления (tail -f).
     """
     def __init__(self, bot: commands.Bot):
+        """
+        Инициализирует ког LoggingCog.
+
+        Args:
+            bot: Экземпляр бота discord.ext.commands.Bot.
+        """
         self.bot = bot
         # Получаем ID канала из конфига, используем 1365045098785542224 как значение по умолчанию
         self.log_channel_id = self.bot.config.get("LOGGING_CHANNEL_ID", 1365045098785542224)
@@ -24,6 +31,10 @@ class LoggingCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
+        """
+        Запускает процесс логирования при готовности бота.
+        Использует флаг _log_init_done для предотвращения повторного запуска.
+        """
         if self._log_init_done:
             return
         self._log_init_done = True
@@ -31,6 +42,10 @@ class LoggingCog(commands.Cog):
         await self._send_full_log_and_start_tail()
 
     async def _send_full_log_and_start_tail(self):
+        """
+        Отправляет весь текущий лог в Discord канал и запускает задачу отслеживания новых записей.
+        Проверяет доступность канала и права бота на отправку сообщений.
+        """
         # Получаем канал
         self.log_channel = self.bot.get_channel(self.log_channel_id)
         if not self.log_channel:
@@ -106,5 +121,11 @@ class LoggingCog(commands.Cog):
             logger.error(f"[LogCog] Неизвестная ошибка при отправке лога: {e}")
 
 async def setup(bot: commands.Bot):
-    """Добавляет LoggingCog к боту."""
+    """
+    Добавляет LoggingCog к боту.
+    
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
     await bot.add_cog(LoggingCog(bot))
+    logger.info("Ког LoggingCog успешно загружен.")

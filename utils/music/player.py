@@ -1,43 +1,76 @@
+"""Модуль, содержащий классы Track и MusicPlayer для управления музыкальным плеером."""
 import asyncio
-import os
+from pathlib import Path
+import time
 from collections import deque
-from typing import Optional, Dict, Any, Deque
+from typing import Optional, Dict, Any, Deque, TYPE_CHECKING
 import discord
 
-from .config import logger, FFMPEG_OPTIONS, COLORS
+from .config import logger, FFMPEG_OPTIONS, COLORS, DOWNLOADS_DIR
 from .embeds import create_embed, format_duration
 from .yt_integration import download_track
 
+if TYPE_CHECKING:
+    from discord.ext import commands # Для type hinting bot
+
 class Track:
-    """Представляет трек в очереди."""
+    """Представляет музыкальный трек в очереди воспроизведения."""
     def __init__(self, info: Dict[str, Any], requester: discord.Member):
+        """
+        Инициализирует объект трека.
+
+        Args:
+            info: Словарь с информацией о треке, полученный от yt-dlp.
+            requester: Участник Discord, запросивший трек.
+        """
         self.url: str = info.get('webpage_url', info.get('original_url', ''))
         self.title: str = info.get('title', 'Неизвестное название')
-        self.duration: Optional[int] = info.get('duration')
+        self.duration: Optional[int] = info.get('duration') # в секундах
         self.thumbnail: Optional[str] = info.get('thumbnail')
         self.uploader: Optional[str] = info.get('uploader')
         self.uploader_url: Optional[str] = info.get('uploader_url')
         self.requester: discord.Member = requester
-        self.id: str = info.get('id', '')
-        self.extractor: str = info.get('extractor_key', 'youtube').lower()
-        self.filepath: Optional[str] = None
+        self.id: str = info.get('id', '') # ID видео/трека с сервиса
+        self.extractor: str = info.get('extractor_key', 'youtube').lower() # Ключ экстрактора (youtube, soundcloud и т.д.)
+        self.filepath: Optional[str] = None # Путь к скачанному файлу
 
     def __str__(self) -> str:
+        """Возвращает строковое представление трека (название и длительность)."""
         return f"**{self.title}** ({format_duration(self.duration)})"
 
-    def to_embed_field(self, index: Optional[int] = None):
+    def to_embed_field(self, index: Optional[int] = None) -> tuple[str, str, bool]:
+        """
+        Форматирует информацию о треке для использования в качестве поля в discord.Embed.
+
+        Args:
+            index: Опциональный номер трека в очереди.
+
+        Returns:
+            Кортеж (name, value, inline) для discord.Embed.add_field().
+        """
         name = f"`{index}.` {self.title}" if index is not None else self.title
         value = f"`{format_duration(self.duration)}` | Запросил: {self.requester.mention}"
         if self.uploader:
-            value += f"\nАвтор: [{self.uploader}]({self.uploader_url})" if self.uploader_url else f"\nАвтор: {self.uploader}"
+            uploader_link = f"[{self.uploader}]({self.uploader_url})" if self.uploader_url else self.uploader
+            value += f"\nАвтор: {uploader_link}"
         return (name, value, False)
 
 class MusicPlayer:
-    """Управляет состоянием и воспроизведением музыки (для одного сервера)."""
-    def __init__(self, bot):
-        self.bot = bot
+    """
+    Управляет состоянием и воспроизведением музыки для одного сервера (гильдии).
+    Включает управление очередью, подключением к голосовому каналу,
+    воспроизведением треков и взаимодействием с пользователем.
+    """
+    def __init__(self, bot: 'commands.Bot'):
+        """
+        Инициализирует музыкальный плеер.
+
+        Args:
+            bot: Экземпляр бота commands.Bot.
+        """
+        self.bot: 'commands.Bot' = bot
         self.voice_client: Optional[discord.VoiceClient] = None
-        self.text_channel: Optional[discord.TextChannel] = None
+        self.text_channel: Optional[discord.TextChannel | discord.Thread] = None
         self.queue: Deque[Track] = deque()
         self.current_track: Optional[Track] = None
         self.is_playing: bool = False
@@ -49,8 +82,18 @@ class MusicPlayer:
         self._cleanup_task: Optional[asyncio.Task] = None
 
     async def connect(self, channel: discord.VoiceChannel) -> bool:
+        """
+        Подключает или перемещает бота в указанный голосовой канал.
+
+        Args:
+            channel: Голосовой канал для подключения.
+
+        Returns:
+            True в случае успеха, False в противном случае.
+        """
         if self.voice_client and self.voice_client.is_connected():
             if self.voice_client.channel == channel:
+                logger.debug(f"Бот уже в целевом канале: {channel.name}")
                 return True
             try:
                 logger.info(f"Перемещение в голосовой канал: {channel.name} ({channel.id})")
@@ -85,9 +128,16 @@ class MusicPlayer:
             return False
 
     async def disconnect(self, interaction: Optional[discord.Interaction] = None):
+        """
+        Отключает бота от голосового канала и очищает состояние плеера.
+
+        Args:
+            interaction: Опциональное взаимодействие, чтобы ответить пользователю.
+        """
         logger.info("Отключение и очистка плеера...")
         if self._play_next_task:
             self._play_next_task.cancel()
+            self._play_next_task = None # Явно обнуляем после отмены
             self._play_next_task = None
         if self.voice_client and self.voice_client.is_connected():
             logger.info(f"Остановка воспроизведения и отключение от {self.voice_client.channel.name}")
@@ -107,9 +157,21 @@ class MusicPlayer:
         logger.info("Плеер отключен и очищен.")
 
     async def queue_track(self, url: str, requester: discord.Member, interaction: Optional[discord.Interaction] = None):
-        response_method = interaction.followup.send if interaction else (self.text_channel.send if self.text_channel else None)
+        """
+        Скачивает трек по URL, добавляет его в очередь и начинает воспроизведение, если очередь была пуста.
+
+        Args:
+            url: URL-адрес трека.
+            requester: Участник, запросивший трек.
+            interaction: Опциональное взаимодействие для отправки сообщений о статусе.
+        """
+        response_method = interaction.followup.send if interaction and interaction.response.is_done() else \
+                          (interaction.response.send_message if interaction and not interaction.response.is_done() else None)
+        if not response_method and self.text_channel: # Если нет interaction, но есть text_channel
+             response_method = self.text_channel.send
+
         edit_method = interaction.edit_original_response if interaction else None
-        loading_msg = None
+        loading_msg: Optional[discord.Message] = None
         if edit_method:
             try:
                 await edit_method(content="🔄 Скачивание трека...")
@@ -132,9 +194,9 @@ class MusicPlayer:
                 raise ValueError("Не удалось получить информацию о треке.")
             track = Track(track_info, requester)
             track.filepath = track_info.get('filepath')
-            if not track.filepath or not os.path.exists(track.filepath):
+            if not track.filepath or not Path(track.filepath).exists():
                 raise FileNotFoundError(f"Скачанный файл не найден: {track.filepath}")
-            if os.path.getsize(track.filepath) == 0:
+            if Path(track.filepath).stat().st_size == 0:
                 raise ValueError(f"Скачанный файл имеет нулевой размер: {track.filepath}")
             self.queue.append(track)
             logger.info(f"Трек добавлен в очередь: {track.title}")
@@ -162,16 +224,26 @@ class MusicPlayer:
                 await response_method(embed=error_embed)
 
     def start_playback_loop(self):
+        """
+        Запускает или перезапускает задачу асинхронного воспроизведения следующего трека из очереди.
+        Гарантирует, что одновременно выполняется не более одной такой задачи.
+        """
         if self._play_next_task and not self._play_next_task.done():
-            logger.debug("Цикл воспроизведения уже запущен.")
+            logger.debug("Цикл воспроизведения уже запущен. Новая задача не создается.")
             return
-        logger.info("Запуск цикла воспроизведения...")
+        logger.info("Запуск нового цикла воспроизведения...")
         self._play_next_task = self.loop.create_task(self.play_next())
 
     async def play_next(self):
+        """
+        Основная логика воспроизведения следующего трека из очереди.
+        Вызывается задачей, созданной в start_playback_loop.
+        Обрабатывает получение трека из очереди, создание источника FFmpeg,
+        воспроизведение и вызов _after_playback по завершении.
+        """
         try:
             if not self.voice_client or not self.voice_client.is_connected():
-                logger.warning("play_next вызван, но голосовой клиент не подключен.")
+                logger.warning("play_next: Голосовой клиент не подключен. Очистка и выход.")
                 await self.cleanup()
                 return
             if self.is_playing:
@@ -183,16 +255,17 @@ class MusicPlayer:
                 return
             self.current_track = self.queue.popleft()
             logger.info(f"Воспроизведение следующего трека: {self.current_track.title}")
-            if not self.current_track.filepath or not os.path.exists(self.current_track.filepath):
+            current_track_path = Path(self.current_track.filepath) if self.current_track.filepath else None
+            if not current_track_path or not current_track_path.exists():
                 logger.error(f"Путь к файлу отсутствует или файл не найден для трека: {self.current_track.title} ({self.current_track.filepath})")
                 await self.send_error_message(f"Ошибка: Файл для трека '{self.current_track.title}' не найден.")
                 self.current_track = None
                 self.start_playback_loop()
                 return
             try:
-                if not os.path.exists(self.current_track.filepath):
+                if not current_track_path.exists(): # Повторная проверка на случай если current_track_path был None
                     raise FileNotFoundError(f"Файл не найден: {self.current_track.filepath}")
-                file_size = os.path.getsize(self.current_track.filepath)
+                file_size = current_track_path.stat().st_size
                 if file_size == 0:
                     raise ValueError(f"Файл имеет нулевой размер: {self.current_track.filepath}")
                 logger.info(f"Создание аудио источника для файла: {self.current_track.filepath} (размер: {file_size} байт)")
@@ -215,59 +288,120 @@ class MusicPlayer:
             await self.stop()
 
     async def _after_playback(self, error: Optional[Exception]):
+        """
+        Callback-функция, вызываемая после завершения воспроизведения трека (или при ошибке).
+        Обрабатывает ошибки, очищает текущий трек и запускает воспроизведение следующего, если он есть.
+
+        Args:
+            error: Ошибка, возникшая во время воспроизведения, или None, если трек завершился успешно.
+        """
         logger.debug(f"_after_playback вызван. Ошибка: {error}")
-        finished_track = self.current_track
+        finished_track_title = self.current_track.title if self.current_track else "Неизвестный трек"
         self.is_playing = False
-        self.current_track = None
+        self.current_track = None # Очищаем текущий трек
         if error:
-            logger.error(f"Ошибка воспроизведения: {error}", exc_info=error)
-            await self.send_error_message(f"Ошибка во время воспроизведения трека '{finished_track.title if finished_track else ''}': `{error}`")
+            logger.error(f"Ошибка воспроизведения трека '{finished_track_title}': {error}", exc_info=error)
+            await self.send_error_message(f"Ошибка во время воспроизведения трека '{finished_track_title}': `{error}`")
+        
+        # Проверяем, есть ли еще треки в очереди и подключен ли клиент
         if self.queue and self.voice_client and self.voice_client.is_connected():
+            logger.info("Запуск следующего трека из очереди.")
             self.start_playback_loop()
         elif self.voice_client and self.voice_client.is_connected():
-            logger.info("Очередь завершена, но клиент все еще подключен.")
-            await self.cleanup(clear_queue=False)
-        else:
-            logger.info("Воспроизведение завершено и клиент отключен.")
-            await self.cleanup(clear_queue=False)
+            logger.info("Очередь пуста. Воспроизведение завершено, клиент остается подключенным.")
+            # Не очищаем очередь здесь, если она пуста, cleanup это сделает при необходимости
+            await self.cleanup(clear_queue=False) # Очищаем сообщение "Сейчас играет" и т.д.
+        else: # Клиент не подключен (например, был отключен вручную во время after_playback)
+            logger.info("Воспроизведение завершено и голосовой клиент уже отключен.")
+            await self.cleanup(clear_queue=True) # Полная очистка
 
     async def pause(self, interaction: Optional[discord.Interaction] = None):
+        """
+        Приостанавливает воспроизведение текущего трека.
+
+        Args:
+            interaction: Опциональное взаимодействие для ответа пользователю.
+        """
         if self.voice_client and self.is_playing and not self.is_paused:
             logger.info("Приостановка воспроизведения.")
             self.voice_client.pause()
             self.is_paused = True
-            if interaction:
+            if interaction and not interaction.response.is_done():
                 await interaction.response.send_message("⏸️ Воспроизведение приостановлено.", ephemeral=True)
+            elif interaction: # Если ответ уже был (например, из View)
+                 await interaction.followup.send("⏸️ Воспроизведение приостановлено.", ephemeral=True)
             await self._update_now_playing_message()
         elif interaction:
-            await interaction.response.send_message("Сейчас ничего не играет или уже на паузе.", ephemeral=True)
+            msg = "Сейчас ничего не играет." if not self.is_playing else "Воспроизведение уже на паузе."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
+
 
     async def resume(self, interaction: Optional[discord.Interaction] = None):
+        """
+        Возобновляет воспроизведение приостановленного трека.
+
+        Args:
+            interaction: Опциональное взаимодействие для ответа пользователю.
+        """
         if self.voice_client and self.is_paused:
             logger.info("Возобновление воспроизведения.")
             self.voice_client.resume()
             self.is_paused = False
-            if interaction:
+            if interaction and not interaction.response.is_done():
                 await interaction.response.send_message("▶️ Воспроизведение возобновлено.", ephemeral=True)
+            elif interaction:
+                 await interaction.followup.send("▶️ Воспроизведение возобновлено.", ephemeral=True)
             await self._update_now_playing_message()
         elif interaction:
-            await interaction.response.send_message("Воспроизведение не на паузе.", ephemeral=True)
+            msg = "Воспроизведение не на паузе."
+            if not interaction.response.is_done():
+                 await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
 
     async def skip(self, interaction: Optional[discord.Interaction] = None):
+        """
+        Пропускает текущий воспроизводимый трек.
+
+        Args:
+            interaction: Опциональное взаимодействие для ответа пользователю.
+        """
         if self.voice_client and self.is_playing:
-            logger.info(f"Пропуск трека: {self.current_track.title if self.current_track else 'Неизвестно'}")
             skipped_title = self.current_track.title if self.current_track else "текущий трек"
-            self.voice_client.stop()
-            if interaction:
+            logger.info(f"Пропуск трека: {skipped_title}")
+            self.voice_client.stop() # Это вызовет _after_playback, который запустит следующий трек
+            if interaction and not interaction.response.is_done():
                 await interaction.response.send_message(f"⏭️ Трек '{skipped_title}' пропущен.", ephemeral=True)
+            elif interaction: # Если ответ уже был (например, из View)
+                await interaction.followup.send(f"⏭️ Трек '{skipped_title}' пропущен.", ephemeral=True)
         elif interaction:
-            await interaction.response.send_message("Сейчас ничего не играет.", ephemeral=True)
+            msg = "Сейчас ничего не играет, чтобы можно было пропустить."
+            if not interaction.response.is_done():
+                await interaction.response.send_message(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(msg, ephemeral=True)
+
 
     async def stop(self, interaction: Optional[discord.Interaction] = None):
-        logger.info("Получена команда stop.")
-        await self.disconnect(interaction)
+        """
+        Полностью останавливает воспроизведение, очищает очередь и отключает бота.
+
+        Args:
+            interaction: Опциональное взаимодействие для ответа пользователю.
+        """
+        logger.info("Получена команда stop. Отключение плеера.")
+        await self.disconnect(interaction) # disconnect уже содержит логику ответа
 
     async def show_queue(self, interaction: discord.Interaction):
+        """
+        Отображает текущую очередь воспроизведения в виде эмбеда.
+
+        Args:
+            interaction: Взаимодействие, инициировавшее команду.
+        """
         if not self.current_track and not self.queue:
             await interaction.response.send_message(embed=create_embed("ℹ️ Очередь пуста", color=COLORS['INFO']), ephemeral=True)
             return
@@ -295,37 +429,48 @@ class MusicPlayer:
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     async def _update_now_playing_message(self):
+        """
+        Обновляет или отправляет новое сообщение "Сейчас играет" с актуальной информацией
+        о треке и кнопками управления.
+        """
         if not self.text_channel:
-            logger.warning("_update_now_playing_message вызван без text_channel.")
+            logger.warning("_update_now_playing_message: text_channel не установлен, сообщение не будет отправлено/обновлено.")
             return
-        from .ui import PlayerControlView
+
+        from .ui import PlayerControlView # Локальный импорт для избежания циклических зависимостей на уровне модуля
+
         embed = self._create_now_playing_embed()
-        view = self.player_view or PlayerControlView(self)
-        view._update_buttons()
+        
+        # Создаем или получаем существующий view
+        current_view = self.player_view if self.player_view and not self.player_view.is_finished() else PlayerControlView(self)
+        current_view._update_buttons() # Обновляем состояние кнопок
+
         if self.now_playing_message:
             try:
-                await self.now_playing_message.edit(embed=embed, view=view)
-                logger.debug("Обновлено сообщение 'Сейчас играет'.")
+                await self.now_playing_message.edit(embed=embed, view=current_view)
+                logger.debug("Сообщение 'Сейчас играет' обновлено.")
             except discord.NotFound:
-                logger.warning("Сообщение 'Сейчас играет' не найдено, отправляем новое.")
-                self.now_playing_message = await self.text_channel.send(embed=embed, view=view)
+                logger.warning("Сообщение 'Сейчас играет' не найдено (возможно, удалено). Отправляем новое.")
+                self.now_playing_message = None # Сбрасываем, чтобы отправить новое
             except Exception as e:
                 logger.error(f"Не удалось отредактировать сообщение 'Сейчас играет': {e}", exc_info=True)
-                try:
-                    self.now_playing_message = await self.text_channel.send(embed=embed, view=view)
-                except Exception as send_e:
-                    logger.error(f"Не удалось отправить новое сообщение 'Сейчас играет': {send_e}", exc_info=True)
-                    self.now_playing_message = None
-        else:
+                self.now_playing_message = None # Сбрасываем при ошибке редактирования
+        
+        if not self.now_playing_message: # Если сообщение не было обновлено или его не было
             try:
-                self.now_playing_message = await self.text_channel.send(embed=embed, view=view)
-                logger.info("Отправлено сообщение 'Сейчас играет'.")
-            except Exception as e:
-                logger.error(f"Не удалось отправить сообщение 'Сейчас играет': {e}", exc_info=True)
+                self.now_playing_message = await self.text_channel.send(embed=embed, view=current_view)
+                logger.info("Новое сообщение 'Сейчас играет' отправлено.")
+            except discord.HTTPException as e: # Более конкретное исключение для сетевых ошибок Discord
+                logger.error(f"Не удалось отправить сообщение 'Сейчас играет' (HTTPException): {e}", exc_info=True)
                 self.now_playing_message = None
-        self.player_view = view
+            except Exception as e:
+                logger.error(f"Не удалось отправить сообщение 'Сейчас играет' (Общая ошибка): {e}", exc_info=True)
+                self.now_playing_message = None
+        
+        self.player_view = current_view # Сохраняем view для последующих обновлений или остановки
 
     def _create_now_playing_embed(self) -> discord.Embed:
+        """Создает эмбед для сообщения "Сейчас играет"."""
         if not self.current_track:
             return create_embed("⏹️ Ничего не играет", color=COLORS['INFO'])
         track = self.current_track
@@ -347,15 +492,30 @@ class MusicPlayer:
         return embed
 
     async def send_error_message(self, message: str):
+        """
+        Отправляет сообщение об ошибке в установленный текстовый канал плеера.
+
+        Args:
+            message: Текст ошибки для отображения.
+        """
         if self.text_channel:
             try:
                 await self.text_channel.send(embed=create_embed("❌ Ошибка", message, COLORS['ERROR']))
+            except discord.HTTPException as e:
+                 logger.error(f"Не удалось отправить сообщение об ошибке в текстовый канал (HTTPException): {e}")
             except Exception as e:
-                logger.error(f"Не удалось отправить сообщение об ошибке в текстовый канал: {e}")
+                logger.error(f"Не удалось отправить сообщение об ошибке в текстовый канал (Общая ошибка): {e}")
         else:
-            logger.warning(f"Невозможно отправить сообщение об ошибке, text_channel не установлен. Ошибка: {message}")
+            logger.warning(f"Невозможно отправить сообщение об ошибке (text_channel не установлен): {message}")
 
     async def cleanup(self, clear_queue: bool = True):
+        """
+        Очищает состояние плеера: останавливает воспроизведение, сбрасывает текущий трек,
+        удаляет сообщение "Сейчас играет" и опционально очищает очередь.
+
+        Args:
+            clear_queue: Если True, очередь треков будет очищена.
+        """
         logger.debug(f"Вызвана очистка. clear_queue={clear_queue}")
         self.is_playing = False
         self.is_paused = False
@@ -384,37 +544,63 @@ class MusicPlayer:
         logger.debug("Очистка завершена.")
 
     async def start_cleanup_task(self):
+        """
+        Запускает фоновую задачу для периодической очистки старых скачанных файлов.
+        Гарантирует, что одновременно выполняется не более одной такой задачи.
+        """
         if not hasattr(self, '_cleanup_task') or self._cleanup_task is None or self._cleanup_task.done():
             self._cleanup_task = self.loop.create_task(self._scheduled_cleanup())
-            logger.info("Запущена задача по очистке старых файлов")
+            logger.info("Запущена фоновая задача по очистке старых загруженных файлов.")
 
     async def _scheduled_cleanup(self):
-        import time, glob
+        """
+        Периодически (раз в 24 часа) вызывает метод _cleanup_old_files.
+        Эта функция выполняется в фоновой задаче.
+        """
         try:
             while True:
-                await asyncio.sleep(24 * 60 * 60)
+                await asyncio.sleep(24 * 60 * 60) # Ожидание 24 часа
+                logger.info("Плановая очистка старых файлов...")
                 await self._cleanup_old_files()
         except asyncio.CancelledError:
-            logger.info("Задача очистки файлов отменена")
+            logger.info("Задача очистки старых файлов отменена.")
         except Exception as e:
-            logger.error(f"Ошибка в задаче очистки файлов: {e}", exc_info=True)
+            logger.error(f"Критическая ошибка в задаче периодической очистки файлов: {e}", exc_info=True)
 
     async def _cleanup_old_files(self):
-        import time, glob
+        """
+        Удаляет старые файлы из директории загрузок (старше 24 часов).
+        """
         try:
             now = time.time()
-            one_hour_ago = now - 3600
+            # Удаляем файлы старше 24 часов
+            # Для тестирования можно временно уменьшить это значение (например, до 1 часа: 1 * 60 * 60)
+            older_than_seconds = 24 * 60 * 60
+            cutoff_time = now - older_than_seconds
+            
             count = 0
-            for file_path in glob.glob("downloads/*"):
+            deleted_files_log = []
+
+            for file_path_obj in DOWNLOADS_DIR.glob("*"):
                 try:
-                    file_creation_time = os.path.getctime(file_path)
-                    if file_creation_time < one_hour_ago:
-                        os.remove(file_path)
+                    if not file_path_obj.is_file(): # Пропускаем поддиректории, если таковые имеются
+                        continue
+                    
+                    file_modification_time = file_path_obj.stat().st_mtime # Используем st_mtime как более надежный показатель "старости"
+                    
+                    if file_modification_time < cutoff_time:
+                        file_path_obj.unlink(missing_ok=True) # missing_ok=True на случай, если файл уже удален
                         count += 1
-                        logger.debug(f"Удален старый файл: {file_path}")
-                except OSError as e:
-                    logger.error(f"Ошибка при удалении старого файла {file_path}: {e}")
+                        deleted_files_log.append(str(file_path_obj.name))
+                        logger.debug(f"Удален старый файл: {file_path_obj}")
+                except OSError as e: # Ловим OSError для проблем с доступом/удалением
+                    logger.error(f"Ошибка при попытке удалить старый файл {file_path_obj}: {e}")
+                except Exception as e_inner: # Ловим другие возможные ошибки при обработке одного файла
+                     logger.error(f"Неожиданная ошибка при обработке файла {file_path_obj} для очистки: {e_inner}")
+
             if count > 0:
-                logger.info(f"Очистка завершена: удалено {count} старых файлов")
-        except Exception as e:
-            logger.error(f"Ошибка при очистке старых файлов: {e}", exc_info=True)
+                logger.info(f"Очистка старых файлов завершена: удалено {count} файл(ов). Список: {', '.join(deleted_files_log) if deleted_files_log else 'нет'}")
+            else:
+                logger.info("Очистка старых файлов: не найдено файлов для удаления.")
+        except Exception as e: # Общая ошибка для всей операции очистки
+            logger.error(f"Ошибка в процессе очистки старых файлов: {e}", exc_info=True)

@@ -1,21 +1,27 @@
+"""Административный ког с командами для управления ботом и сервером."""
 import discord
 from discord.ext import commands
-from typing import Optional, List, Union, Dict, Tuple
+from typing import Optional, Dict, Tuple # Убираем List и Union, они не используются в аннотациях
 import logging
 import asyncio
 import datetime
 import subprocess
 import os
 
-# Импортируем утилиты
 from utils.error_handler import command_error_handler, safe_send
 
-logger = logging.getLogger("bot")
+logger = logging.getLogger("bot.admin") # Используем иерархическое имя логгера
 
-class Admin(commands.Cog):
+class AdminCog(commands.Cog):
     """Ког с административными командами для управления ботом и сервером."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
+        """
+        Инициализирует административный ког.
+
+        Args:
+            bot: Экземпляр бота discord.ext.commands.Bot.
+        """
         self.bot = bot
         # Словарь для отслеживания времени последней очистки {channel_id: (timestamp, count)}
         # Используется для предотвращения спама командой clear
@@ -235,5 +241,12 @@ class Admin(commands.Cog):
                  await ctx.send(error_message)
 
 
-async def setup(bot):
-    await bot.add_cog(Admin(bot))
+async def setup(bot: commands.Bot):
+    """
+    Добавляет ког Admin к боту.
+
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
+    await bot.add_cog(AdminCog(bot))
+    logger.info("Ког AdminCog успешно загружен.")

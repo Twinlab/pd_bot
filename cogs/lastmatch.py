@@ -1,20 +1,24 @@
+"""Ког для просмотра информации о последних матчах Dota 2."""
 import discord
 from discord.ext import commands
 from typing import Optional
 import logging
 
-# Импортируем обработчик ошибок
 from utils.error_handler import command_error_handler
-
-logger = logging.getLogger("bot")
-
-# Импорт обработчика матчей из нового модуля
 from utils.dota_match_utils import handle_lastmatch
 
-class LastMatch(commands.Cog):
-    """Команды для просмотра информации о последних матчах Dota 2"""
+logger = logging.getLogger("bot.lastmatch") # Иерархическое имя логгера
 
-    def __init__(self, bot):
+class LastMatchCog(commands.Cog):
+    """Команды для просмотра информации о последних матчах Dota 2."""
+
+    def __init__(self, bot: commands.Bot):
+        """
+        Инициализирует ког LastMatchCog.
+
+        Args:
+            bot: Экземпляр бота discord.ext.commands.Bot.
+        """
         self.bot = bot
         logger.info(f"Ког {self.__class__.__name__} загружен")
 
@@ -36,7 +40,7 @@ class LastMatch(commands.Cog):
 
         # Определяем ID пользователя, для которого нужно получить ссылки
         target_user = member if member else ctx.author
-        user_id = target_user.id # Используем int ID
+        user_id = target_user.id
 
         # Получаем список привязанных Steam ID для этого пользователя
         # Убедимся, что links_manager существует
@@ -49,10 +53,6 @@ class LastMatch(commands.Cog):
         try:
             # Получаем список ссылок (может быть пустым)
             user_links_list = await links_cog.links_manager.get_links(user_id)
-            # Создаем словарь в формате, который ожидает get_match_data
-            # (хотя get_match_data был обновлен и теперь принимает список)
-            # Оставляем словарь для совместимости или если get_match_data ожидает его
-            user_links_dict = {str(user_id): user_links_list} if user_links_list else {}
 
         except Exception as e:
              from utils.error_handler import safe_send_error
@@ -64,8 +64,15 @@ class LastMatch(commands.Cog):
         await ctx.defer()
 
         # Вызываем основную логику обработки команды из utils/dota_match_utils.py
-        # Передаем список ID, а не словарь
-        await handle_lastmatch(ctx, user_links_list, member) # Передаем список user_links_list
+        # Передаем список ID
+        await handle_lastmatch(ctx, user_links_list, member)
 
-async def setup(bot):
-    await bot.add_cog(LastMatch(bot))
+async def setup(bot: commands.Bot):
+    """
+    Добавляет ког LastMatchCog к боту.
+
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
+    await bot.add_cog(LastMatchCog(bot))
+    logger.info("Ког LastMatchCog успешно загружен.")

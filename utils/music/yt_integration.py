@@ -1,13 +1,26 @@
+"""Модуль для взаимодействия с yt-dlp для скачивания треков и поиска видео на YouTube."""
 import yt_dlp
 import asyncio
-import glob
-import os
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 from .config import logger, YDL_OPTS_BASE, PROXY_URL, DOWNLOADS_DIR
 
 async def download_track(url: str) -> Optional[Dict[str, Any]]:
-    """Скачивает трек с помощью yt-dlp и возвращает информацию."""
+    """
+    Скачивает трек с помощью yt-dlp и возвращает информацию о нем.
+
+    Args:
+        url: URL-адрес трека для скачивания.
+
+    Returns:
+        Словарь с информацией о треке (включая 'filepath' к скачанному файлу)
+        в случае успеха, иначе None.
+
+    Raises:
+        yt_dlp.utils.DownloadError: Если происходит ошибка непосредственно при скачивании yt-dlp.
+                                   Другие ошибки логируются и возвращается None.
+    """
     ydl_opts = YDL_OPTS_BASE.copy()
     if 'youtube.com' in url or 'youtu.be' in url:
         logger.info(f"Обнаружена ссылка YouTube, применяем оптимизированные настройки")
@@ -49,22 +62,28 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
         if ydl_opts.get('postprocessors') and len(ydl_opts['postprocessors']) > 0:
             preferred_ext = '.' + ydl_opts['postprocessors'][0].get('preferredcodec', 'mp3')
         
-        filepath = expected_base + preferred_ext
-        if not os.path.exists(filepath):
-            logger.warning(f"Файл {filepath} не найден. Ищем с помощью glob: {expected_base}.*")
-            found_files = glob.glob(f"{expected_base}.*")
+        filepath_obj = Path(expected_base + preferred_ext)
+        if not filepath_obj.exists():
+            logger.warning(f"Файл {filepath_obj} не найден. Ищем с помощью glob: {Path(expected_base).name}.*")
+            # DOWNLOADS_DIR это Path объект из config
+            # expected_base может быть полным путем, извлекаем только имя файла для glob
+            search_pattern = f"{Path(expected_base).name}.*"
+            found_files = list(DOWNLOADS_DIR.glob(search_pattern))
+            
             if found_files:
-                audio_files = [f for f in found_files if f.lower().endswith(('.opus', '.mp3', '.ogg', '.m4a', '.aac', '.wav', '.flac'))]
+                # Преобразуем Path объекты в строки для endswith и для filepath
+                audio_files = [str(f) for f in found_files if str(f).lower().endswith(('.opus', '.mp3', '.ogg', '.m4a', '.aac', '.wav', '.flac'))]
                 if audio_files:
-                    filepath = audio_files[0]
-                    logger.info(f"Найден аудио файл через glob: {filepath}")
+                    filepath_obj = Path(audio_files[0])
+                    logger.info(f"Найден аудио файл через glob: {filepath_obj}")
                 else:
-                    filepath = found_files[0]
-                    logger.warning(f"Не удалось найти аудио расширение, используем первое совпадение: {filepath}")
+                    filepath_obj = Path(str(found_files[0])) # Берем первый найденный, если аудио нет
+                    logger.warning(f"Не удалось найти аудио расширение, используем первое совпадение: {filepath_obj}")
             else:
-                logger.error(f"Не удалось найти скачанный файл по шаблону: {expected_base}.*")
+                logger.error(f"Не удалось найти скачанный файл по шаблону: {search_pattern} в {DOWNLOADS_DIR}")
                 return None
-        info['filepath'] = filepath
+        
+        info['filepath'] = str(filepath_obj) # Сохраняем как строку, если так ожидается дальше
         return info
     except yt_dlp.utils.DownloadError as e:
         logger.warning(f"yt-dlp DownloadError при скачивании: {e}")
@@ -74,13 +93,22 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
         return None
 
 async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dict[str, Any]]]:
-    """Ищет видео на YouTube без скачивания."""
+    """
+    Ищет видео на YouTube по заданному запросу без фактического скачивания.
+
+    Args:
+        query: Поисковый запрос.
+        max_results: Максимальное количество результатов для возврата.
+
+    Returns:
+        Список словарей, где каждый словарь содержит информацию о найденном видео,
+        или None, если ничего не найдено или произошла ошибка.
+    """
     logger.info(f"Поиск на YouTube: '{query}' (max_results={max_results})")
     ydl_opts = {
-        'format': 'bestaudio',
-        # 'extract_flat': True,  # Отключено для диагностики
+        'format': 'bestaudio', # Хотя скачивание не происходит, некоторые экстракторы могут требовать формат
         'skip_download': True,
-        'playlistend': max_results,
+        'playlistend': max_results, # Ограничивает количество извлекаемых элементов плейлиста/поиска
         'quiet': True,
         'no_warnings': True,
         'default_search': f'ytsearch{max_results}',

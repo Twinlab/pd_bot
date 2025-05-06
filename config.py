@@ -1,11 +1,18 @@
+"""Загрузка конфигурации бота из JSON-файла."""
 import json
-import os
 import logging
- 
-logger = logging.getLogger("bot")
- 
-def load_config():
-    """Загружает конфигурацию из файла data/config.json"""
+from typing import Dict, Any
+
+logger = logging.getLogger("bot.config")  # Используем иерархическое имя логгера
+
+def load_config() -> Dict[str, Any]:
+    """
+    Загружает конфигурацию из файла data/config.json.
+    
+    Returns:
+        Dict[str, Any]: Словарь с конфигурационными параметрами бота.
+        В случае ошибки возвращает словарь с BOT_TOKEN=None.
+    """
     config_path = "data/config.json"
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -16,7 +23,3 @@ def load_config():
     except Exception as e:
         logger.error(f"Ошибка при загрузке конфигурации: {e}")
         return {"BOT_TOKEN": None}
-
-# Функция load_user_links удалена, т.к. привязки теперь хранятся в SQLite
-# и управляются через LinksDataManager.
-# Логика миграции перенесена в LinksDataManager.migrate_links_from_json

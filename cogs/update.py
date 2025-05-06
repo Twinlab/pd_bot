@@ -1,17 +1,24 @@
+"""Ког для обновления бота с GitHub и его перезапуска через systemd."""
 import discord
 from discord.ext import commands
 import subprocess
 import asyncio
-import os
-
 import logging
-# Импортируем обработчик ошибок
+
 from utils.error_handler import command_error_handler
 
-logger = logging.getLogger("bot")
+logger = logging.getLogger("bot.update")
 
-class Update(commands.Cog):
-    def __init__(self, bot):
+class UpdateCog(commands.Cog):
+    """Ког для обновления бота с GitHub и его перезапуска."""
+    
+    def __init__(self, bot: commands.Bot):
+        """
+        Инициализирует ког UpdateCog.
+
+        Args:
+            bot: Экземпляр бота discord.ext.commands.Bot.
+        """
         self.bot = bot
         
     @commands.hybrid_command(
@@ -84,5 +91,12 @@ class Update(commands.Cog):
             logger.error(f"Непредвиденная ошибка при обновлении: {e}", exc_info=True)
             await message.edit(content=f"❌ Непредвиденная ошибка при обновлении: {e}")
 
-async def setup(bot):
-    await bot.add_cog(Update(bot))
+async def setup(bot: commands.Bot):
+    """
+    Добавляет ког UpdateCog к боту.
+
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
+    await bot.add_cog(UpdateCog(bot))
+    logger.info("Ког UpdateCog успешно загружен.")

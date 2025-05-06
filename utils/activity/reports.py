@@ -1,18 +1,16 @@
+"""Модуль для генерации и отправки отчетов об игровой активности пользователей."""
 import discord
 import asyncio
 import logging
 import pytz
 from datetime import date, timedelta, datetime
-from collections import defaultdict
+from collections import defaultdict # Используется в _get_monthly_summary_text
 from typing import Dict, Any, Optional
 
-# Импортируем необходимые компоненты
 from utils.activity_data_manager import ActivityDataManager
 from .views import ActivityView
-from .helpers import format_time_short # Импортируем только краткий формат времени
+from .helpers import format_time_short
 
-# Логгер для этого модуля
-# Используем иерархическое имя в соответствии с README
 logger = logging.getLogger("bot.activity.reports")
 
 # Словарь для названий месяцев
@@ -378,11 +376,3 @@ async def run_automatic_monthly_report(cog_instance: Any):
 
     except Exception as e:
         logger.error(f"Критическая ошибка при выполнении автоматического ежемесячного отчета: {e}", exc_info=True)
-
-# Функция для периодического сохранения остается простой и вызывается напрямую из кога
-# async def run_periodic_save(cog_instance: Any):
-#     try:
-#         logger.debug("run_periodic_save: Обновление текущих активностей...")
-#         await cog_instance.update_current_activities()
-#     except Exception as e:
-#         logger.error(f"Ошибка при периодическом обновлении активности (run_periodic_save): {e}", exc_info=True)

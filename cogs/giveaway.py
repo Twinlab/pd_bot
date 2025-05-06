@@ -1,21 +1,21 @@
+"""Ког для создания и управления розыгрышами призов в Discord."""
 import discord
 from discord.ext import commands
 import asyncio
 import logging
 import re
-from typing import Optional, Set, Dict, Union
+from typing import Optional, Dict, List # Убираем Set, Union; добавляем List
 import random
 from datetime import datetime, timedelta
 
-# Импортируем обработчик ошибок
 from utils.error_handler import command_error_handler
 
-logger = logging.getLogger("bot")
+logger = logging.getLogger("bot.giveaway") # Иерархическое имя логгера
 
-class Giveaway(commands.Cog):
+class GiveawayCog(commands.Cog):
     """Ког для создания и управления розыгрышами в Discord."""
     
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         """Инициализирует ког и словарь для отслеживания активных розыгрышей."""
         self.bot = bot
         # Словарь для хранения задач asyncio, отслеживающих активные розыгрыши {message_id: task}
@@ -315,5 +315,12 @@ class Giveaway(commands.Cog):
         
         return " ".join(parts)
 
-async def setup(bot):
-    await bot.add_cog(Giveaway(bot))
+async def setup(bot: commands.Bot):
+    """
+    Добавляет ког GiveawayCog к боту.
+
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
+    await bot.add_cog(GiveawayCog(bot))
+    logger.info("Ког GiveawayCog успешно загружен.")

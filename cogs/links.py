@@ -1,25 +1,30 @@
+"""Ког для управления привязками аккаунтов Dota 2 к Discord аккаунтам."""
 import logging
 import discord
 from discord.ext import commands
 from typing import Optional, List
 
-# Импортируем обработчик ошибок и новый менеджер данных
 from utils.error_handler import command_error_handler
 from utils.links_data_manager import LinksDataManager
 
-logger = logging.getLogger("bot")
+logger = logging.getLogger("bot.links") # Иерархическое имя логгера
 
-class Links(commands.Cog):
-    """Команды для привязки аккаунтов Dota 2"""
+class LinksCog(commands.Cog):
+    """Команды для привязки аккаунтов Dota 2."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
+        """
+        Инициализирует ког LinksCog.
+
+        Args:
+            bot: Экземпляр бота discord.ext.commands.Bot.
+        """
         self.bot = bot
         self.links_manager = LinksDataManager()
         logger.info(f"Ког {self.__class__.__name__} загружен")
 
     async def send_response(self, ctx, message):
         """Отправляет приватный ответ в зависимости от типа контекста команды."""
-        # Эта функция остается без изменений
         try:
             is_interaction = hasattr(ctx, 'interaction') and ctx.interaction is not None
             if is_interaction:
@@ -47,7 +52,7 @@ class Links(commands.Cog):
             await self.send_response(ctx, f"ID игрока должен быть положительным числом.")
             return
 
-        user_id = ctx.author.id # Используем int ID
+        user_id = ctx.author.id
         logger.info(f"Привязка аккаунта Dota 2 {player_id} к Discord ID {user_id}")
 
         # Получаем текущие привязки из БД
@@ -136,5 +141,12 @@ class Links(commands.Cog):
         else:
             await self.send_response(ctx, "У вас нет привязанных аккаунтов Dota 2. Используйте `/link PLAYER_ID`.")
 
-async def setup(bot):
-    await bot.add_cog(Links(bot))
+async def setup(bot: commands.Bot):
+    """
+    Добавляет ког LinksCog к боту.
+
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
+    await bot.add_cog(LinksCog(bot))
+    logger.info("Ког LinksCog успешно загружен.")

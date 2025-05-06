@@ -1,18 +1,17 @@
+"""Ког для автоматической и ручной публикации SFW аниме-изображений."""
 import discord
 from discord.ext import commands, tasks
 import aiohttp
 import logging
 import random
-from datetime import datetime, time
-import pytz
+from datetime import datetime, time # pytz не используется
 from typing import Optional
 
-# Импортируем обработчик ошибок
 from utils.error_handler import command_error_handler
 
-logger = logging.getLogger("bot")
+logger = logging.getLogger("bot.anime") # Иерархическое имя логгера
 
-class AnimeImagePoster(commands.Cog):
+class AnimeCog(commands.Cog):
     """
     Ког для автоматической и ручной публикации случайных SFW аниме-изображений
     в заданный канал Discord.
@@ -147,6 +146,7 @@ class AnimeImagePoster(commands.Cog):
         await self.post_anime_image()
         await ctx.send("Аниме-изображение опубликовано!", ephemeral=True)
 
-async def setup(bot):
-    """Загружает ког AnimeImagePoster"""
-    await bot.add_cog(AnimeImagePoster(bot))
+async def setup(bot: commands.Bot):
+    """Загружает ког AnimeCog"""
+    await bot.add_cog(AnimeCog(bot))
+    logger.info("Ког AnimeCog успешно загружен.")

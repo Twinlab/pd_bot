@@ -1,24 +1,28 @@
+"""Ког для отслеживания стримов на Twitch и отправки уведомлений в Discord каналы."""
 import discord
 from discord.ext import commands, tasks
 from discord import app_commands
 import logging
 import asyncio
-import time
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict
 import datetime
 
-# Импортируем утилиты
 from utils.error_handler import command_error_handler, safe_send
 from utils.twitch_data_manager import TwitchDataManager
 from utils.twitch_api import TwitchAPI
 
-# Настраиваем логгер для модуля Twitch
 logger = logging.getLogger("bot.twitch")
 
 class TwitchCog(commands.Cog):
     """Ког для отслеживания стримов на Twitch."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
+        """
+        Инициализирует ког TwitchCog.
+
+        Args:
+            bot: Экземпляр бота discord.ext.commands.Bot.
+        """
         self.bot = bot
         self.data_manager = TwitchDataManager()
         
@@ -504,5 +508,12 @@ class TwitchCog(commands.Cog):
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
+    """
+    Добавляет ког TwitchCog к боту.
+
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
     await bot.add_cog(TwitchCog(bot))
+    logger.info("Ког TwitchCog успешно загружен.")

@@ -1,3 +1,4 @@
+"""Вспомогательные функции для модуля отслеживания активности."""
 import discord
 
 # TODO: Consider if this needs access to bot config or roles in the future.

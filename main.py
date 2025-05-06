@@ -1,6 +1,6 @@
+"""Основной файл для запуска Discord бота, инициализации и загрузки компонентов."""
 import discord
 import asyncio
-import os
 from pathlib import Path
 import logging
 from datetime import datetime
@@ -13,14 +13,14 @@ LOGS_DIR.mkdir(exist_ok=True)
 log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
 log_path = LOGS_DIR / log_filename
 
-# (опционально) создаём/обновляем симлинк на последний лог
+# Создаём/обновляем симлинк на последний лог
 latest_symlink = LOGS_DIR / "latest.log"
 try:
     if latest_symlink.exists() or latest_symlink.is_symlink():
-        latest_symlink.unlink()
+        latest_symlink.unlink(missing_ok=True) # Добавим missing_ok=True для unlink
     latest_symlink.symlink_to(log_filename)
-except Exception:
-    pass  # не критично
+except OSError as e:
+    logging.warning(f"Не удалось создать/обновить симлинк 'latest.log': {e}") # Используем logging вместо logger, т.к. logger еще не настроен
 
 # Настройка логирования
 logging.basicConfig(
@@ -31,7 +31,7 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-logger = logging.getLogger("bot")
+logger = logging.getLogger("bot.main")  # Используем иерархическое имя логгера
 
 # Импорт конфигурации
 from config import load_config
@@ -60,7 +60,7 @@ bot = commands.Bot(command_prefix=config.get("PREFIX", "!"), intents=intents)
 bot.config = config
 bot.log_file_path = str(log_path)  # Передаём путь к текущему логу в cog
 
-async def load_cogs():
+async def load_cogs() -> None:
     """Сканирует директорию cogs/ для загрузки когов команд и загружает указанные обработчики из handlers/."""
     logger.info("Загрузка когов команд...")
     cogs_dir = Path("./cogs")
@@ -87,12 +87,12 @@ async def load_cogs():
     except Exception as e:
         logger.error(f"Ошибка при загрузке обработчика сообщений: {e}")
 
-async def main():
+async def main() -> None:
     """Основная асинхронная функция для инициализации и запуска бота."""
     logger.info(f"Используется файл базы данных: {DB_PATH}")
     await initialize_database()
     logger.info("Загрузка кэша Dota API с диска...")
-    await dota_api.load_cache_from_disk() # Загружаем кэш перед когами
+    await dota_api.load_cache_from_disk()
     await load_cogs()
     try:
         await bot.start(config["BOT_TOKEN"])

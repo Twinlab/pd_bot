@@ -1,9 +1,10 @@
+"""Модуль, содержащий классы View для интерактивного отображения статистики активности."""
 import discord
 from discord import ui, ButtonStyle, Interaction
-from discord.ext import commands  # Добавляем импорт commands из discord.ext
+from discord.ext import commands
 from datetime import datetime
 from collections import defaultdict
-from typing import Dict, Optional, Any, Union, List, Tuple # Добавляем List и Tuple
+from typing import Dict, Optional, Any, List, Tuple # Union не используется
 
 # Импортируем хелперы форматирования времени
 from .helpers import format_time_short
@@ -49,10 +50,21 @@ class ActivityView(ui.View):
         self._update_buttons()
 
     def _get_guild(self) -> Optional[discord.Guild]:
-        """Получает объект гильдии из контекста или из кеша бота."""
+        """
+        Получает объект гильдии (сервера).
+
+        Сначала пытается получить гильдию из контекста команды (self.ctx).
+        Если контекст отсутствует или в нем нет гильдии (например, для автоматических отчетов,
+        вызываемых не из команды), пытается вернуть первую гильдию из кеша бота.
+        Это упрощение для ботов, работающих преимущественно на одном сервере.
+        Для многосерверных ботов может потребоваться более сложная логика определения целевой гильдии.
+
+        Returns:
+            Объект discord.Guild или None, если гильдию определить не удалось.
+        """
         if self.ctx and self.ctx.guild:
             return self.ctx.guild
-        # Если контекста нет (например, автоматический отчет), берем первую попавшуюся гильдию
+        # Если контекста нет (например, автоматический отчет), берем первую попавшуюся гильдию.
         # Это может быть не идеально для многосерверных ботов, но для одного сервера подойдет.
         if self.bot.guilds:
             return self.bot.guilds[0]
@@ -81,7 +93,7 @@ class ActivityView(ui.View):
             def get_username(user_id: int) -> str:
                 member = guild.get_member(user_id)
                 # Используем имя пользователя или ID, если участник не найден
-                return member.name.lower() if member else f"user_{user_id}"
+                return member.name.lower() if member and member.name else f"user_{user_id}"
             # Сортируем пользователей по алфавиту
             self.user_ids = sorted(self.users_data.keys(), key=get_username)
 

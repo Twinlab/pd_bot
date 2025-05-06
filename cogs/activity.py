@@ -1,12 +1,13 @@
+"""Ког для отслеживания игровой активности пользователей, генерации отчетов и предоставления статистики активности."""
 import discord
 from discord.ext import commands, tasks
-from discord import app_commands # Импортируем для описаний параметров
+from discord import app_commands
 import asyncio
 import logging
-from datetime import datetime, timedelta, time, date
+from datetime import datetime, time, date # timedelta и defaultdict не используются напрямую
 import pytz
-from collections import defaultdict
-from typing import Dict, Tuple, Optional, List # Убираем Set, DefaultDict, ButtonStyle, Interaction, Any
+# from collections import defaultdict # defaultdict не используется
+from typing import Dict, Tuple, Optional, List
 
 # Импортируем менеджер данных
 from utils.activity_data_manager import ActivityDataManager
@@ -16,7 +17,7 @@ from utils.activity.reports import run_automatic_daily_report, run_automatic_mon
 from utils.activity.helpers import format_time_short, is_application
 
 # Логгер для кога
-logger = logging.getLogger("bot.activity") # Используем иерархическое имя
+logger = logging.getLogger("bot.activity")
 
 class ActivityTracker(commands.Cog):
     """
@@ -118,7 +119,7 @@ class ActivityTracker(commands.Cog):
             logger.info("Финальное сохранение активности завершено.")
         except RuntimeError as e:
             # Может возникнуть, если цикл событий уже остановлен
-             logger.warning(f"Не удалось выполнить финальное сохранение активности (возможно, цикл событий остановлен): {e}")
+            logger.warning(f"Не удалось выполнить финальное сохранение активности (возможно, цикл событий остановлен): {e}")
         except Exception as e:
             logger.error(f"Ошибка при финальном сохранении активности во время выгрузки: {e}", exc_info=True)
         logger.info("Ког ActivityTracker выгружен.")
@@ -168,8 +169,7 @@ class ActivityTracker(commands.Cog):
                  # Удаляем аномальную сессию из памяти, чтобы она не копилась
                  if user_id in self.current_activities and self.current_activities[user_id][0] == game_name:
                      del self.current_activities[user_id]
-            # else: # elapsed_seconds < min_record_threshold - игнорируем короткие сессии
-
+ 
         if not tasks_to_run:
             logger.debug("update_current_activities: Нет сессий, удовлетворяющих порогу для записи в БД.")
             return # Если нечего обновлять в БД
@@ -250,10 +250,9 @@ class ActivityTracker(commands.Cog):
                 # Если пользователь уже играет во что-то другое (маловероятно, но возможно),
                 # или если сессия уже есть (например, после перезапуска бота), обновляем время начала.
                 if user_id not in self.current_activities or self.current_activities[user_id][0] != after_game:
-                     self.current_activities[user_id] = (after_game, now_utc)
-                     logger.debug(f"Началась новая сессия: {user_id} - {after_game}")
-                # else: # Сессия этой игры уже отслеживается, ничего не делаем
-
+                    self.current_activities[user_id] = (after_game, now_utc)
+                    logger.debug(f"Началась новая сессия: {user_id} - {after_game}")
+ 
         except Exception as e:
             logger.error(f"Ошибка при обработке изменения присутствия для {after.name} ({after.id}): {e}", exc_info=True)
 
@@ -629,7 +628,6 @@ class ActivityTracker(commands.Cog):
 
 
     # --- Обработчики ошибок для команд кога ---
-    # (Используем общий обработчик или специфичные для каждой команды)
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
         """Локальный обработчик ошибок для команд этого кога."""

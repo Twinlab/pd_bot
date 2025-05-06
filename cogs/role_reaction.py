@@ -1,29 +1,33 @@
+"""Ког для управления ролями через реакции на сообщения в Discord."""
 import discord
 from discord.ext import commands
 from discord import app_commands
 import logging
 import asyncio
-import aiosqlite
-from typing import Optional, Union
+from typing import Optional, Dict, Tuple
 
-# Импортируем утилиты
 from utils.error_handler import command_error_handler, safe_send
 from utils.role_reaction_data_manager import RoleReactionDataManager
 
-# Настраиваем логгер для модуля ролей по реакциям
 logger = logging.getLogger("bot.role_reactions")
 
-class RoleReaction(commands.Cog):
+class RoleReactionCog(commands.Cog):
     """Ког для управления ролями через реакции."""
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
+        """
+        Инициализирует ког RoleReactionCog.
+
+        Args:
+            bot: Экземпляр бота discord.ext.commands.Bot.
+        """
         self.bot = bot
         self.data_manager = RoleReactionDataManager()
-        self.message_cache = {}  # Кеш для хранения ID сообщений с реакциями {guild_id: (channel_id, message_id)}
+        self.message_cache: Dict[int, Tuple[int, int]] = {}  # Кеш для хранения ID сообщений с реакциями {guild_id: (channel_id, message_id)}
 
     async def cog_load(self):
         """Вызывается при загрузке кога."""
-        logger.info("Ког RoleReaction загружен")
+        logger.info("Ког RoleReactionCog загружен")
         # Загружаем кеш сообщений при старте
         await self.load_message_cache()
 
@@ -113,13 +117,11 @@ class RoleReaction(commands.Cog):
     )
     @commands.has_permissions(administrator=True)
     @command_error_handler
-    # Убираем channel_id из параметров команды, будем брать из контекста или конфига
     async def setup_role_message(self, ctx):
         """
         Создает сообщение для получения ролей через реакции в указанном канале.
         Канал берется из конфигурации (`ROLE_REACTION_DEFAULT_CHANNEL_ID`) или используется текущий.
         Это сообщение будет обновляться при добавлении новых ролей.
-        
         """
         # Получаем ID канала из конфига или используем текущий
         default_channel_id_str = str(self.bot.config.get("ROLE_REACTION_DEFAULT_CHANNEL_ID", ctx.channel.id))
@@ -462,5 +464,12 @@ class RoleReaction(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка при снятии роли {role.name} с пользователя {member.display_name}: {e}", exc_info=True)
 
-async def setup(bot):
-    await bot.add_cog(RoleReaction(bot))
+async def setup(bot: commands.Bot):
+    """
+    Добавляет ког RoleReactionCog к боту.
+
+    Args:
+        bot: Экземпляр бота discord.ext.commands.Bot.
+    """
+    await bot.add_cog(RoleReactionCog(bot))
+    logger.info("Ког RoleReactionCog успешно загружен.")

@@ -1,21 +1,26 @@
+"""Модуль для инициализации базы данных SQLite и определения ее схемы."""
 import aiosqlite
 import logging
-import os
+from pathlib import Path
 
 logger = logging.getLogger("bot.database")
 
 # Определяем путь к файлу БД относительно директории проекта
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "data", "bot_data.db")
+BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BASE_DIR / "data" / "bot_data.db"
 
-async def initialize_database():
+async def initialize_database() -> None:
     """
     Инициализирует базу данных SQLite.
     Создает файл БД и необходимые таблицы, если они не существуют.
+    
+    Raises:
+        Exception: Если произошла критическая ошибка при инициализации БД.
+                  Исключение передается дальше, чтобы бот не запустился с нерабочей БД.
     """
     try:
         # Создаем директорию data, если ее нет
-        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
         async with aiosqlite.connect(DB_PATH) as db:
             # Таблица для привязок аккаунтов
