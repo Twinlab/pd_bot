@@ -64,7 +64,11 @@ class AdminCog(commands.Cog):
         if recent_messages:
             try:
                 deleted = await ctx.channel.delete_messages(recent_messages)
-                deleted_count += len(deleted)
+                # delete_messages может вернуть None, если удалено только одно сообщение
+                if deleted is None:
+                    deleted_count += len(recent_messages)
+                else:
+                    deleted_count += len(deleted)
             except discord.HTTPException as e:
                 logger.warning(f"Не удалось массово удалить сообщения, пробуем по одному: {e}")
                 # Если пачковое удаление не удалось, пробуем удалить по одному
@@ -193,9 +197,8 @@ class AdminCog(commands.Cog):
         """
         (Только для владельца) Инициирует перезапуск бота.
 
-        Предполагается, что бот запущен через systemd сервис с именем 'discord-bot'
-        и у пользователя бота есть права на выполнение `sudo systemctl restart discord-bot` без пароля.
-        Создает и запускает временный скрипт `restart.sh` для выполнения перезапуска.
+        Предполагается, что бот запущен через systemd user-сервис с именем 'discord-bot.service'
+        и у пользователя бота есть права на выполнение `systemctl --user restart discord-bot.service`.
         """
         is_slash = hasattr(ctx, 'interaction') and ctx.interaction is not None
         if is_slash:
@@ -208,22 +211,15 @@ class AdminCog(commands.Cog):
         else:
             response_message = await ctx.send(message_content)
 
-        script_path = "restart.sh"
-        service_name = "discord-bot" # Имя systemd сервиса (изменить при необходимости)
+        service_name = "discord-bot.service"  # Имя systemd user-сервиса
+        restart_command = ["systemctl", "--user", "restart", service_name]
         try:
-            with open(script_path, "w") as f:
-                f.write("#!/bin/bash\n")
-                f.write("sleep 1\n") # Небольшая задержка
-                f.write(f"sudo systemctl restart {service_name}\n") # Команда перезапуска сервиса
-
-            os.chmod(script_path, 0o755) # Даем скрипту права на выполнение
-
-            logger.info(f"Запуск скрипта перезапуска: {script_path}")
-            subprocess.Popen(["bash", script_path], start_new_session=True)
+            logger.info(f"Отправка команды перезапуска: {' '.join(restart_command)}")
+            subprocess.Popen(restart_command, start_new_session=True)
 
             logger.info("Закрытие текущего экземпляра бота...")
             await asyncio.sleep(0.5)
-            await self.bot.close() # Завершаем работу текущего процесса бота
+            await self.bot.close()  # Завершаем работу текущего процесса бота
 
         except Exception as e:
             logger.error(f"Ошибка при попытке перезапуска: {e}")
@@ -232,12 +228,12 @@ class AdminCog(commands.Cog):
             if is_slash:
                 await ctx.edit_original_response(content=error_message)
             elif response_message:
-                 try:
-                     await response_message.edit(content=error_message)
-                 except discord.NotFound: # Если исходное сообщение было удалено
-                     await ctx.send(error_message)
-            else: # Если не удалось отправить исходное сообщение
-                 await ctx.send(error_message)
+                try:
+                    await response_message.edit(content=error_message)
+                except discord.NotFound:
+                    await ctx.send(error_message)
+            else:
+                await ctx.send(error_message)
 
 async def setup(bot: commands.Bot):
     """

@@ -9,7 +9,7 @@ from utils.links_data_manager import LinksDataManager
 
 logger = logging.getLogger("bot.links") # Иерархическое имя логгера
 
-class LinksCog(commands.Cog):
+class LinksCog(commands.Cog, name="Links"):
     """Команды для привязки аккаунтов Dota 2."""
 
     def __init__(self, bot: commands.Bot):
@@ -70,14 +70,17 @@ class LinksCog(commands.Cog):
         success = await self.links_manager.add_link(user_id, player_id)
 
         if success:
-            await self.send_response(ctx, f"Аккаунт Dota 2 с ID {player_id} успешно привязан.")
-            # Обновляем список для сообщения
             current_links.append(player_id)
             if len(current_links) == 1:
-                await self.send_response(ctx, "Теперь вы можете использовать команду `/lastmatch`.")
+                await self.send_response(ctx, f"Аккаунт Dota 2 с ID {player_id} успешно привязан.\nТеперь вы можете использовать команду `/lastmatch`.")
             else:
                 all_accounts = ", ".join(str(acc) for acc in current_links)
-                await self.send_response(ctx, f"У вас привязано несколько аккаунтов: {all_accounts}. Бот автоматически выберет аккаунт с последним матчем.")
+                await self.send_response(
+                    ctx,
+                    f"Аккаунт Dota 2 с ID {player_id} успешно привязан.\n"
+                    f"У вас привязано несколько аккаунтов: {all_accounts}.\n"
+                    f"Бот автоматически выберет аккаунт с последним матчем."
+                )
         else:
             await self.send_response(ctx, "Произошла ошибка при добавлении привязки. Возможно, она уже существует или произошла ошибка БД.")
 
@@ -101,11 +104,17 @@ class LinksCog(commands.Cog):
             if player_id in current_links:
                 success = await self.links_manager.remove_link(user_id, player_id)
                 if success:
-                    await self.send_response(ctx, f"Аккаунт Dota 2 с ID {player_id} успешно отвязан.")
-                    current_links.remove(player_id) # Обновляем локальный список
+                    if current_links:
+                        current_links.remove(player_id)
                     if current_links:
                         remaining = ", ".join(str(acc) for acc in current_links)
-                        await self.send_response(ctx, f"У вас остаются привязанными: {remaining}")
+                        await self.send_response(
+                            ctx,
+                            f"Аккаунт Dota 2 с ID {player_id} успешно отвязан.\n"
+                            f"У вас остаются привязанными: {remaining}"
+                        )
+                    else:
+                        await self.send_response(ctx, f"Аккаунт Dota 2 с ID {player_id} успешно отвязан. У вас больше нет привязанных аккаунтов.")
                 else:
                     await self.send_response(ctx, "Произошла ошибка при удалении привязки.")
             else:
@@ -134,9 +143,14 @@ class LinksCog(commands.Cog):
 
         if linked_accounts_ids:
             linked_accounts_str = "\n".join(str(account_id) for account_id in linked_accounts_ids)
-            await self.send_response(ctx, f"Ваши привязанные аккаунты Dota 2:\n{linked_accounts_str}")
             if len(linked_accounts_ids) > 1:
-                await self.send_response(ctx, "При использовании `/lastmatch` бот автоматически выберет аккаунт с последним матчем.")
+                await self.send_response(
+                    ctx,
+                    f"Ваши привязанные аккаунты Dota 2:\n{linked_accounts_str}\n"
+                    f"При использовании `/lastmatch` бот автоматически выберет аккаунт с последним матчем."
+                )
+            else:
+                await self.send_response(ctx, f"Ваш привязанный аккаунт Dota 2:\n{linked_accounts_str}")
         else:
             await self.send_response(ctx, "У вас нет привязанных аккаунтов Dota 2. Используйте `/link PLAYER_ID`.")
 

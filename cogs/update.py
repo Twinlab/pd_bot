@@ -65,10 +65,21 @@ class UpdateCog(commands.Cog):
 
             # Успешное обновление
             logger.info("Обновление получено, инициируем перезапуск бота через systemctl --user...")
-            await message.edit(content=f"✅ Обновление получено!\n```{stdout_str}```\n🔄 Перезапуск бота...")
+
+            # Ограничиваем длину вывода для Discord (максимум 1900 символов)
+            max_len = 1900
+            if len(stdout_str) > max_len:
+                display_stdout = stdout_str[:max_len] + "\n... (truncated)"
+            else:
+                display_stdout = stdout_str
+
+            try:
+                await message.edit(content=f"✅ Обновление получено!\n```{display_stdout}```\n🔄 Перезапуск бота...")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке сообщения об обновлении: {e}", exc_info=True)
+                # Не блокируем рестарт
 
             # Команда перезапуска пользовательского сервиса
-            # Убедитесь, что имя сервиса 'discord-bot.service' совпадает с вашим
             restart_command = ["systemctl", "--user", "restart", "discord-bot.service"]
             try:
                 # Запускаем без ожидания завершения, т.к. бот должен закрыться
@@ -77,7 +88,11 @@ class UpdateCog(commands.Cog):
             except Exception as e:
                 logger.error(f"Ошибка при попытке перезапуска через systemctl --user: {e}", exc_info=True)
                 # Не закрываем бота, чтобы владелец видел ошибку
-                return await message.edit(content=f"✅ Обновление получено, но не удалось инициировать перезапуск: {e}")
+                try:
+                    await message.edit(content=f"✅ Обновление получено, но не удалось инициировать перезапуск: {e}")
+                except Exception:
+                    pass
+                return
 
             # Даем немного времени на запуск команды перед закрытием
             await asyncio.sleep(1)

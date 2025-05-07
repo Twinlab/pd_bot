@@ -311,10 +311,12 @@ class ActivityTracker(commands.Cog):
     @tasks.loop(time=time(hour=0, minute=0, tzinfo=pytz.timezone('Europe/Moscow'))) # 00:00 МСК
     async def daily_report(self):
         """Выполняет автоматическую логику ежедневного отчета."""
-        logger.info("daily_report: Запуск автоматической задачи ежедневного отчета...")
+        now = datetime.now(pytz.timezone('Europe/Moscow'))
+        logger.info(f"daily_report: Запуск автоматической задачи ежедневного отчета... (фактическое время: {now.strftime('%Y-%m-%d %H:%M:%S %Z')})")
         # Вызываем перенесенную логику
         await run_automatic_daily_report(self)
-        logger.info("daily_report: Автоматическая задача ежедневного отчета завершена.")
+        now_end = datetime.now(pytz.timezone('Europe/Moscow'))
+        logger.info(f"daily_report: Автоматическая задача ежедневного отчета завершена. (фактическое время: {now_end.strftime('%Y-%m-%d %H:%M:%S %Z')})")
 
     @daily_report.before_loop
     async def before_daily_report(self):

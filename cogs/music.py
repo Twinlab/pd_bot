@@ -176,6 +176,14 @@ class MusicCog(commands.Cog, name="Music"):
            (self.player.voice_client and interaction.user.voice.channel != self.player.voice_client.channel):
             await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
             return
+
+        # Только заказавший трек или админ может скипать
+        requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
+        is_admin = interaction.user.guild_permissions.administrator
+        if not is_admin and requester and requester.id != interaction.user.id:
+            await interaction.response.send_message("Пропустить трек может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            return
+
         await self.player.skip(interaction)
 
     @discord.app_commands.command(name="stop", description="Остановить воспроизведение и покинуть канал.")
@@ -189,6 +197,12 @@ class MusicCog(commands.Cog, name="Music"):
         if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
             await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
             return
+
+        # Только администратор может останавливать музыку
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("Остановить музыку может только администратор.", ephemeral=True)
+            return
+
         await self.player.stop(interaction)
 
     @discord.app_commands.command(name="pause", description="Приостановить воспроизведение.")
@@ -202,6 +216,14 @@ class MusicCog(commands.Cog, name="Music"):
         if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
             await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
             return
+
+        # Только заказавший трек или админ может паузить
+        requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
+        is_admin = interaction.user.guild_permissions.administrator
+        if not is_admin and requester and requester.id != interaction.user.id:
+            await interaction.response.send_message("Поставить на паузу может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            return
+
         await self.player.pause(interaction)
 
     @discord.app_commands.command(name="resume", description="Возобновить воспроизведение.")
