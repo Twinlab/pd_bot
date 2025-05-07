@@ -64,11 +64,11 @@ class PlayerControlView(discord.ui.View):
             logger.warning("_check_voice_channel: interaction.user не является discord.Member.")
             return False
         if not interaction.user.voice or not interaction.user.voice.channel:
-            await interaction.response.send_message("Вы должны быть в голосовом канале, чтобы управлять плеером!", ephemeral=True)
+            await interaction.response.send_message("Вы должны быть в голосовом канале, чтобы управлять плеером!", ephemeral=False)
             return False
         if self.player.voice_client and self.player.voice_client.channel and \
            interaction.user.voice.channel != self.player.voice_client.channel:
-            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот, для управления плеером!", ephemeral=True)
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот, для управления плеером!", ephemeral=False)
             return False
         return True
 
@@ -88,7 +88,7 @@ class PlayerControlView(discord.ui.View):
         requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
         is_admin = interaction.user.guild_permissions.administrator
         if not is_admin and requester and requester.id != interaction.user.id:
-            await interaction.response.send_message("Поставить на паузу или возобновить может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            await interaction.response.send_message("Поставить на паузу или возобновить может только администратор или тот, кто заказал этот трек.", ephemeral=False)
             return
         if self.player.is_paused:
             await self.player.resume(interaction)
@@ -114,7 +114,7 @@ class PlayerControlView(discord.ui.View):
         requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
         is_admin = interaction.user.guild_permissions.administrator
         if not is_admin and requester and requester.id != interaction.user.id:
-            await interaction.response.send_message("Пропустить трек может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            await interaction.response.send_message("Пропустить трек может только администратор или тот, кто заказал этот трек.", ephemeral=False)
             return
         await self.player.skip(interaction)
 
@@ -132,7 +132,8 @@ class PlayerControlView(discord.ui.View):
             return
         # Только администратор может прожать стоп
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("Остановить музыку может только администратор.", ephemeral=True)
+            if not interaction.response.is_done():
+                await interaction.response.send_message("Остановить музыку может только администратор.", ephemeral=False)
             return
         await self.player.stop(interaction)
 

@@ -97,9 +97,9 @@ class MusicCog(commands.Cog, name="Music"):
         if not isinstance(interaction.user, discord.Member) or not interaction.user.voice or not interaction.user.voice.channel:
             message = "Вы должны быть в голосовом канале, чтобы использовать эту команду!"
             if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=True)
+                await interaction.followup.send(message, ephemeral=False)
             else:
-                await interaction.response.send_message(message, ephemeral=True)
+                await interaction.response.send_message(message, ephemeral=False)
             return False
         return True
 
@@ -116,12 +116,12 @@ class MusicCog(commands.Cog, name="Music"):
         """
         if not interaction.user.voice or not interaction.user.voice.channel: # Дополнительная проверка
             # _ensure_voice должен был это покрыть, но для надежности
-            await interaction.response.send_message("Не удалось определить ваш голосовой канал.", ephemeral=True)
+            await interaction.response.send_message("Не удалось определить ваш голосовой канал.", ephemeral=False)
             return False
             
         user_channel = interaction.user.voice.channel
         if not await self.player.connect(user_channel):
-            await interaction.response.send_message(f"Не удалось подключиться или переместиться в канал '{user_channel.name}'.", ephemeral=True)
+            await interaction.response.send_message(f"Не удалось подключиться или переместиться в канал '{user_channel.name}'.", ephemeral=False)
             return False
         
         # Устанавливаем текстовый канал для сообщений плеера, если он еще не установлен
@@ -174,14 +174,14 @@ class MusicCog(commands.Cog, name="Music"):
         """
         if not self.player.voice_client or not interaction.user.voice or \
            (self.player.voice_client and interaction.user.voice.channel != self.player.voice_client.channel):
-            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False)
             return
 
         # Только заказавший трек или админ может скипать
         requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
         is_admin = interaction.user.guild_permissions.administrator
         if not is_admin and requester and requester.id != interaction.user.id:
-            await interaction.response.send_message("Пропустить трек может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            await interaction.response.send_message("Пропустить трек может только администратор или тот, кто заказал этот трек.", ephemeral=False)
             return
 
         await self.player.skip(interaction)
@@ -195,12 +195,12 @@ class MusicCog(commands.Cog, name="Music"):
             interaction: Взаимодействие, инициировавшее команду.
         """
         if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
-            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False)
             return
 
         # Только администратор может останавливать музыку
         if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message("Остановить музыку может только администратор.", ephemeral=True)
+            await interaction.response.send_message("Остановить музыку может только администратор.", ephemeral=False)
             return
 
         await self.player.stop(interaction)
@@ -214,14 +214,14 @@ class MusicCog(commands.Cog, name="Music"):
             interaction: Взаимодействие, инициировавшее команду.
         """
         if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
-            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False)
             return
 
         # Только заказавший трек или админ может паузить
         requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
         is_admin = interaction.user.guild_permissions.administrator
         if not is_admin and requester and requester.id != interaction.user.id:
-            await interaction.response.send_message("Поставить на паузу может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            await interaction.response.send_message("Поставить на паузу может только администратор или тот, кто заказал этот трек.", ephemeral=False)
             return
 
         await self.player.pause(interaction)
@@ -235,7 +235,7 @@ class MusicCog(commands.Cog, name="Music"):
             interaction: Взаимодействие, инициировавшее команду.
         """
         if not self.player.voice_client or not interaction.user.voice or interaction.user.voice.channel != self.player.voice_client.channel:
-            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=True)
+            await interaction.response.send_message("Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False)
             return
         await self.player.resume(interaction)
 
@@ -279,9 +279,9 @@ class MusicCog(commands.Cog, name="Music"):
             error_message = "У бота недостаточно прав для выполнения этой команды."
         try:
             if interaction.response.is_done():
-                await interaction.followup.send(error_message, ephemeral=True)
+                await interaction.followup.send(error_message, ephemeral=False)
             else:
-                await interaction.response.send_message(error_message, ephemeral=True)
+                await interaction.response.send_message(error_message, ephemeral=False)
         except Exception as e:
             music_logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
 
