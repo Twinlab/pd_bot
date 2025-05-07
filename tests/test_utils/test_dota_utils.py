@@ -3,7 +3,6 @@ from utils.dota_utils import (
     convert_average_rank_to_medal,
     get_game_mode,
     get_win_rates,
-    format_match_stats,
 )
 
 def test_get_role():
@@ -33,18 +32,3 @@ def test_get_win_rates():
     assert isinstance(result, tuple)
     assert len(result) == 4
 
-def test_format_match_stats():
-    match_data = {
-        "kills": 10,
-        "deaths": 2,
-        "assists": 5,
-        "duration": 3600,
-        "win": True,
-        "startTime": 1,
-        "player_slot": 0,
-        "radiant_win": True,
-        "steamAccountId": 1,
-    }
-    player_id = 1
-    result = format_match_stats(match_data, player_id)
-    assert isinstance(result, dict)

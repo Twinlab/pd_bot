@@ -293,7 +293,6 @@ async def send_monthly_report(
             logger.error(f"Не удалось отправить сообщение об ошибке генерации ежемесячного отчета: {send_e}")
         return False
 
-
 # --- Функции для автоматического запуска из Cog ---
 
 async def run_automatic_daily_report(cog_instance: Any):
@@ -338,7 +337,6 @@ async def run_automatic_daily_report(cog_instance: Any):
     except Exception as e:
         # Логируем общую ошибку выполнения задачи
         logger.error(f"Критическая ошибка при выполнении автоматического ежедневного отчета: {e}", exc_info=True)
-
 
 async def run_automatic_monthly_report(cog_instance: Any):
     """

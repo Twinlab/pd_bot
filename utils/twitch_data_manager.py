@@ -1,7 +1,6 @@
 import aiosqlite
 import logging
 from typing import List, Dict, Optional, Tuple
-import asyncio
 import time
 
 # Импортируем путь к БД из database.py

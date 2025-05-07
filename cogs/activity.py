@@ -4,9 +4,8 @@ from discord.ext import commands, tasks
 from discord import app_commands
 import asyncio
 import logging
-from datetime import datetime, time, date # timedelta и defaultdict не используются напрямую
+from datetime import datetime, time, date
 import pytz
-# from collections import defaultdict # defaultdict не используется
 from typing import Dict, Tuple, Optional, List
 
 # Импортируем менеджер данных
@@ -237,7 +236,7 @@ class ActivityTracker(commands.Cog):
                     logger.debug(f"Сессия {user_id} - {before_game} удалена из памяти.")
 
                     # Записываем в БД, если время сессии достаточное
-                    min_record_threshold = 10
+                    min_record_threshold = self.bot.config.get("ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS", 10)
                     if elapsed_seconds >= min_record_threshold:
                         logger.debug(f"Завершилась сессия {user_id} - {before_game} ({elapsed_seconds} сек). Запись в БД...")
                         # Запускаем запись асинхронно, чтобы не блокировать обработчик событий
@@ -293,7 +292,6 @@ class ActivityTracker(commands.Cog):
         await run_automatic_monthly_report(self)
         logger.info("monthly_report: Автоматическая задача ежемесячного отчета завершена.")
 
-
     @monthly_report.before_loop
     async def before_monthly_report(self):
         """Ожидает готовности бота перед первым запуском ежемесячной задачи."""
@@ -318,7 +316,6 @@ class ActivityTracker(commands.Cog):
         await run_automatic_daily_report(self)
         logger.info("daily_report: Автоматическая задача ежедневного отчета завершена.")
 
-
     @daily_report.before_loop
     async def before_daily_report(self):
         """Ожидает готовности бота перед первым запуском ежедневной задачи."""
@@ -333,7 +330,6 @@ class ActivityTracker(commands.Cog):
                 logger.error(f"Ошибка в before_daily_report: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Ошибка в before_daily_report: {e}", exc_info=True)
-
 
     # --- Команды ---
 
@@ -369,7 +365,6 @@ class ActivityTracker(commands.Cog):
                 return
 
             # Создаем и отправляем View
-            # Передаем bot вместо cog
             view = ActivityView(self.bot, today_data, ctx=ctx, report_type="command")
             prefix = "**[ТЕСТ]** " if test_mode else ""
             message_content = f"{prefix}Статистика активности за сегодня:"
@@ -448,8 +443,7 @@ class ActivityTracker(commands.Cog):
 
             # Создаем и отправляем View
             title = f"📊 Статистика {target_user.display_name} {data_period_str}"
-            # Убираем cog из StatsView
-            view = StatsView(title, sorted_games, user=target_user, items_per_page=10) # Увеличим кол-во игр на страницу
+            view = StatsView(title, sorted_games, user=target_user, items_per_page=10)
             message = await ctx.send(embed=view.get_current_embed(), view=view, ephemeral=True) # Статистика обычно персональная
             view.message = message
 
@@ -566,7 +560,6 @@ class ActivityTracker(commands.Cog):
             except Exception as send_error:
                 logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
 
-
     @commands.hybrid_command(
         name="report_monthly",
         description="[Админ] Отправить отчет об активности за указанный месяц."
@@ -626,7 +619,6 @@ class ActivityTracker(commands.Cog):
             except Exception as send_error:
                 logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
 
-
     # --- Обработчики ошибок для команд кога ---
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
@@ -655,7 +647,6 @@ class ActivityTracker(commands.Cog):
                      await ctx.send("Произошла непредвиденная ошибка при выполнении команды.", ephemeral=True)
             except Exception as send_error:
                  logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
-
 
 async def setup(bot: commands.Bot):
     """Загружает ког ActivityTracker в бота."""

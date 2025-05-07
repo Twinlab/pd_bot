@@ -2,18 +2,19 @@ import discord
 import logging
 from datetime import datetime
 from typing import Dict, Any, List
+from discord.ext import commands
 
 logger = logging.getLogger("bot")
 
 # Кэш для хранения удаленных сообщений
 snipe_cache: Dict[str, Dict[str, Any]] = {}
 
-async def save_deleted_message(message):
+async def save_deleted_message(message: discord.Message) -> None:
     """
     Сохраняет удаленное сообщение для команды snipe.
     
     Args:
-        message: Удаленное сообщение
+        message: Удаленное сообщение (discord.Message)
     """
     try:
         # Игнорируем сообщения от ботов
@@ -55,12 +56,12 @@ async def save_deleted_message(message):
     except Exception as e:
         logger.error(f"Ошибка при сохранении удаленного сообщения: {e}", exc_info=True)
 
-async def show_sniped_message(ctx):
+async def show_sniped_message(ctx: discord.ext.commands.Context) -> None:
     """
     Показывает последнее удаленное сообщение в канале.
     
     Args:
-        ctx: Контекст команды
+        ctx: Контекст команды (discord.ext.commands.Context)
     """
     try:
         channel_id = str(ctx.channel.id)

@@ -165,9 +165,9 @@ async def test_download_track_success():
     mock_ytdl.extract_info.return_value = mock_info
     mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
     
-    # Мокаем os.path.exists и os.path.getsize
+    # Мокаем pathlib.Path.exists и os.path.getsize
     with patch('yt_dlp.YoutubeDL', return_value=mock_ytdl):
-        with patch('os.path.exists', return_value=True):
+        with patch('pathlib.Path.exists', return_value=True):
             with patch('os.path.getsize', return_value=1024):
                 result = await download_track(url)
                 
@@ -200,9 +200,9 @@ async def test_download_track_with_entries():
     mock_ytdl.extract_info.return_value = mock_info
     mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
     
-    # Мокаем os.path.exists и os.path.getsize
+    # Мокаем pathlib.Path.exists и os.path.getsize
     with patch('yt_dlp.YoutubeDL', return_value=mock_ytdl):
-        with patch('os.path.exists', return_value=True):
+        with patch('pathlib.Path.exists', return_value=True):
             with patch('os.path.getsize', return_value=1024):
                 result = await download_track(url)
                 
@@ -232,10 +232,10 @@ async def test_download_track_file_not_found():
     mock_ytdl.extract_info.return_value = mock_info
     mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
     
-    # Мокаем os.path.exists и glob.glob
+    # Мокаем pathlib.Path.exists и pathlib.Path.glob
     with patch('yt_dlp.YoutubeDL', return_value=mock_ytdl):
-        with patch('os.path.exists', return_value=False):
-            with patch('glob.glob', return_value=[]):
+        with patch('pathlib.Path.exists', return_value=False):
+            with patch('pathlib.Path.glob', return_value=[]): # glob должен возвращать итератор/список Path объектов
                 result = await download_track(url)
                 
                 # Проверяем результат
@@ -261,11 +261,14 @@ async def test_download_track_file_found_with_glob():
     mock_ytdl.extract_info.return_value = mock_info
     mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
     
-    # Мокаем os.path.exists, glob.glob и os.path.getsize
+    # Мокаем pathlib.Path.exists, pathlib.Path.glob и os.path.getsize
     with patch('yt_dlp.YoutubeDL', return_value=mock_ytdl):
-        with patch('os.path.exists', return_value=False):
-            with patch('glob.glob', return_value=["downloads/Youtube-test_id-Test_Track.opus"]):
-                with patch('os.path.getsize', return_value=1024):
+        with patch('pathlib.Path.exists', return_value=False):
+            # .glob() вызывается на DOWNLOADS_DIR, который является Path объектом.
+            # Мокаем метод glob самого Path объекта.
+            # Он должен вернуть список объектов Path.
+            with patch('pathlib.Path.glob', return_value=[Path("downloads/Youtube-test_id-Test_Track.opus")]):
+                with patch('os.path.getsize', return_value=1024): # Предполагаем, что getsize все еще нужен для найденного файла
                     result = await download_track(url)
                     
                     # Проверяем результат

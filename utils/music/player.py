@@ -138,7 +138,6 @@ class MusicPlayer:
         if self._play_next_task:
             self._play_next_task.cancel()
             self._play_next_task = None # Явно обнуляем после отмены
-            self._play_next_task = None
         if self.voice_client and self.voice_client.is_connected():
             logger.info(f"Остановка воспроизведения и отключение от {self.voice_client.channel.name}")
             self.voice_client.stop()

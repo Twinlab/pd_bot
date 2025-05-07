@@ -12,7 +12,7 @@ DB_PATH = BASE_DIR / "data" / "bot_data.db"
 async def initialize_database() -> None:
     """
     Инициализирует базу данных SQLite.
-    Создает файл БД и необходимые таблицы, если они не существуют.
+    Создает файл БД и необходимые таблицы (links, daily_activity, monthly_activity, role_reactions, twitch_streamers), если они не существуют.
     
     Raises:
         Exception: Если произошла критическая ошибка при инициализации БД.

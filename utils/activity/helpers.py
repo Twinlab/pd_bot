@@ -19,9 +19,9 @@ def is_application(member: discord.Member) -> bool:
     if member.name in app_names:
         return True
 
-    # Common role names indicating a bot (case-insensitive check might be better)
-    app_role_names = ["BOT", "APP", "Application"]
-    if any(role.name in app_role_names for role in member.roles):
+    # Common role names indicating a bot
+    app_role_names = ["bot", "app", "application"]
+    if any(role.name.lower() in app_role_names for role in member.roles):
         return True
 
     # Check the official bot flag
@@ -29,7 +29,6 @@ def is_application(member: discord.Member) -> bool:
         return True
 
     return False
-
 
 def format_time_short(seconds: int) -> str:
     """

@@ -2,10 +2,12 @@
 import random
 import discord
 import logging
+from discord.ext import commands # Добавляем импорт commands
+from typing import Optional # Добавляем импорт Optional для target_user
 
 logger = logging.getLogger("bot")
 
-async def measure_penis(ctx, target_user=None):
+async def measure_penis(ctx: commands.Context, target_user: Optional[discord.Member] = None):
     """
     Генерирует случайный размер пениса и отправляет его в виде эмбеда.
     

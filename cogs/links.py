@@ -120,7 +120,6 @@ class LinksCog(commands.Cog):
                 # Эта ветка не должна сработать из-за проверки в начале, но на всякий случай
                 await self.send_response(ctx, "Не удалось отвязать аккаунты (возможно, их уже не было или произошла ошибка).")
 
-
     @commands.hybrid_command(description='Показать привязанные аккаунты Dota 2')
     @command_error_handler
     async def links(self, ctx: commands.Context):

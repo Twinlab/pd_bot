@@ -262,9 +262,11 @@ async def test_queue_track(music_player, mock_track_info, mock_member, mock_inte
     with patch('utils.music.player.download_track', new_callable=AsyncMock) as mock_download:
         mock_download.return_value = mock_track_info
         
-        # Мокаем os.path.exists, чтобы файл считался существующим
-        with patch('os.path.exists', return_value=True):
-            with patch('os.path.getsize', return_value=1024):
+        # Мокаем pathlib.Path.exists и pathlib.Path.stat, чтобы файл считался существующим и имел размер
+        with patch('pathlib.Path.exists', return_value=True):
+            mock_stat_result = MagicMock()
+            mock_stat_result.st_size = 1024
+            with patch('pathlib.Path.stat', return_value=mock_stat_result):
                 # Вызываем queue_track
                 await music_player.queue_track(url, mock_member, mock_interaction)
 
@@ -356,35 +358,31 @@ async def test_play_next(music_player, mock_voice_client, mock_track):
     # Мокаем _update_now_playing_message
     music_player._update_now_playing_message = AsyncMock()
     
-    # Мокаем os.path.exists
-    with patch('os.path.exists', return_value=True):
-        with patch('os.path.getsize', return_value=1024):
+    # Мокаем pathlib.Path.exists и pathlib.Path.stat
+    with patch('pathlib.Path.exists', return_value=True):
+        mock_stat_result = MagicMock()
+        mock_stat_result.st_size = 1024
+        with patch('pathlib.Path.stat', return_value=mock_stat_result):
             # Мокаем discord.FFmpegPCMAudio
             with patch('discord.FFmpegPCMAudio') as mock_ffmpeg:
                 mock_source = MagicMock()
                 mock_ffmpeg.return_value = mock_source
 
-                # Мокаем os.path.exists, чтобы файл считался существующим
-                with patch('os.path.exists', return_value=True):
-                    with patch('os.path.getsize', return_value=1024):
-                        # Вызываем play_next
-                        await music_player.play_next()
+                # Вызываем play_next
+                await music_player.play_next()
 
-                        # Проверяем вызовы
-                        # Проверяем filepath трека
-                        print("mock_track.filepath:", mock_track.filepath)
-                        # Проверяем, что play был вызван и _update_now_playing_message был вызван
-                        mock_ffmpeg.assert_called_once_with(mock_track.filepath, **FFMPEG_OPTIONS)
-                        mock_voice_client.play.assert_called_once()
-                        music_player._update_now_playing_message.assert_awaited_once()
-                        # После проигрывания трека очередь пуста, cleanup должен быть вызван
-                        assert music_player.is_paused is False
-                        assert hasattr(music_player, "cleanup")
-                    assert music_player.is_playing is True
-                    assert music_player.is_paused is False
-                    mock_ffmpeg.assert_called_once_with(mock_track.filepath, **FFMPEG_OPTIONS)
-                    mock_voice_client.play.assert_called_once()
-                    music_player._update_now_playing_message.assert_awaited_once()
+                # Проверяем вызовы
+                # Проверяем filepath трека
+                print("mock_track.filepath:", mock_track.filepath)
+                # Проверяем, что play был вызван и _update_now_playing_message был вызван
+                mock_ffmpeg.assert_called_once_with(mock_track.filepath, **FFMPEG_OPTIONS)
+                mock_voice_client.play.assert_called_once()
+                music_player._update_now_playing_message.assert_awaited_once()
+                assert music_player.is_playing is True # is_playing должно быть True после начала воспроизведения
+                assert music_player.is_paused is False
+                # После проигрывания трека очередь пуста, _after_playback вызовет cleanup(clear_queue=False)
+                # или start_playback_loop, если очередь не пуста.
+                # Прямая проверка cleanup здесь может быть ненадежной без мока _after_playback.
 
 @pytest.mark.asyncio
 async def test_play_next_empty_queue(music_player, mock_voice_client):

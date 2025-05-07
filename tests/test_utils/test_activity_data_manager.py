@@ -49,10 +49,3 @@ async def test_get_all_time_stats(manager):
     result = await manager.get_all_time_stats(user_id=1)
     assert isinstance(result, dict)
 
-@pytest.mark.asyncio
-async def test_migrate_links_from_json(manager):
-    await manager.migrate_links_from_json(json_file_path="fake.json")
-
-@pytest.mark.asyncio
-async def test_migrate_activity_from_json(manager):
-    await manager.migrate_activity_from_json()

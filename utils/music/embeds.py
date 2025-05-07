@@ -55,7 +55,18 @@ def create_embed(title: str, description: str = "", color: Optional[discord.Colo
     return embed
 
 def format_duration(duration: Optional[int | float | str]) -> str: # Добавляем аннотации типов
-    """Форматирует секунды в MM:SS или HH:MM:SS."""
+    """
+    Форматирует секунды в MM:SS или HH:MM:SS.
+    
+    Args:
+        duration: Длительность в секундах (может быть int, float или строкой, которую можно преобразовать в число).
+                 Если None, возвращает символ бесконечности.
+    
+    Returns:
+        Отформатированная строка времени в формате MM:SS или HH:MM:SS.
+        Возвращает "∞" для None, "00:00" для нулевых или отрицательных значений,
+        и "?:??" при ошибке преобразования.
+    """
     if duration is None:
         return "∞"
     try:

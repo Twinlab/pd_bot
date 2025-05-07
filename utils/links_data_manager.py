@@ -2,7 +2,6 @@ import aiosqlite
 from collections import defaultdict
 import logging
 from typing import List, Tuple, Optional, Dict # Добавляем Dict
-import asyncio
 
 # Импортируем путь к БД из database.py
 from .database import DB_PATH

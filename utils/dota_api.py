@@ -254,4 +254,3 @@ async def init():
     await load_cache_from_disk()
 
 # Создаем задачу для инициализации (будет выполнена в event loop)
-# asyncio.create_task(init())  # Удалено: инициализация кэша должна запускаться только из event loop (например, из main.py)

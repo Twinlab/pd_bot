@@ -1,7 +1,6 @@
 import aiosqlite
 import logging
 from typing import List, Dict, Optional, Tuple, Any
-import discord
 
 # Импортируем путь к БД из database.py
 from .database import DB_PATH
@@ -126,12 +125,3 @@ class RoleReactionDataManager:
             logger.error(f"Ошибка при получении роли для эмодзи {emoji} на сервере {guild_id}: {e}", exc_info=True)
             return None
     
-    async def update_message_content(self, guild_id: int, message_content: str) -> bool:
-        """
-        Обновляет содержимое сообщения с реакциями.
-        Эта функция не используется для хранения данных в БД, но может быть полезна для кеширования.
-        """
-        # В текущей реализации мы не храним содержимое сообщения в БД,
-        # но эта функция может быть расширена в будущем, если потребуется.
-        # Сейчас просто возвращаем True для совместимости.
-        return True

@@ -96,8 +96,8 @@ async def get_match_data(user_links: Dict[str, List[int]], user_id: str, stratz_
         logger.error("STRATZ_API_KEY не предоставлен для get_match_data")
         return None, None, None, None
         
-    url = 'https://api.stratz.com/graphql' # URL API Stratz
-    headers = {'Authorization': f'Bearer {stratz_api_key}'} # Заголовки с токеном
+    url = 'https://api.stratz.com/graphql'
+    headers = {'Authorization': f'Bearer {stratz_api_key}'}
     
     # 1. Находим самый последний матч среди всех привязанных Steam ID пользователя
     latest_match = {'id': None, 'startDateTime': 0} # Храним ID и время последнего найденного матча

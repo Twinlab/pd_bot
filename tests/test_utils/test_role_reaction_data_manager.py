@@ -38,7 +38,3 @@ async def test_get_role_by_emoji(manager):
     result = await manager.get_role_by_emoji(guild_id=1, emoji=":)")
     assert result is None or isinstance(result, int)
 
-@pytest.mark.asyncio
-async def test_update_message_content(manager):
-    result = await manager.update_message_content(guild_id=1, message_content="test")
-    assert isinstance(result, bool)

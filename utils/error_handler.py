@@ -63,4 +63,4 @@ async def safe_send(ctx, content, **kwargs):
             # Для обычных команд
             await ctx.send(content, **kwargs)
     except Exception as e:
-        logger.error(f"Ошибка при отправке сообщения: {e}")
+        logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)

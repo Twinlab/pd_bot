@@ -27,7 +27,6 @@ class AdminCog(commands.Cog):
         # Используется для предотвращения спама командой clear
         self.recent_purges: Dict[int, Tuple[float, int]] = {}
 
-
     async def _clear_messages_helper(self, ctx: commands.Context, count: int, user: Optional[discord.Member] = None) -> int:
         """
         Вспомогательная функция для удаления сообщений, обходящая ограничение в 14 дней.
@@ -239,7 +238,6 @@ class AdminCog(commands.Cog):
                      await ctx.send(error_message)
             else: # Если не удалось отправить исходное сообщение
                  await ctx.send(error_message)
-
 
 async def setup(bot: commands.Bot):
     """

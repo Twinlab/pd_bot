@@ -1,9 +1,7 @@
 import aiohttp
 import logging
-import asyncio
 import time
 from typing import Dict, List, Optional, Tuple, Any
-import json
 
 logger = logging.getLogger("bot.twitch_api")
 
