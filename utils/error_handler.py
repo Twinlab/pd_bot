@@ -52,7 +52,10 @@ async def safe_send(ctx, content, **kwargs):
     """Безопасно отправляет сообщение в зависимости от типа команды"""
     try:
         is_slash = hasattr(ctx, 'interaction') and ctx.interaction is not None
-        
+
+        # delete_after поддерживается только у обычного ctx.send
+        delete_after = kwargs.pop("delete_after", None)
+
         if is_slash:
             # Для slash-команд
             if not ctx.interaction.response.is_done():
@@ -61,6 +64,9 @@ async def safe_send(ctx, content, **kwargs):
                 await ctx.interaction.followup.send(content, **kwargs)
         else:
             # Для обычных команд
-            await ctx.send(content, **kwargs)
+            if delete_after is not None:
+                await ctx.send(content, delete_after=delete_after, **kwargs)
+            else:
+                await ctx.send(content, **kwargs)
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)

@@ -519,7 +519,7 @@ class MusicPlayer:
         self.is_playing = False
         self.is_paused = False
         self.current_track = None
-        if self.player_view:
+        if self.player_view and isinstance(self.player_view, discord.ui.View):
             self.player_view.stop()
             if self.now_playing_message:
                 try:

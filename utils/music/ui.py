@@ -84,6 +84,12 @@ class PlayerControlView(discord.ui.View):
         """
         if not await self._check_voice_channel(interaction):
             return
+        # Только заказавший трек или админ может паузить/возобновлять
+        requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
+        is_admin = interaction.user.guild_permissions.administrator
+        if not is_admin and requester and requester.id != interaction.user.id:
+            await interaction.response.send_message("Поставить на паузу или возобновить может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            return
         if self.player.is_paused:
             await self.player.resume(interaction)
         else:
@@ -104,6 +110,12 @@ class PlayerControlView(discord.ui.View):
         """
         if not await self._check_voice_channel(interaction):
             return
+        # Только заказавший трек или админ может скипать
+        requester = getattr(self.player.current_track, "requester", None) if getattr(self.player, "current_track", None) else None
+        is_admin = interaction.user.guild_permissions.administrator
+        if not is_admin and requester and requester.id != interaction.user.id:
+            await interaction.response.send_message("Пропустить трек может только администратор или тот, кто заказал этот трек.", ephemeral=True)
+            return
         await self.player.skip(interaction)
 
     @discord.ui.button(label="⏹️ Стоп", style=discord.ButtonStyle.danger, custom_id="music:stop", row=0)
@@ -117,6 +129,10 @@ class PlayerControlView(discord.ui.View):
             button: Экземпляр кнопки, которая была нажата.
         """
         if not await self._check_voice_channel(interaction):
+            return
+        # Только администратор может прожать стоп
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message("Остановить музыку может только администратор.", ephemeral=True)
             return
         await self.player.stop(interaction)
 
