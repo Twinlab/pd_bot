@@ -1,8 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock
+
 from utils.penis_utils import measure_penis
 
-from unittest.mock import AsyncMock
 
 @pytest.mark.asyncio
 async def test_measure_penis():

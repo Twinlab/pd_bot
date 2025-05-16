@@ -1,17 +1,20 @@
-import pytest
+import asyncio  # Добавляем импорт asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import discord
-import asyncio # Добавляем импорт asyncio
-from unittest.mock import MagicMock, AsyncMock
-from discord import app_commands # Добавляем импорт app_commands
+import pytest
+from discord import app_commands  # Добавляем импорт app_commands
+
 from cogs.twitch import TwitchCog
+
 
 @pytest.fixture
 def mock_bot():
     bot = MagicMock(spec=discord.ext.commands.Bot)
-    bot.loop = asyncio.get_event_loop() # Для задач, запускаемых из __init__ или cog_load
+    bot.loop = asyncio.get_event_loop()  # Для задач, запускаемых из __init__ или cog_load
     # Мокаем атрибут config
     bot.config = MagicMock()
-    
+
     # Настраиваем mock для config.get, чтобы он возвращал разные значения для разных ключей
     def config_get_side_effect(key, default=None):
         if key == "TWITCH_CLIENT_ID":
@@ -19,11 +22,13 @@ def mock_bot():
         elif key == "TWITCH_CLIENT_SECRET":
             return "test_client_secret"
         return default
+
     bot.config.get = MagicMock(side_effect=config_get_side_effect)
-    
+
     bot.tree = MagicMock(spec=app_commands.CommandTree)
     bot.add_cog = AsyncMock()
     return bot
+
 
 @pytest.fixture
 async def twitch_cog(mock_bot):
@@ -34,9 +39,11 @@ async def twitch_cog(mock_bot):
     cog.twitch_api.close = AsyncMock()
     cog.data_manager = AsyncMock()
     cog.data_manager.initialize_table = AsyncMock()
-    
+
     # Мокаем задачу и ее метод start
-    cog.check_streams = MagicMock(spec=discord.ext.tasks.Loop) # Используем spec для правильного мока
+    cog.check_streams = MagicMock(
+        spec=discord.ext.tasks.Loop
+    )  # Используем spec для правильного мока
     cog.check_streams.start = MagicMock()
     cog.check_streams.cancel = MagicMock()
     cog.check_streams.is_running = MagicMock(return_value=False)
@@ -46,10 +53,12 @@ async def twitch_cog(mock_bot):
     await cog.cog_load()
     return cog
 
+
 @pytest.mark.asyncio
-async def test_twitch_cog_init(twitch_cog): # Тест должен быть async, так как фикстура async
+async def test_twitch_cog_init(twitch_cog):  # Тест должен быть async, так как фикстура async
     assert isinstance(twitch_cog, TwitchCog)
     assert hasattr(twitch_cog, "bot")
+
 
 @pytest.mark.asyncio
 async def test_twitch_cog_registers_commands(twitch_cog):

@@ -1,7 +1,10 @@
-import pytest
+from unittest.mock import MagicMock
+
 import discord
-from unittest.mock import MagicMock, AsyncMock
+import pytest
+
 from cogs.logging_cog import LoggingCog
+
 
 @pytest.fixture
 def mock_bot():
@@ -11,14 +14,15 @@ def mock_bot():
     # Мокаем метод get на объекте config
     # Возвращаем какое-то значение по умолчанию, чтобы тест инициализации проходил
     # Для LoggingCog, get может вызываться с двумя аргументами (ключ и значение по умолчанию)
-    bot.config.get = MagicMock(return_value=1365045098785542224) # Пример ID канала
+    bot.config.get = MagicMock(return_value=1365045098785542224)  # Пример ID канала
     return bot
+
 
 @pytest.fixture
 def logging_cog(mock_bot):
     return LoggingCog(mock_bot)
 
+
 def test_logging_cog_init(logging_cog):
     assert isinstance(logging_cog, LoggingCog)
     assert hasattr(logging_cog, "bot")
-

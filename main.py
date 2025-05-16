@@ -1,67 +1,114 @@
-"""Основной файл для запуска Discord бота, инициализации и загрузки компонентов."""
-import discord
+"""
+Основной файл для запуска Discord бота, инициализации и загрузки компонентов.
+
+Этот модуль содержит точку входа в приложение, настройку логирования,
+инициализацию бота Discord и загрузку всех необходимых компонентов.
+Он отвечает за:
+- Настройку системы логирования
+- Загрузку конфигурации из файла
+- Инициализацию бота с нужными интентами
+- Загрузку когов и обработчиков событий
+- Запуск бота
+"""
+
 import asyncio
-from pathlib import Path
 import logging
 from datetime import datetime
-from discord.ext import commands
+from pathlib import Path
+from typing import Any, Dict  # Добавляем Dict и Any
+
 from discord import Intents
+from discord.ext import commands
+
+from config import load_config
+from utils import dota_api
+from utils.database import DB_PATH, initialize_database
 
 # === Логирование: создаём logs/ и уникальный файл ===
-LOGS_DIR = Path("logs")
+LOGS_DIR: Path = Path("logs")
 LOGS_DIR.mkdir(exist_ok=True)
-log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
-log_path = LOGS_DIR / log_filename
+log_filename: str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
+log_path: Path = LOGS_DIR / log_filename
 
 # Создаём/обновляем симлинк на последний лог
-latest_symlink = LOGS_DIR / "latest.log"
+latest_symlink: Path = LOGS_DIR / "latest.log"
 try:
     if latest_symlink.exists() or latest_symlink.is_symlink():
-        latest_symlink.unlink(missing_ok=True) # Добавим missing_ok=True для unlink
+        latest_symlink.unlink(missing_ok=True)  # Добавим missing_ok=True для unlink
     latest_symlink.symlink_to(log_filename)
 except OSError as e:
-    logging.warning(f"Не удалось создать/обновить симлинк 'latest.log': {e}") # Используем logging вместо logger, т.к. logger еще не настроен
+    logging.warning(
+        f"Не удалось создать/обновить симлинк 'latest.log': {e}"
+    )  # Используем logging вместо logger, т.к. logger еще не настроен
 
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(log_path, mode="a", encoding=None, delay=False),
-        logging.StreamHandler()
-    ]
+        logging.StreamHandler(),
+    ],
 )
-logger = logging.getLogger("bot.main")  # Используем иерархическое имя логгера
+logger: logging.Logger = logging.getLogger("bot.main")  # Используем иерархическое имя логгера
 
-# Импорт конфигурации
-from config import load_config
-# Импорт инициализатора БД
-from utils.database import initialize_database, DB_PATH
-# Импорт для инициализации кэша Dota API
-from utils import dota_api
- 
 # Настройка интентов бота
-intents = Intents.default()
+intents: Intents = Intents.default()
 intents.message_content = True
 intents.messages = True
 intents.members = True
 intents.presences = True
 
 # Загрузка конфигурации ДО создания экземпляра бота
-config = load_config()
+config: Dict[str, Any] = load_config()  # Указываем более точный тип для config
 
 # Проверка наличия токена ДО создания бота
 if not config.get("BOT_TOKEN"):
     logger.critical("Токен бота (BOT_TOKEN) не найден в data/config.json! Запуск невозможен.")
     exit()
 
+
+# Определение кастомного класса бота
+class MyBot(commands.Bot):
+    """Кастомный класс бота, наследуемый от commands.Bot.
+
+    Добавляет атрибуты config и log_file_path для доступа к конфигурации
+    и пути к файлу логов соответственно.
+    """
+
+    config: Dict[str, Any]
+    log_file_path: str
+
+    def __init__(self, *args, **kwargs):
+        """Инициализирует кастомного бота.
+
+        Args:
+            *args: Позиционные аргументы для commands.Bot.
+            **kwargs: Именованные аргументы для commands.Bot.
+        """
+        super().__init__(*args, **kwargs)
+        # Атрибуты config и log_file_path будут установлены после инициализации экземпляра
+
+
 # Создание экземпляра бота с префиксом из конфига
-bot = commands.Bot(command_prefix=config.get("PREFIX", "!"), intents=intents)
+bot: MyBot = MyBot(command_prefix=config.get("PREFIX", "!"), intents=intents)
 bot.config = config
 bot.log_file_path = str(log_path)  # Передаём путь к текущему логу в cog
 
+
 async def load_cogs() -> None:
-    """Сканирует директорию cogs/ для загрузки когов команд и загружает указанные обработчики из handlers/."""
+    """
+    Сканирует директорию cogs/ для загрузки когов команд и загружает обработчики из handlers/.
+
+    Функция выполняет:
+    1. Загрузку всех Python-файлов из директории cogs/ как расширения бота
+    2. Загрузку обработчика событий из handlers.events
+    3. Загрузку обработчика сообщений из handlers.message_handler
+
+    Raises:
+        Exception: При ошибке загрузки кога или обработчика, ошибка логируется,
+                  но выполнение продолжается.
+    """
     logger.info("Загрузка когов команд...")
     cogs_dir = Path("./cogs")
     for filepath in cogs_dir.glob("*.py"):
@@ -75,20 +122,32 @@ async def load_cogs() -> None:
 
     logger.info("Загрузка обработчиков событий...")
     try:
-        await bot.load_extension('handlers.events')
+        await bot.load_extension("handlers.events")
         logger.info("Загружены обработчики событий")
     except Exception as e:
         logger.error(f"Ошибка при загрузке обработчиков событий: {e}")
 
     logger.info("Загрузка обработчика сообщений...")
     try:
-        await bot.load_extension('handlers.message_handler')
+        await bot.load_extension("handlers.message_handler")
         logger.info("Загружен обработчик сообщений")
     except Exception as e:
         logger.error(f"Ошибка при загрузке обработчика сообщений: {e}")
 
+
 async def main() -> None:
-    """Основная асинхронная функция для инициализации и запуска бота."""
+    """
+    Основная асинхронная функция для инициализации и запуска бота.
+
+    Выполняет следующие действия:
+    1. Инициализирует базу данных
+    2. Загружает кэш Dota API с диска
+    3. Загружает коги и обработчики
+    4. Запускает бота с токеном из конфигурации
+
+    Raises:
+        Exception: При ошибке запуска бота, ошибка логируется и программа завершается.
+    """
     logger.info(f"Используется файл базы данных: {DB_PATH}")
     await initialize_database()
     logger.info("Загрузка кэша Dota API с диска...")
@@ -98,6 +157,7 @@ async def main() -> None:
         await bot.start(config["BOT_TOKEN"])
     except Exception as e:
         logger.critical(f"Не удалось запустить бота: {e}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

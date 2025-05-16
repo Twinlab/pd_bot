@@ -1,47 +1,54 @@
-"""Вспомогательные функции для модуля отслеживания активности."""
+"""Вспомогательные функции для модуля отслеживания активности.
+
+Этот модуль содержит утилитарные функции, используемые в системе отслеживания
+активности пользователей на сервере Discord. Включает функции для фильтрации
+ботов и форматирования времени.
+"""
+
 import discord
 
-# TODO: Consider if this needs access to bot config or roles in the future.
-# For now, it's self-contained.
+
+# TODO: В будущем может потребоваться доступ к конфигурации бота или ролям.
+# Пока функция самодостаточна.
 def is_application(member: discord.Member) -> bool:
-    """
-    Checks if a member is likely an application or bot based on name or roles.
-    Used to filter out bots from activity tracking.
+    """Проверяет, является ли участник ботом или приложением на основе имени или ролей.
+
+    Используется для фильтрации ботов при отслеживании активности.
 
     Args:
-        member: The discord.Member object to check.
+        member: Объект discord.Member для проверки.
 
     Returns:
-        True if the member is likely a bot/application, False otherwise.
+        True, если участник вероятно является ботом/приложением, False в противном случае.
     """
-    # Common bot names (can be expanded)
+    # Распространенные имена ботов (можно расширить)
     app_names = ["minecraft bot"]
     if member.name in app_names:
         return True
 
-    # Common role names indicating a bot
+    # Распространенные названия ролей, указывающие на бота
     app_role_names = ["bot", "app", "application"]
     if any(role.name.lower() in app_role_names for role in member.roles):
         return True
 
-    # Check the official bot flag
+    # Проверка официального флага бота
     if member.bot:
         return True
 
     return False
 
+
 def format_time_short(seconds: int) -> str:
-    """
-    Formats time in seconds into a short string (e.g., "1h 5m").
+    """Форматирует время в секундах в короткую строку (например, "1h 5m").
 
     Args:
-        seconds: The total number of seconds.
+        seconds: Общее количество секунд.
 
     Returns:
-        A short formatted string representing the duration.
+        Короткая отформатированная строка, представляющая продолжительность.
     """
     if seconds <= 0:
-        return "0m" # Return "0m" if time is zero or negative
+        return "0m"  # Возвращаем "0m", если время нулевое или отрицательное
 
     hours, remainder = divmod(seconds, 3600)
     minutes, _ = divmod(remainder, 60)
@@ -52,5 +59,5 @@ def format_time_short(seconds: int) -> str:
         else:
             return f"{hours}h"
     else:
-        # Always show minutes, even if 0 and hours are 0 (e.g., for 30 seconds input)
+        # Всегда показываем минуты, даже если 0 и часы равны 0 (например, для ввода 30 секунд)
         return f"{minutes}m"

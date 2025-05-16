@@ -1,0 +1,10 @@
+flake8
+black
+isort
+mypy
+pre-commit
+pytest
+pytest-asyncio
+pytest-cov
+freezegun
+types-pytz

@@ -1,27 +1,26 @@
-import pytest
-from utils.deathbattle_utils import (
-    get_event_and_damage,
-    create_deathbattle_image,
-    run_battle,
-)
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
-def test_get_event_and_damage():
+import pytest
+
+from utils.deathbattle_utils import create_deathbattle_image, get_event_and_damage, run_battle
+
+
+def test_get_event_and_damage() -> None:
     event, damage = get_event_and_damage()
     assert isinstance(event, str)
     assert isinstance(damage, int)
 
+
 @pytest.mark.asyncio
-async def test_create_deathbattle_image():
+async def test_create_deathbattle_image() -> None:
     member1 = MagicMock()
     member2 = MagicMock()
     result = await create_deathbattle_image(member1, member2)
     assert result is None or hasattr(result, "read")  # BytesIO или None
 
-from unittest.mock import AsyncMock
 
 @pytest.mark.asyncio
-async def test_run_battle():
+async def test_run_battle() -> None:
     ctx = MagicMock()
     ctx.send = AsyncMock()
     ctx.author = MagicMock()

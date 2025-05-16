@@ -24,10 +24,28 @@ __pycache__/
 venv/
 env/
 .env/
+path/
 
 # Исключаем системные файлы
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
 
 # Исключаем логи
 *.log
+
+# Исключаем файлы унификации
+check_docstrings.py
+check_standards.py
+check_typing.py
+fix_logging.py
+format_code.py
+unify_project.py
+docstring_template.py
+UNIFICATION_PLAN.md
+UNIFICATION_PLAN_DETAILED.md
+
+# Coverage reports
+.coverage
+coverage.xml

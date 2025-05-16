@@ -1,9 +1,12 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+
 from utils.dota_match_utils import get_match_data, handle_lastmatch
-from unittest.mock import MagicMock
+
 
 @pytest.mark.asyncio
-async def test_get_match_data():
+async def test_get_match_data() -> None:
     user_links = {"user1": [123]}
     user_id = "user1"
     stratz_api_key = "fake_key"
@@ -11,10 +14,9 @@ async def test_get_match_data():
     assert isinstance(result, tuple)
     assert len(result) == 4
 
-from unittest.mock import AsyncMock
 
 @pytest.mark.asyncio
-async def test_handle_lastmatch():
+async def test_handle_lastmatch() -> None:
     ctx = MagicMock()
     ctx.send = AsyncMock()
     ctx.author = MagicMock()

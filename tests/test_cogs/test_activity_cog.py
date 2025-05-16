@@ -1,35 +1,39 @@
-import pytest
-import asyncio
-from unittest.mock import MagicMock, AsyncMock, patch
-from datetime import datetime, timedelta, date, time
-import pytz
+"""Тесты для кога ActivityTracker."""
+
+from datetime import date, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import discord
+import pytest
+import pytz  # type: ignore
+from discord import app_commands  # Убедимся, что импорт есть
 from discord.ext import commands
-from discord import app_commands # Убедимся, что импорт есть
 
 # Импортируем тестируемый ког
 from cogs.activity import ActivityTracker
 
 # --- Фикстуры ---
 
+
 @pytest.fixture
 def mock_bot():
     """Создает мок для бота Discord."""
     bot = MagicMock(spec=commands.Bot)
-    bot.config = { # Добавляем базовый конфиг
+    bot.config = {  # Добавляем базовый конфиг
         "REPORT_CHANNEL_ID": 12345,
         "ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS": 10,
         "ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS": 172800,
         "ACTIVITY_MONTHLY_REPORT_MIN_TIME_SECONDS": 1800,
     }
-    bot.guilds = [] # По умолчанию нет гильдий
-    bot.wait_until_ready = AsyncMock() # Мокаем ожидание готовности
+    bot.guilds = []  # По умолчанию нет гильдий
+    bot.wait_until_ready = AsyncMock()  # Мокаем ожидание готовности
     bot.add_cog = AsyncMock()
     bot.get_channel = MagicMock(return_value=None)
     # Мокаем loop для create_task
     bot.loop = MagicMock()
     bot.loop.create_task = MagicMock()
     return bot
+
 
 @pytest.fixture
 def mock_data_manager():
@@ -43,6 +47,7 @@ def mock_data_manager():
     manager.transfer_daily_to_monthly = AsyncMock(return_value=True)
     return manager
 
+
 @pytest.fixture
 def mock_context():
     """Создает мок для контекста команды."""
@@ -54,19 +59,28 @@ def mock_context():
     ctx.guild = MagicMock(spec=discord.Guild)
     ctx.guild.id = 100
     ctx.guild.name = "TestGuild"
-    ctx.guild.members = [ctx.author] # Добавляем автора в список участников
-    ctx.guild.get_member = MagicMock(return_value=ctx.author) # Мок для get_member
-    ctx.channel = AsyncMock(spec=discord.TextChannel) # Канал для отправки отчетов
-    ctx.channel.guild = ctx.guild # Связываем канал с гильдией
+    ctx.guild.members = [ctx.author]  # Добавляем автора в список участников
+    ctx.guild.get_member = MagicMock(return_value=ctx.author)  # Мок для get_member
+    ctx.channel = AsyncMock(spec=discord.TextChannel)  # Канал для отправки отчетов
+    ctx.channel.guild = ctx.guild  # Связываем канал с гильдией
     ctx.send = AsyncMock()
     ctx.defer = AsyncMock()
-    ctx.followup = MagicMock()
-    ctx.followup.send = AsyncMock()
     # Добавляем атрибут interaction для гибридных команд
-    ctx.interaction = MagicMock(spec=discord.Interaction)
-    ctx.interaction.response = MagicMock()
-    ctx.interaction.response.is_done = MagicMock(return_value=False)
+    # и связываем followup
+    interaction_mock = MagicMock(spec=discord.Interaction)
+    interaction_mock.response = MagicMock()
+    interaction_mock.response.is_done = MagicMock(return_value=False)
+    interaction_mock.followup = MagicMock()
+    interaction_mock.followup.send = AsyncMock()  # Этот send будет проверяться в тестах
+
+    ctx.interaction = interaction_mock
+    # ctx.followup теперь будет ссылаться на ctx.interaction.followup
+    # Это не совсем точно, так как ctx.followup это Webhook, а не InteractionWebhook.
+    # Но для целей моканья send этого должно хватить.
+    # Если тесты все еще падают, нужно будет точнее мокать ctx.followup отдельно.
+    ctx.followup = interaction_mock.followup
     return ctx
+
 
 @pytest.fixture
 def mock_member():
@@ -76,8 +90,9 @@ def mock_member():
     member.name = "TestUser"
     member.bot = False
     member.activities = []
-    member.guild = MagicMock(spec=discord.Guild) # Добавляем гильдию
+    member.guild = MagicMock(spec=discord.Guild)  # Добавляем гильдию
     return member
+
 
 @pytest.fixture
 def mock_playing_activity():
@@ -85,8 +100,9 @@ def mock_playing_activity():
     activity = MagicMock(spec=discord.Activity)
     activity.type = discord.ActivityType.playing
     activity.name = "Test Game"
-    activity.start = None # Обычно start не используется для playing
+    activity.start = None  # Обычно start не используется для playing
     return activity
+
 
 @pytest.fixture
 def mock_other_activity():
@@ -96,23 +112,26 @@ def mock_other_activity():
     activity.name = "Spotify"
     return activity
 
+
 @pytest.fixture
 async def activity_cog(mock_bot, mock_data_manager):
     """Создает экземпляр кога с моками."""
     # Патчим ActivityDataManager внутри кога перед инициализацией
-    with patch('cogs.activity.ActivityDataManager', return_value=mock_data_manager):
+    with patch("cogs.activity.ActivityDataManager", return_value=mock_data_manager):
         # Патчим запуск фоновых задач, чтобы они не стартовали во время тестов
-        with patch.object(ActivityTracker, 'periodic_save') as mock_periodic_save, \
-             patch.object(ActivityTracker, 'daily_report') as mock_daily_report, \
-             patch.object(ActivityTracker, 'monthly_report') as mock_monthly_report:
+        with (
+            patch.object(ActivityTracker, "periodic_save") as mock_periodic_save,
+            patch.object(ActivityTracker, "daily_report") as mock_daily_report,
+            patch.object(ActivityTracker, "monthly_report") as mock_monthly_report,
+        ):
 
             cog = ActivityTracker(mock_bot)
-            cog.data_manager = mock_data_manager # Убедимся, что используется наш мок
+            cog.data_manager = mock_data_manager  # Убедимся, что используется наш мок
 
             # Мокаем методы start/cancel для задач
             mock_periodic_save.start = MagicMock()
             mock_periodic_save.cancel = MagicMock()
-            mock_periodic_save.before_loop = MagicMock() # Мокаем before_loop
+            mock_periodic_save.before_loop = MagicMock()  # Мокаем before_loop
             mock_daily_report.start = MagicMock()
             mock_daily_report.cancel = MagicMock()
             mock_daily_report.before_loop = MagicMock()
@@ -121,17 +140,17 @@ async def activity_cog(mock_bot, mock_data_manager):
             mock_monthly_report.before_loop = MagicMock()
 
             # Мокаем setup, чтобы он не вызывался реально
-            with patch('cogs.activity.setup', new_callable=AsyncMock):
-                 # Вызываем setup вручную, чтобы ког добавился (если нужно для тестов)
-                 # await setup(mock_bot) # Обычно не нужно для юнит-тестов кога
-                 pass
+            with patch("cogs.activity.setup", new_callable=AsyncMock):
+                # Вызываем setup вручную, чтобы ког добавился (если нужно для тестов)
+                # await setup(mock_bot) # Обычно не нужно для юнит-тестов кога
+                pass
 
             # Сбрасываем флаг, чтобы on_ready мог сработать в тестах
             cog.scan_scheduled = False
             # Очищаем словарь активностей перед каждым тестом
             cog.current_activities.clear()
 
-            yield cog # Возвращаем ког для использования в тестах
+            yield cog  # Возвращаем ког для использования в тестах
 
             # Очистка после теста (если необходимо)
             # Например, остановка задач, если они были запущены в тесте
@@ -142,14 +161,15 @@ async def activity_cog(mock_bot, mock_data_manager):
 
 # --- Тесты ---
 
+
 @pytest.mark.asyncio
 async def test_cog_initialization(activity_cog, mock_bot, mock_data_manager):
     """Тестирует инициализацию кога."""
     assert activity_cog.bot is mock_bot
     assert activity_cog.data_manager is mock_data_manager
     assert isinstance(activity_cog.current_activities, dict)
-    assert not activity_cog.current_activities # Словарь должен быть пуст изначально
-    assert not activity_cog.scan_scheduled # Флаг сброшен фикстурой
+    assert not activity_cog.current_activities  # Словарь должен быть пуст изначально
+    assert not activity_cog.scan_scheduled  # Флаг сброшен фикстурой
 
     # Проверки start.assert_called_once() убраны, так как задачи патчатся до __init__
     pass
@@ -157,11 +177,12 @@ async def test_cog_initialization(activity_cog, mock_bot, mock_data_manager):
 
 # --- Тесты для on_presence_update ---
 
+
 @pytest.mark.asyncio
 async def test_on_presence_update_start_game(activity_cog, mock_member, mock_playing_activity):
     """Тестирует начало игровой сессии."""
     before = MagicMock(spec=discord.Member)
-    before.activities = [] # Раньше не играл
+    before.activities = []  # Раньше не играл
     before.bot = False
     after = mock_member
     after.activities = [mock_playing_activity]
@@ -176,12 +197,15 @@ async def test_on_presence_update_start_game(activity_cog, mock_member, mock_pla
     # Проверяем, что запись в БД не вызывалась при старте
     activity_cog.data_manager.update_activity.assert_not_called()
 
+
 @pytest.mark.asyncio
-async def test_on_presence_update_stop_game_long_session(activity_cog, mock_member, mock_playing_activity):
+async def test_on_presence_update_stop_game_long_session(
+    activity_cog, mock_member, mock_playing_activity
+):
     """Тестирует завершение достаточно длинной игровой сессии."""
     user_id = mock_member.id
     game_name = mock_playing_activity.name
-    start_time = datetime.now(pytz.UTC) - timedelta(minutes=10) # 10 минут назад
+    start_time = datetime.now(pytz.UTC) - timedelta(minutes=10)  # 10 минут назад
     activity_cog.current_activities[user_id] = (game_name, start_time)
 
     before = mock_member
@@ -190,10 +214,10 @@ async def test_on_presence_update_stop_game_long_session(activity_cog, mock_memb
     after.id = user_id
     after.name = mock_member.name
     after.bot = False
-    after.activities = [] # Теперь не играет
+    after.activities = []  # Теперь не играет
 
     # Мокаем create_task в правильном месте
-    with patch('cogs.activity.asyncio.create_task') as mock_create_task:
+    with patch("cogs.activity.asyncio.create_task") as mock_create_task:
         await activity_cog.on_presence_update(before, after)
 
         # Проверяем, что сессия удалена из current_activities
@@ -202,21 +226,24 @@ async def test_on_presence_update_stop_game_long_session(activity_cog, mock_memb
         # Проверяем, что create_task был вызван для update_activity
         mock_create_task.assert_called_once()
         # Проверяем аргументы вызова update_activity внутри create_task
-        call_args = mock_create_task.call_args[0][0] # Получаем корутину
+        # Получаем корутину (не используется, но оставляем комментарий для понимания)
         # Ожидаем вызов вида data_manager.update_activity(user_id, game_name, elapsed_seconds)
         # Проверяем, что create_task был вызван (значит, update_activity был запущен)
         mock_create_task.assert_called_once()
-        
+
         # Вместо запуска корутины и проверки вызова, просто проверим, что create_task был вызван
         # Это более надежный подход, так как мы не зависим от внутренней реализации
         # Проверяем, что сессия была удалена и create_task был вызван - этого достаточно
 
+
 @pytest.mark.asyncio
-async def test_on_presence_update_stop_game_short_session(activity_cog, mock_member, mock_playing_activity):
+async def test_on_presence_update_stop_game_short_session(
+    activity_cog, mock_member, mock_playing_activity
+):
     """Тестирует завершение слишком короткой игровой сессии."""
     user_id = mock_member.id
     game_name = mock_playing_activity.name
-    start_time = datetime.now(pytz.UTC) - timedelta(seconds=5) # 5 секунд назад
+    start_time = datetime.now(pytz.UTC) - timedelta(seconds=5)  # 5 секунд назад
     activity_cog.current_activities[user_id] = (game_name, start_time)
 
     before = mock_member
@@ -225,7 +252,7 @@ async def test_on_presence_update_stop_game_short_session(activity_cog, mock_mem
     after.id = user_id
     after.name = mock_member.name
     after.bot = False
-    after.activities = [] # Теперь не играет
+    after.activities = []  # Теперь не играет
 
     await activity_cog.on_presence_update(before, after)
 
@@ -234,13 +261,14 @@ async def test_on_presence_update_stop_game_short_session(activity_cog, mock_mem
     # Проверяем, что запись в БД НЕ вызывалась
     activity_cog.data_manager.update_activity.assert_not_called()
 
+
 @pytest.mark.asyncio
 async def test_on_presence_update_switch_game(activity_cog, mock_member, mock_playing_activity):
     """Тестирует смену игры."""
     user_id = mock_member.id
     old_game_name = "Old Game"
     new_game_name = mock_playing_activity.name
-    start_time_old = datetime.now(pytz.UTC) - timedelta(minutes=15) # 15 минут назад
+    start_time_old = datetime.now(pytz.UTC) - timedelta(minutes=15)  # 15 минут назад
     activity_cog.current_activities[user_id] = (old_game_name, start_time_old)
 
     # Создаем отдельные моки для before и after, чтобы избежать проблем с общими ссылками
@@ -257,7 +285,7 @@ async def test_on_presence_update_switch_game(activity_cog, mock_member, mock_pl
     after.id = user_id
     after.name = mock_member.name
     after.bot = False
-    after.activities = [mock_playing_activity] # Новая игра
+    after.activities = [mock_playing_activity]  # Новая игра
 
     # Вызываем метод напрямую
     await activity_cog.on_presence_update(before, after)
@@ -265,7 +293,7 @@ async def test_on_presence_update_switch_game(activity_cog, mock_member, mock_pl
     # В реальном коде при смене игры:
     # 1. Старая сессия записывается в БД
     # 2. Новая сессия добавляется в current_activities
-    
+
     # Проверяем, что новая сессия добавлена в current_activities
     assert user_id in activity_cog.current_activities
     current_game_name, current_start_time = activity_cog.current_activities[user_id]
@@ -274,15 +302,16 @@ async def test_on_presence_update_switch_game(activity_cog, mock_member, mock_pl
     # Время старта новой сессии должно быть близко к текущему моменту
     assert (datetime.now(pytz.UTC) - current_start_time).total_seconds() < 5
 
+
 @pytest.mark.asyncio
 async def test_on_presence_update_ignore_bots(activity_cog, mock_member, mock_playing_activity):
     """Тестирует игнорирование ботов."""
     before = MagicMock(spec=discord.Member)
     before.activities = []
-    before.bot = True # Бот
+    before.bot = True  # Бот
     after = mock_member
     after.activities = [mock_playing_activity]
-    after.bot = True # Бот
+    after.bot = True  # Бот
 
     await activity_cog.on_presence_update(before, after)
 
@@ -290,14 +319,17 @@ async def test_on_presence_update_ignore_bots(activity_cog, mock_member, mock_pl
     assert not activity_cog.current_activities
     activity_cog.data_manager.update_activity.assert_not_called()
 
+
 @pytest.mark.asyncio
-async def test_on_presence_update_ignore_non_playing(activity_cog, mock_member, mock_other_activity):
+async def test_on_presence_update_ignore_non_playing(
+    activity_cog, mock_member, mock_other_activity
+):
     """Тестирует игнорирование неигровых активностей."""
     before = MagicMock(spec=discord.Member)
     before.activities = []
     before.bot = False
     after = mock_member
-    after.activities = [mock_other_activity] # Не игровая активность
+    after.activities = [mock_other_activity]  # Не игровая активность
 
     await activity_cog.on_presence_update(before, after)
 
@@ -308,6 +340,7 @@ async def test_on_presence_update_ignore_non_playing(activity_cog, mock_member, 
 
 # --- Тесты для on_ready и scan_all_users_activity ---
 
+
 @pytest.mark.asyncio
 async def test_on_ready_calls_scan(activity_cog, mock_bot):
     """Тестирует, что on_ready вызывает scan_all_users_activity."""
@@ -317,17 +350,18 @@ async def test_on_ready_calls_scan(activity_cog, mock_bot):
     activity_cog.scan_scheduled = False
 
     # Патчим create_task в правильном месте
-    with patch('cogs.activity.asyncio.create_task') as mock_create_task:
+    with patch("cogs.activity.asyncio.create_task") as mock_create_task:
         await activity_cog.on_ready()
 
         # Проверяем, что create_task был вызван с корутиной scan_all_users_activity
         mock_create_task.assert_called_once()
-        coro = mock_create_task.call_args[0][0]
+        # Корутина не используется, достаточно проверить вызов create_task
         # Проверяем, что create_task был вызван с корутиной
         # Для корутин нельзя использовать __self__ и __func__, так как это не методы
         # Достаточно проверить, что create_task был вызван и что флаг установлен
         # Проверяем, что флаг установлен
         assert activity_cog.scan_scheduled is True
+
 
 @pytest.mark.asyncio
 async def test_on_ready_calls_scan_only_once(activity_cog, mock_bot):
@@ -336,7 +370,7 @@ async def test_on_ready_calls_scan_only_once(activity_cog, mock_bot):
     activity_cog.scan_scheduled = False
 
     # Патчим create_task в правильном месте
-    with patch('cogs.activity.asyncio.create_task') as mock_create_task:
+    with patch("cogs.activity.asyncio.create_task") as mock_create_task:
         # Первый вызов on_ready
         await activity_cog.on_ready()
         mock_create_task.assert_called_once()
@@ -345,17 +379,20 @@ async def test_on_ready_calls_scan_only_once(activity_cog, mock_bot):
         # Второй вызов on_ready
         await activity_cog.on_ready()
         # Проверяем, что create_task больше не вызывался
-        mock_create_task.assert_called_once() # Вызов остался один
+        mock_create_task.assert_called_once()  # Вызов остался один
+
 
 @pytest.mark.asyncio
-async def test_scan_all_users_activity(activity_cog, mock_bot, mock_member, mock_playing_activity, mock_other_activity):
+async def test_scan_all_users_activity(
+    activity_cog, mock_bot, mock_member, mock_playing_activity, mock_other_activity
+):
     """Тестирует сканирование активности пользователей при запуске."""
     # Создаем моки гильдий и участников
     guild1 = MagicMock(spec=discord.Guild)
     guild2 = MagicMock(spec=discord.Guild)
     mock_bot.guilds = [guild1, guild2]
 
-    member1_playing = mock_member # Играет в Test Game
+    member1_playing = mock_member  # Играет в Test Game
     member1_playing.id = 1
     member1_playing.activities = [mock_playing_activity]
 
@@ -363,19 +400,19 @@ async def test_scan_all_users_activity(activity_cog, mock_bot, mock_member, mock
     member2_other.id = 2
     member2_other.name = "UserOther"
     member2_other.bot = False
-    member2_other.activities = [mock_other_activity] # Слушает музыку
+    member2_other.activities = [mock_other_activity]  # Слушает музыку
 
     member3_bot = MagicMock(spec=discord.Member)
     member3_bot.id = 3
     member3_bot.name = "BotUser"
-    member3_bot.bot = True # Бот
+    member3_bot.bot = True  # Бот
     member3_bot.activities = [mock_playing_activity]
 
     member4_no_activity = MagicMock(spec=discord.Member)
     member4_no_activity.id = 4
     member4_no_activity.name = "UserIdle"
     member4_no_activity.bot = False
-    member4_no_activity.activities = [] # Нет активности
+    member4_no_activity.activities = []  # Нет активности
 
     guild1.members = [member1_playing, member2_other]
     guild2.members = [member3_bot, member4_no_activity]
@@ -387,7 +424,7 @@ async def test_scan_all_users_activity(activity_cog, mock_bot, mock_member, mock
     mock_bot.wait_until_ready.assert_awaited_once()
 
     # Проверяем current_activities
-    assert len(activity_cog.current_activities) == 1 # Только member1 должен быть добавлен
+    assert len(activity_cog.current_activities) == 1  # Только member1 должен быть добавлен
     assert member1_playing.id in activity_cog.current_activities
     game_name, start_time = activity_cog.current_activities[member1_playing.id]
     assert game_name == mock_playing_activity.name
@@ -406,12 +443,14 @@ async def test_scan_all_users_activity(activity_cog, mock_bot, mock_member, mock
 
 # --- Тесты для update_current_activities ---
 
+
 @pytest.mark.asyncio
 async def test_update_current_activities_no_sessions(activity_cog):
     """Тестирует обновление при отсутствии активных сессий."""
     activity_cog.current_activities.clear()
     await activity_cog.update_current_activities()
     activity_cog.data_manager.update_activity.assert_not_called()
+
 
 @pytest.mark.asyncio
 async def test_update_current_activities_single_session(activity_cog, mock_data_manager):
@@ -428,13 +467,14 @@ async def test_update_current_activities_single_session(activity_cog, mock_data_
     call_args = mock_data_manager.update_activity.call_args.args
     assert call_args[0] == user_id
     assert call_args[1] == game_name
-    assert 590 < call_args[2] < 610 # Примерно 10 минут
+    assert 590 < call_args[2] < 610  # Примерно 10 минут
 
     # Проверяем, что время старта в памяти обновилось
     assert user_id in activity_cog.current_activities
     new_game, new_start = activity_cog.current_activities[user_id]
     assert new_game == game_name
     assert (datetime.now(pytz.UTC) - new_start).total_seconds() < 5
+
 
 @pytest.mark.asyncio
 async def test_update_current_activities_multiple_sessions(activity_cog, mock_data_manager):
@@ -460,19 +500,20 @@ async def test_update_current_activities_multiple_sessions(activity_cog, mock_da
     user1_call = call1_args if call1_args[0] == user1 else call2_args
     assert user1_call[0] == user1
     assert user1_call[1] == game1
-    assert 890 < user1_call[2] < 910 # ~15 минут
+    assert 890 < user1_call[2] < 910  # ~15 минут
 
     # Находим вызов для user2
     user2_call = call1_args if call1_args[0] == user2 else call2_args
     assert user2_call[0] == user2
     assert user2_call[1] == game2
-    assert 290 < user2_call[2] < 310 # ~5 минут
+    assert 290 < user2_call[2] < 310  # ~5 минут
 
     # Проверяем обновление времени старта в памяти
     assert user1 in activity_cog.current_activities
     assert (datetime.now(pytz.UTC) - activity_cog.current_activities[user1][1]).total_seconds() < 5
     assert user2 in activity_cog.current_activities
     assert (datetime.now(pytz.UTC) - activity_cog.current_activities[user2][1]).total_seconds() < 5
+
 
 @pytest.mark.asyncio
 async def test_update_current_activities_too_short(activity_cog, mock_data_manager, mock_bot):
@@ -481,7 +522,7 @@ async def test_update_current_activities_too_short(activity_cog, mock_data_manag
     game_name = "Game Short"
     # Устанавливаем порог в 60 секунд для теста
     mock_bot.config["ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS"] = 60
-    start_time = datetime.now(pytz.UTC) - timedelta(seconds=30) # 30 секунд < порога
+    start_time = datetime.now(pytz.UTC) - timedelta(seconds=30)  # 30 секунд < порога
     activity_cog.current_activities[user_id] = (game_name, start_time)
 
     await activity_cog.update_current_activities()
@@ -492,6 +533,7 @@ async def test_update_current_activities_too_short(activity_cog, mock_data_manag
     assert user_id in activity_cog.current_activities
     assert activity_cog.current_activities[user_id] == (game_name, start_time)
 
+
 @pytest.mark.asyncio
 async def test_update_current_activities_too_long(activity_cog, mock_data_manager, mock_bot):
     """Тестирует игнорирование и удаление слишком длинной (аномальной) сессии."""
@@ -499,7 +541,7 @@ async def test_update_current_activities_too_long(activity_cog, mock_data_manage
     game_name = "Game Long"
     # Устанавливаем порог в 1 час для теста
     mock_bot.config["ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS"] = 3600
-    start_time = datetime.now(pytz.UTC) - timedelta(hours=2) # 2 часа > порога
+    start_time = datetime.now(pytz.UTC) - timedelta(hours=2)  # 2 часа > порога
     activity_cog.current_activities[user_id] = (game_name, start_time)
 
     await activity_cog.update_current_activities()
@@ -508,6 +550,7 @@ async def test_update_current_activities_too_long(activity_cog, mock_data_manage
     mock_data_manager.update_activity.assert_not_awaited()
     # Проверяем, что сессия удалена из памяти
     assert user_id not in activity_cog.current_activities
+
 
 @pytest.mark.asyncio
 async def test_update_current_activities_negative_time(activity_cog, mock_data_manager):
@@ -528,6 +571,7 @@ async def test_update_current_activities_negative_time(activity_cog, mock_data_m
     assert new_game == game_name
     assert (datetime.now(pytz.UTC) - new_start).total_seconds() < 5
 
+
 @pytest.mark.asyncio
 async def test_update_current_activities_final_save(activity_cog, mock_data_manager):
     """Тестирует финальное сохранение (final_save=True)."""
@@ -543,7 +587,7 @@ async def test_update_current_activities_final_save(activity_cog, mock_data_mana
     call_args = mock_data_manager.update_activity.call_args.args
     assert call_args[0] == user_id
     assert call_args[1] == game_name
-    assert 1190 < call_args[2] < 1210 # Примерно 20 минут
+    assert 1190 < call_args[2] < 1210  # Примерно 20 минут
 
     # Проверяем, что время старта в памяти НЕ обновилось
     assert user_id in activity_cog.current_activities
@@ -551,6 +595,7 @@ async def test_update_current_activities_final_save(activity_cog, mock_data_mana
 
 
 # --- Тесты для cog_unload ---
+
 
 # Используем pytest.mark.asyncio, так как update_current_activities асинхронный
 @pytest.mark.asyncio
@@ -560,29 +605,17 @@ async def test_cog_unload(activity_cog):
     activity_cog.update_current_activities = AsyncMock()
 
     # Вызываем cog_unload
-    # Так как cog_unload синхронный, но вызывает async функцию через asyncio.run,
-    # нам нужно мокнуть asyncio.run, чтобы избежать проблем с циклом событий в тесте.
-    with patch('asyncio.run') as mock_asyncio_run:
-        activity_cog.cog_unload()
+    await activity_cog.cog_unload()
 
-        # Проверяем, что cancel был вызван для всех задач
-        activity_cog.periodic_save.cancel.assert_called_once()
-        activity_cog.daily_report.cancel.assert_called_once()
-        activity_cog.monthly_report.cancel.assert_called_once()
-
-        # Проверяем, что asyncio.run был вызван с корутиной update_current_activities
-        mock_asyncio_run.assert_called_once()
-        coro = mock_asyncio_run.call_args[0][0]
-        # Проверяем, что asyncio.run был вызван
-        mock_asyncio_run.assert_called_once()
-        
-        # Проверяем, что update_current_activities была вызвана с final_save=True
-        # Поскольку мы мокнули update_current_activities, мы можем проверить,
-        # что она была вызвана с правильными аргументами
-        activity_cog.update_current_activities.assert_called_once_with(final_save=True)
+    # Проверяем, что cancel был вызван для всех задач
+    activity_cog.periodic_save.cancel.assert_called_once()
+    activity_cog.daily_report.cancel.assert_called_once()
+    activity_cog.monthly_report.cancel.assert_called_once()
+    activity_cog.update_current_activities.assert_called_once_with(final_save=True)
 
 
 # --- Тесты для команды /activity ---
+
 
 @pytest.mark.asyncio
 async def test_activity_command_success(activity_cog, mock_context, mock_data_manager):
@@ -594,7 +627,7 @@ async def test_activity_command_success(activity_cog, mock_context, mock_data_ma
     activity_cog.update_current_activities = AsyncMock()
 
     # Мокаем ActivityView
-    with patch('cogs.activity.ActivityView') as MockActivityView:
+    with patch("cogs.activity.ActivityView") as MockActivityView:
         mock_view_instance = MagicMock()
         mock_view_instance.get_current_content.return_value = "Test View Content"
         MockActivityView.return_value = mock_view_instance
@@ -605,18 +638,20 @@ async def test_activity_command_success(activity_cog, mock_context, mock_data_ma
         # Проверяем вызовы
         activity_cog.update_current_activities.assert_awaited_once()
         mock_data_manager.get_daily_stats.assert_awaited_once_with(date.today())
-        MockActivityView.assert_called_once_with(activity_cog.bot, test_data, ctx=mock_context, report_type="command")
+        MockActivityView.assert_called_once_with(
+            activity_cog.bot, test_data, ctx=mock_context, report_type="command"
+        )
         mock_context.send.assert_awaited_once_with(
-            content="Статистика активности за сегодня:\nTest View Content",
-            view=mock_view_instance
+            content="Статистика активности за сегодня:\nTest View Content", view=mock_view_instance
         )
         # Проверяем, что сообщение сохранено в view
         assert mock_view_instance.message is mock_context.send.return_value
 
+
 @pytest.mark.asyncio
 async def test_activity_command_no_data(activity_cog, mock_context, mock_data_manager):
     """Тестирует выполнение /activity при отсутствии данных."""
-    mock_data_manager.get_daily_stats.return_value = {} # Нет данных
+    mock_data_manager.get_daily_stats.return_value = {}  # Нет данных
     activity_cog.update_current_activities = AsyncMock()
 
     # Вызываем команду через .callback
@@ -624,15 +659,18 @@ async def test_activity_command_no_data(activity_cog, mock_context, mock_data_ma
 
     activity_cog.update_current_activities.assert_awaited_once()
     mock_data_manager.get_daily_stats.assert_awaited_once_with(date.today())
-    mock_context.send.assert_awaited_once_with("Сегодня пока никто не играл в игры 😢", ephemeral=True)
+    mock_context.send.assert_awaited_once_with(
+        "Сегодня пока никто не играл в игры 😢", ephemeral=True
+    )
+
 
 @pytest.mark.asyncio
 async def test_activity_command_test_mode(activity_cog, mock_context, mock_data_manager):
     """Тестирует выполнение /activity с test_mode=True."""
-    mock_data_manager.get_daily_stats.return_value = {} # Реальных данных нет
+    mock_data_manager.get_daily_stats.return_value = {}  # Реальных данных нет
     activity_cog.update_current_activities = AsyncMock()
 
-    with patch('cogs.activity.ActivityView') as MockActivityView:
+    with patch("cogs.activity.ActivityView") as MockActivityView:
         mock_view_instance = MagicMock()
         mock_view_instance.get_current_content.return_value = "Test View Content"
         MockActivityView.return_value = mock_view_instance
@@ -646,16 +684,17 @@ async def test_activity_command_test_mode(activity_cog, mock_context, mock_data_
         MockActivityView.assert_called_once()
         call_args = MockActivityView.call_args.args
         assert call_args[0] is activity_cog.bot
-        assert isinstance(call_args[1], dict) # Проверяем, что переданы данные
-        assert mock_context.author.id in call_args[1] # Проверяем наличие автора в тестовых данных
+        assert isinstance(call_args[1], dict)  # Проверяем, что переданы данные
+        assert mock_context.author.id in call_args[1]  # Проверяем наличие автора в тестовых данных
         # Проверяем ctx как keyword argument
-        assert MockActivityView.call_args.kwargs['ctx'] is mock_context
-        assert MockActivityView.call_args.kwargs['report_type'] == "command"
+        assert MockActivityView.call_args.kwargs["ctx"] is mock_context
+        assert MockActivityView.call_args.kwargs["report_type"] == "command"
 
         mock_context.send.assert_awaited_once_with(
             content="**[ТЕСТ]** Статистика активности за сегодня:\nTest View Content",
-            view=mock_view_instance
+            view=mock_view_instance,
         )
+
 
 @pytest.mark.asyncio
 async def test_activity_command_error(activity_cog, mock_context, mock_data_manager):
@@ -669,10 +708,13 @@ async def test_activity_command_error(activity_cog, mock_context, mock_data_mana
 
     activity_cog.update_current_activities.assert_awaited_once()
     mock_data_manager.get_daily_stats.assert_awaited_once_with(date.today())
-    mock_context.send.assert_awaited_once_with(f"Произошла ошибка при получении статистики: {error_message}", ephemeral=True)
+    mock_context.send.assert_awaited_once_with(
+        f"Произошла ошибка при получении статистики: {error_message}", ephemeral=True
+    )
 
 
 # --- Тесты для команды /mystats ---
+
 
 @pytest.mark.asyncio
 async def test_mystats_command_self_current_month(activity_cog, mock_context, mock_data_manager):
@@ -683,38 +725,46 @@ async def test_mystats_command_self_current_month(activity_cog, mock_context, mo
     current_month = today.month
 
     # Мокаем данные
-    monthly_db_data = {"Game A": 7200} # Данные из monthly_activity
-    daily_db_data = {user_id: {"Game B": 1800}} # Данные из daily_activity за сегодня
-    mock_data_manager.get_monthly_stats.return_value = monthly_db_data.copy() # Возвращаем копию
+    monthly_db_data = {"Game A": 7200}  # Данные из monthly_activity
+    daily_db_data = {user_id: {"Game B": 1800}}  # Данные из daily_activity за сегодня
+    mock_data_manager.get_monthly_stats.return_value = monthly_db_data.copy()  # Возвращаем копию
     mock_data_manager.get_daily_stats.return_value = daily_db_data
     activity_cog.update_current_activities = AsyncMock()
 
     # Мокаем StatsView
-    with patch('cogs.activity.StatsView') as MockStatsView:
+    with patch("cogs.activity.StatsView") as MockStatsView:
         mock_view_instance = MagicMock()
         mock_view_instance.get_current_embed.return_value = discord.Embed(title="Test Embed")
         MockStatsView.return_value = mock_view_instance
 
         # Вызываем команду через .callback
-        await activity_cog.mystats_command.callback(activity_cog, mock_context, user=None, month=None, year=None)
+        await activity_cog.mystats_command.callback(
+            activity_cog, mock_context, user=None, month=None, year=None
+        )
 
         # Проверяем вызовы
-        activity_cog.update_current_activities.assert_awaited_once() # Должен вызываться для текущего месяца
-        mock_data_manager.get_monthly_stats.assert_awaited_once_with(user_id, current_year, current_month)
+        # Должен вызываться для текущего месяца
+        activity_cog.update_current_activities.assert_awaited_once()
+        mock_data_manager.get_monthly_stats.assert_awaited_once_with(
+            user_id, current_year, current_month
+        )
         mock_data_manager.get_daily_stats.assert_awaited_once_with(today)
 
         # Проверяем, что StatsView был вызван с объединенными данными
         MockStatsView.assert_called_once()
         call_args = MockStatsView.call_args.args
-        expected_sorted_data = [("Game A", 7200), ("Game B", 1800)] # Game A > Game B
+        expected_sorted_data = [("Game A", 7200), ("Game B", 1800)]  # Game A > Game B
         assert call_args[1] == expected_sorted_data
         # Проверяем user как keyword argument
-        assert MockStatsView.call_args.kwargs['user'] is mock_context.author
-        assert "за текущий месяц" in call_args[0] # title
+        assert MockStatsView.call_args.kwargs["user"] is mock_context.author
+        assert "за текущий месяц" in call_args[0]  # title
 
         # Проверяем отправку embed
-        mock_context.send.assert_awaited_once_with(embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True)
+        mock_context.send.assert_awaited_once_with(
+            embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True
+        )
         assert mock_view_instance.message is mock_context.send.return_value
+
 
 @pytest.mark.asyncio
 async def test_mystats_command_other_user_past_month(activity_cog, mock_context, mock_data_manager):
@@ -726,7 +776,7 @@ async def test_mystats_command_other_user_past_month(activity_cog, mock_context,
     other_user.display_avatar.url = "http://avatar.url"
 
     target_year = 2024
-    target_month = 4 # Апрель
+    target_month = 4  # Апрель
 
     # Мокаем данные
     monthly_db_data = {"Game C": 5000, "Game D": 10000}
@@ -734,48 +784,60 @@ async def test_mystats_command_other_user_past_month(activity_cog, mock_context,
     activity_cog.update_current_activities = AsyncMock()
 
     # Мокаем StatsView
-    with patch('cogs.activity.StatsView') as MockStatsView:
+    with patch("cogs.activity.StatsView") as MockStatsView:
         mock_view_instance = MagicMock()
         mock_view_instance.get_current_embed.return_value = discord.Embed(title="Test Embed")
         MockStatsView.return_value = mock_view_instance
 
         # Вызываем команду через .callback
-        await activity_cog.mystats_command.callback(activity_cog, mock_context, user=other_user, month=target_month, year=target_year)
+        await activity_cog.mystats_command.callback(
+            activity_cog, mock_context, user=other_user, month=target_month, year=target_year
+        )
 
         # Проверяем вызовы
-        activity_cog.update_current_activities.assert_not_awaited() # Не должен вызываться для прошлого месяца
-        mock_data_manager.get_monthly_stats.assert_awaited_once_with(other_user.id, target_year, target_month)
-        mock_data_manager.get_daily_stats.assert_not_awaited() # Не должен вызываться для прошлого месяца
+        # Не должен вызываться для прошлого месяца
+        activity_cog.update_current_activities.assert_not_awaited()
+        mock_data_manager.get_monthly_stats.assert_awaited_once_with(
+            other_user.id, target_year, target_month
+        )
+        # Не должен вызываться для прошлого месяца
+        mock_data_manager.get_daily_stats.assert_not_awaited()
 
         # Проверяем, что StatsView был вызван с правильными данными
         MockStatsView.assert_called_once()
         call_args = MockStatsView.call_args.args
-        expected_sorted_data = [("Game D", 10000), ("Game C", 5000)] # Game D > Game C
+        expected_sorted_data = [("Game D", 10000), ("Game C", 5000)]  # Game D > Game C
         assert call_args[1] == expected_sorted_data
         # Проверяем user как keyword argument
-        assert MockStatsView.call_args.kwargs['user'] is other_user
-        assert f"за Апрель {target_year}" in call_args[0] # title
+        assert MockStatsView.call_args.kwargs["user"] is other_user
+        assert f"за Апрель {target_year}" in call_args[0]  # title
 
         # Проверяем отправку embed
-        mock_context.send.assert_awaited_once_with(embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True)
+        mock_context.send.assert_awaited_once_with(
+            embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True
+        )
+
 
 @pytest.mark.asyncio
 async def test_mystats_command_no_data(activity_cog, mock_context, mock_data_manager):
     """Тестирует /mystats при отсутствии данных."""
     mock_data_manager.get_monthly_stats.return_value = {}
-    mock_data_manager.get_daily_stats.return_value = {} # На случай текущего месяца
+    mock_data_manager.get_daily_stats.return_value = {}  # На случай текущего месяца
     activity_cog.update_current_activities = AsyncMock()
 
     # Вызываем команду через .callback
-    await activity_cog.mystats_command.callback(activity_cog, mock_context, user=None, month=None, year=None)
+    await activity_cog.mystats_command.callback(
+        activity_cog, mock_context, user=None, month=None, year=None
+    )
 
     # Проверяем, что был отправлен embed об отсутствии данных
     mock_context.send.assert_awaited_once()
     call_args = mock_context.send.call_args.kwargs
-    assert 'embed' in call_args
-    embed = call_args['embed']
+    assert "embed" in call_args
+    embed = call_args["embed"]
     assert "Нет данных об активности за текущий месяц" in embed.description
-    assert call_args['ephemeral'] is True
+    assert call_args["ephemeral"] is True
+
 
 @pytest.mark.asyncio
 async def test_mystats_command_shows_current_session(activity_cog, mock_context, mock_data_manager):
@@ -790,28 +852,34 @@ async def test_mystats_command_shows_current_session(activity_cog, mock_context,
     mock_data_manager.get_daily_stats.return_value = {}
     activity_cog.update_current_activities = AsyncMock()
 
-    with patch('cogs.activity.StatsView'): # Мокаем View, чтобы не мешал
+    with patch("cogs.activity.StatsView"):  # Мокаем View, чтобы не мешал
         # Вызываем команду через .callback
-        await activity_cog.mystats_command.callback(activity_cog, mock_context, user=None, month=None, year=None)
+        await activity_cog.mystats_command.callback(
+            activity_cog, mock_context, user=None, month=None, year=None
+        )
 
         # Проверяем, что было отправлено второе сообщение о текущей сессии
         assert mock_context.send.call_count == 2
         # Второй вызов должен содержать информацию о текущей сессии
         second_call_args = mock_context.send.call_args_list[1].kwargs
-        assert 'ephemeral' in second_call_args and second_call_args['ephemeral'] is True
+        assert "ephemeral" in second_call_args and second_call_args["ephemeral"] is True
         second_call_content = mock_context.send.call_args_list[1].args[0]
         assert f"сейчас играет в **{current_game}**" in second_call_content
-        assert "(текущая сессия: 30m)" in second_call_content # Проверяем форматирование времени
+        assert "(текущая сессия: 30m)" in second_call_content  # Проверяем форматирование времени
+
 
 @pytest.mark.asyncio
 async def test_mystats_command_invalid_month(activity_cog, mock_context):
     """Тестирует /mystats с неверным номером месяца."""
     # Вызываем команду через .callback
     await activity_cog.mystats_command.callback(activity_cog, mock_context, month=13, year=2024)
-    mock_context.send.assert_awaited_once_with("Неверный номер месяца. Укажите число от 1 до 12.", ephemeral=True)
+    mock_context.send.assert_awaited_once_with(
+        "Неверный номер месяца. Укажите число от 1 до 12.", ephemeral=True
+    )
 
 
 # --- Тесты для команды /mystatsall ---
+
 
 @pytest.mark.asyncio
 async def test_mystatsall_command_self(activity_cog, mock_context, mock_data_manager):
@@ -823,7 +891,7 @@ async def test_mystatsall_command_self(activity_cog, mock_context, mock_data_man
     activity_cog.update_current_activities = AsyncMock()
 
     # Мокаем StatsView
-    with patch('cogs.activity.StatsView') as MockStatsView:
+    with patch("cogs.activity.StatsView") as MockStatsView:
         mock_view_instance = MagicMock()
         mock_view_instance.get_current_embed.return_value = discord.Embed(title="Test Embed")
         MockStatsView.return_value = mock_view_instance
@@ -841,12 +909,15 @@ async def test_mystatsall_command_self(activity_cog, mock_context, mock_data_man
         expected_sorted_data = [("Game X", 100000), ("Game Y", 50000)]
         assert call_args[1] == expected_sorted_data
         # Проверяем user как keyword argument
-        assert MockStatsView.call_args.kwargs['user'] is mock_context.author
-        assert "за всё время" in call_args[0] # title
+        assert MockStatsView.call_args.kwargs["user"] is mock_context.author
+        assert "за всё время" in call_args[0]  # title
 
         # Проверяем отправку embed
-        mock_context.send.assert_awaited_once_with(embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True)
+        mock_context.send.assert_awaited_once_with(
+            embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True
+        )
         assert mock_view_instance.message is mock_context.send.return_value
+
 
 @pytest.mark.asyncio
 async def test_mystatsall_command_other_user(activity_cog, mock_context, mock_data_manager):
@@ -863,7 +934,7 @@ async def test_mystatsall_command_other_user(activity_cog, mock_context, mock_da
     activity_cog.update_current_activities = AsyncMock()
 
     # Мокаем StatsView
-    with patch('cogs.activity.StatsView') as MockStatsView:
+    with patch("cogs.activity.StatsView") as MockStatsView:
         mock_view_instance = MagicMock()
         mock_view_instance.get_current_embed.return_value = discord.Embed(title="Test Embed")
         MockStatsView.return_value = mock_view_instance
@@ -881,12 +952,15 @@ async def test_mystatsall_command_other_user(activity_cog, mock_context, mock_da
         expected_sorted_data = [("Game Z", 123456)]
         assert call_args[1] == expected_sorted_data
         # Проверяем user как keyword argument
-        assert MockStatsView.call_args.kwargs['user'] is other_user
-        assert "за всё время" in call_args[0] # title
+        assert MockStatsView.call_args.kwargs["user"] is other_user
+        assert "за всё время" in call_args[0]  # title
         assert other_user.display_name in call_args[0]
 
         # Проверяем отправку embed
-        mock_context.send.assert_awaited_once_with(embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True)
+        mock_context.send.assert_awaited_once_with(
+            embed=mock_view_instance.get_current_embed(), view=mock_view_instance, ephemeral=True
+        )
+
 
 @pytest.mark.asyncio
 async def test_mystatsall_command_no_data(activity_cog, mock_context, mock_data_manager):
@@ -904,13 +978,14 @@ async def test_mystatsall_command_no_data(activity_cog, mock_context, mock_data_
     # Проверяем, что был отправлен embed об отсутствии данных
     mock_context.send.assert_awaited_once()
     call_args = mock_context.send.call_args.kwargs
-    assert 'embed' in call_args
-    embed = call_args['embed']
+    assert "embed" in call_args
+    embed = call_args["embed"]
     assert "Нет данных об активности за всё время" in embed.description
-    assert call_args['ephemeral'] is True
+    assert call_args["ephemeral"] is True
 
 
 # --- Тесты для команды /report_daily ---
+
 
 @pytest.mark.asyncio
 async def test_report_daily_command_success(activity_cog, mock_context):
@@ -919,11 +994,13 @@ async def test_report_daily_command_success(activity_cog, mock_context):
     year, month, day = target_date.year, target_date.month, target_date.day
 
     # Мокаем send_daily_report
-    with patch('cogs.activity.send_daily_report', new_callable=AsyncMock) as mock_send_daily:
-        mock_send_daily.return_value = True # Имитируем успешную отправку
+    with patch("cogs.activity.send_daily_report", new_callable=AsyncMock) as mock_send_daily:
+        mock_send_daily.return_value = True  # Имитируем успешную отправку
 
         # Вызываем команду через .callback
-        await activity_cog.report_daily_command.callback(activity_cog, mock_context, year=year, month=month, day=day)
+        await activity_cog.report_daily_command.callback(
+            activity_cog, mock_context, year=year, month=month, day=day
+        )
 
         # Проверяем вызов defer
         mock_context.defer.assert_awaited_once_with(ephemeral=True)
@@ -934,13 +1011,17 @@ async def test_report_daily_command_success(activity_cog, mock_context):
         assert call_args[1] is activity_cog.bot
         assert call_args[2] is activity_cog.data_manager
         # Проверяем channel как keyword argument
-        assert mock_send_daily.call_args.kwargs['channel'] is mock_context.channel
+        assert mock_send_daily.call_args.kwargs["channel"] is mock_context.channel
 
         # Проверяем ответ пользователю (используем followup, так как был defer)
         mock_context.followup.send.assert_awaited_once_with(
-            f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} успешно отправлен (или данных не было).",
-            ephemeral=True
+            (
+                f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} "
+                f"успешно отправлен (или данных не было)."
+            ),
+            ephemeral=True,
         )
+
 
 @pytest.mark.asyncio
 async def test_report_daily_command_future_date(activity_cog, mock_context):
@@ -949,34 +1030,46 @@ async def test_report_daily_command_future_date(activity_cog, mock_context):
     year, month, day = future_date.year, future_date.month, future_date.day
 
     # Вызываем команду через .callback
-    await activity_cog.report_daily_command.callback(activity_cog, mock_context, year=year, month=month, day=day)
+    await activity_cog.report_daily_command.callback(
+        activity_cog, mock_context, year=year, month=month, day=day
+    )
 
-    mock_context.send.assert_awaited_once_with("Нельзя генерировать отчет за сегодня или будущую дату.", ephemeral=True)
-    mock_context.defer.assert_not_awaited() # defer не должен вызываться
+    mock_context.send.assert_awaited_once_with(
+        "Нельзя генерировать отчет за сегодня или будущую дату.", ephemeral=True
+    )
+    mock_context.defer.assert_not_awaited()  # defer не должен вызываться
+
 
 @pytest.mark.asyncio
 async def test_report_daily_command_invalid_date(activity_cog, mock_context):
     """Тестирует запуск /report_daily с некорректной датой."""
     # Вызываем команду через .callback
-    await activity_cog.report_daily_command.callback(activity_cog, mock_context, year=2024, month=13, day=1) # Неверный месяц
-    mock_context.send.assert_awaited_once_with("Некорректная дата. Проверьте год, месяц и день.", ephemeral=True)
+    await activity_cog.report_daily_command.callback(
+        activity_cog, mock_context, year=2024, month=13, day=1
+    )  # Неверный месяц
+    mock_context.send.assert_awaited_once_with(
+        "Некорректная дата. Проверьте год, месяц и день.", ephemeral=True
+    )
     mock_context.defer.assert_not_awaited()
 
 
 # --- Тесты для команды /report_monthly ---
 
+
 @pytest.mark.asyncio
 async def test_report_monthly_command_success(activity_cog, mock_context):
     """Тестирует успешный запуск /report_monthly."""
     target_year = 2024
-    target_month = 4 # Апрель
+    target_month = 4  # Апрель
 
     # Мокаем send_monthly_report
-    with patch('cogs.activity.send_monthly_report', new_callable=AsyncMock) as mock_send_monthly:
-        mock_send_monthly.return_value = True # Имитируем успешную отправку
+    with patch("cogs.activity.send_monthly_report", new_callable=AsyncMock) as mock_send_monthly:
+        mock_send_monthly.return_value = True  # Имитируем успешную отправку
 
         # Вызываем команду через .callback
-        await activity_cog.report_monthly_command.callback(activity_cog, mock_context, year=target_year, month=target_month)
+        await activity_cog.report_monthly_command.callback(
+            activity_cog, mock_context, year=target_year, month=target_month
+        )
 
         # Проверяем вызов defer
         mock_context.defer.assert_awaited_once_with(ephemeral=True)
@@ -988,14 +1081,18 @@ async def test_report_monthly_command_success(activity_cog, mock_context):
         assert call_args[2] is activity_cog.bot
         assert call_args[3] is activity_cog.data_manager
         # Проверяем channel как keyword argument
-        assert mock_send_monthly.call_args.kwargs['channel'] is mock_context.channel
+        assert mock_send_monthly.call_args.kwargs["channel"] is mock_context.channel
 
         # Проверяем ответ пользователю (используем followup)
         month_name = "Апрель"
         mock_context.followup.send.assert_awaited_once_with(
-            f"Ежемесячный отчет за {month_name} {target_year} успешно отправлен (или данных не было).",
-            ephemeral=True
+            (
+                f"Ежемесячный отчет за {month_name} {target_year} "
+                f"успешно отправлен (или данных не было)."
+            ),
+            ephemeral=True,
         )
+
 
 @pytest.mark.asyncio
 async def test_report_monthly_command_current_month(activity_cog, mock_context):
@@ -1004,28 +1101,41 @@ async def test_report_monthly_command_current_month(activity_cog, mock_context):
     year, month = today.year, today.month
 
     # Вызываем команду через .callback
-    await activity_cog.report_monthly_command.callback(activity_cog, mock_context, year=year, month=month)
+    await activity_cog.report_monthly_command.callback(
+        activity_cog, mock_context, year=year, month=month
+    )
 
-    mock_context.send.assert_awaited_once_with("Нельзя генерировать месячный отчет за текущий или будущий месяц.", ephemeral=True)
+    mock_context.send.assert_awaited_once_with(
+        "Нельзя генерировать месячный отчет за текущий или будущий месяц.", ephemeral=True
+    )
     mock_context.defer.assert_not_awaited()
+
 
 @pytest.mark.asyncio
 async def test_report_monthly_command_invalid_month(activity_cog, mock_context):
     """Тестирует запуск /report_monthly с некорректным месяцем."""
     # Вызываем команду через .callback
-    await activity_cog.report_monthly_command.callback(activity_cog, mock_context, year=2024, month=0) # Неверный месяц
-    mock_context.send.assert_awaited_once_with("Неверный номер месяца. Укажите число от 1 до 12.", ephemeral=True)
+    await activity_cog.report_monthly_command.callback(
+        activity_cog, mock_context, year=2024, month=0
+    )  # Неверный месяц
+    mock_context.send.assert_awaited_once_with(
+        "Неверный номер месяца. Укажите число от 1 до 12.", ephemeral=True
+    )
     mock_context.defer.assert_not_awaited()
 
 
 # --- Тесты для cog_command_error ---
+
 
 @pytest.mark.asyncio
 async def test_cog_command_error_missing_permissions(activity_cog, mock_context):
     """Тестирует обработку MissingPermissions."""
     error = commands.MissingPermissions(["administrator"])
     await activity_cog.cog_command_error(mock_context, error)
-    mock_context.send.assert_awaited_once_with("У вас недостаточно прав для использования этой команды.", ephemeral=True)
+    mock_context.send.assert_awaited_once_with(
+        "У вас недостаточно прав для использования этой команды.", ephemeral=True
+    )
+
 
 @pytest.mark.asyncio
 async def test_cog_command_error_user_input_error(activity_cog, mock_context):
@@ -1034,23 +1144,32 @@ async def test_cog_command_error_user_input_error(activity_cog, mock_context):
     await activity_cog.cog_command_error(mock_context, error)
     mock_context.send.assert_awaited_once_with(f"Ошибка ввода: {error}", ephemeral=True)
 
+
 @pytest.mark.asyncio
 async def test_cog_command_error_user_not_found(activity_cog, mock_context):
     """Тестирует обработку UserNotFound."""
     error = commands.UserNotFound("Пользователь 'NonExistentUser' не найден.")
     await activity_cog.cog_command_error(mock_context, error)
     # Исправляем ожидаемое сообщение на то, которое отправляется при UserNotFound
-    mock_context.send.assert_awaited_once_with("Не удалось найти указанного пользователя. Проверьте правильность имени или ID.", ephemeral=True)
+    mock_context.send.assert_awaited_once_with(
+        "Не удалось найти указанного пользователя. Проверьте правильность имени или ID.",
+        ephemeral=True,
+    )
+
 
 @pytest.mark.asyncio
 async def test_cog_command_error_app_command_error(activity_cog, mock_context):
     """Тестирует обработку AppCommandError."""
     # Используем базовый AppCommandError для примера
-    error = app_commands.AppCommandError("Ошибка взаимодействия.") # app_commands теперь импортирован
+    error = app_commands.AppCommandError(
+        "Ошибка взаимодействия."
+    )  # app_commands теперь импортирован
     # Мокаем interaction для проверки is_done
     mock_context.interaction.response.is_done.return_value = False
+    mock_context.command = None  # Явно указываем, что команда может отсутствовать
     await activity_cog.cog_command_error(mock_context, error)
     mock_context.send.assert_awaited_once_with(f"Произошла ошибка команды: {error}", ephemeral=True)
+
 
 @pytest.mark.asyncio
 async def test_cog_command_error_generic_exception(activity_cog, mock_context):
@@ -1063,7 +1182,10 @@ async def test_cog_command_error_generic_exception(activity_cog, mock_context):
     mock_context.command.name = "test_command"
 
     await activity_cog.cog_command_error(mock_context, error)
-    mock_context.send.assert_awaited_once_with("Произошла непредвиденная ошибка при выполнении команды.", ephemeral=True)
+    mock_context.send.assert_awaited_once_with(
+        "Произошла критическая непредвиденная ошибка при выполнении команды.", ephemeral=True
+    )
+
 
 @pytest.mark.asyncio
 async def test_cog_command_error_generic_exception_after_defer(activity_cog, mock_context):
@@ -1075,6 +1197,8 @@ async def test_cog_command_error_generic_exception_after_defer(activity_cog, moc
     mock_context.command.name = "test_command_deferred"
 
     await activity_cog.cog_command_error(mock_context, error)
-    # Должен использоваться followup.send
-    mock_context.followup.send.assert_awaited_once_with("Произошла непредвиденная ошибка при выполнении команды.", ephemeral=True)
-    mock_context.send.assert_not_awaited() # send не должен вызываться
+    # Должен использоваться followup.send, который теперь является AsyncMock через interaction_mock
+    mock_context.interaction.followup.send.assert_awaited_once_with(
+        "Произошла критическая непредвиденная ошибка при выполнении команды.", ephemeral=True
+    )
+    mock_context.send.assert_not_awaited()  # send не должен вызываться

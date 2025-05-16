@@ -1,28 +1,38 @@
-"""Модуль, содержащий классы View для интерактивного отображения статистики активности."""
-import discord
-from discord import ui, ButtonStyle, Interaction
-from discord.ext import commands
-from datetime import datetime
+"""Модуль, содержащий классы View для интерактивного отображения статистики активности.
+
+Предоставляет интерактивные представления (View) для отображения статистики
+игровой активности пользователей с возможностью переключения между режимами
+отображения и пагинацией.
+"""
+
 from collections import defaultdict
-from typing import Dict, Optional, Any, List, Tuple # Union не используется
+from datetime import datetime
+from typing import Dict, List, Optional, Tuple  # Union не используется
+
+import discord
+from discord import ButtonStyle, Interaction, ui
+from discord.ext import commands
 
 # Импортируем хелперы форматирования времени
 from .helpers import format_time_short
 
-# TODO: Рассмотреть возможность передачи format_time_short через __init__
-#       вместо прямого импорта, если потребуется большая гибкость или тестирование.
 
 class ActivityView(ui.View):
-    """
-    Интерактивное представление (View) для отображения статистики игровой активности.
+    """Интерактивное представление (View) для отображения статистики игровой активности.
 
     Позволяет переключаться между режимами "по пользователям" и "по играм",
     а также листать страницы с помощью кнопок.
     """
 
-    def __init__(self, bot: discord.Client, data: Dict[int, Dict[str, int]], ctx: Optional[commands.Context] = None, report_type: str = "daily", date_str: str = ""):
-        """
-        Инициализирует представление статистики активности.
+    def __init__(
+        self,
+        bot: discord.Client,
+        data: Dict[int, Dict[str, int]],
+        ctx: Optional[commands.Context] = None,
+        report_type: str = "daily",
+        date_str: str = "",
+    ):
+        """Инициализирует представление статистики активности.
 
         Args:
             bot: Экземпляр бота Discord (для доступа к гильдиям/участникам).
@@ -40,7 +50,7 @@ class ActivityView(ui.View):
         self.current_page = 0
         self.view_mode = "users"  # "users" или "games"
         self.max_items_per_page = 20
-        self.message: Optional[discord.Message] = None # Для редактирования при таймауте
+        self.message: Optional[discord.Message] = None  # Для редактирования при таймауте
 
         # Подготавливаем данные для отображения
         self.prepare_data()
@@ -50,14 +60,14 @@ class ActivityView(ui.View):
         self._update_buttons()
 
     def _get_guild(self) -> Optional[discord.Guild]:
-        """
-        Получает объект гильдии (сервера).
+        """Получает объект гильдии (сервера).
 
         Сначала пытается получить гильдию из контекста команды (self.ctx).
         Если контекст отсутствует или в нем нет гильдии (например, для автоматических отчетов,
         вызываемых не из команды), пытается вернуть первую гильдию из кеша бота.
         Это упрощение для ботов, работающих преимущественно на одном сервере.
-        Для многосерверных ботов может потребоваться более сложная логика определения целевой гильдии.
+        Для многосерверных ботов может потребоваться более сложная логика определения
+        целевой гильдии.
 
         Returns:
             Объект discord.Guild или None, если гильдию определить не удалось.
@@ -70,10 +80,10 @@ class ActivityView(ui.View):
             return self.bot.guilds[0]
         return None
 
-    def prepare_data(self):
-        """
-        Подготавливает и сортирует данные для отображения в режимах "по пользователям" и "по играм".
+    def prepare_data(self) -> None:
+        """Подготавливает и сортирует данные для отображения.
 
+        Режимы: "по пользователям" и "по играм".
         Фильтрует игры с нулевым временем. Рассчитывает максимальное количество страниц.
         """
         # Отображение по пользователям
@@ -87,13 +97,17 @@ class ActivityView(ui.View):
         # Создаем список ID пользователей, отсортированный по имени
         guild = self._get_guild()
         if not guild:
-             # Если гильдию получить не удалось, сортируем просто по ID
-             self.user_ids = sorted(self.users_data.keys())
+            # Если гильдию получить не удалось, сортируем просто по ID
+            self.user_ids = sorted(self.users_data.keys())
         else:
+
             def get_username(user_id: int) -> str:
                 member = guild.get_member(user_id)
                 # Используем имя пользователя или ID, если участник не найден
-                return member.name.lower() if member and member.name else f"user_{user_id}"
+                if member and hasattr(member, "name") and member.name:
+                    return str(member.name.lower())
+                return f"user_{user_id}"
+
             # Сортируем пользователей по алфавиту
             self.user_ids = sorted(self.users_data.keys(), key=get_username)
 
@@ -108,31 +122,31 @@ class ActivityView(ui.View):
         self.games_list = sorted(
             self.games_data.keys(),
             key=lambda g: (len(self.games_data[g]), sum(self.games_data[g].values())),
-            reverse=True
+            reverse=True,
         )
 
         # Считаем общее количество страниц для текущего режима
         self._recalculate_max_pages()
 
-    def _recalculate_max_pages(self):
+    def _recalculate_max_pages(self) -> None:
         """Пересчитывает максимальное количество страниц в зависимости от режима."""
         if self.view_mode == "users":
             count = len(self.user_ids)
-        else: # view_mode == "games"
+        else:  # view_mode == "games"
             count = len(self.games_list)
         self.max_pages = max(1, (count + self.max_items_per_page - 1) // self.max_items_per_page)
         # Сбрасываем на первую страницу при смене режима или если текущая страница стала невалидной
         if self.current_page >= self.max_pages:
             self.current_page = 0
 
-    def _update_buttons(self):
+    def _update_buttons(self) -> None:
         """Обновляет состояние кнопок (включены/выключены, текст)."""
         for item in self.children:
             if not isinstance(item, ui.Button):
                 continue
             # Кнопка переключения режима
             if item.custom_id == "toggle_mode_button":
-                 item.label = "По играм" if self.view_mode == "users" else "По пользователям"
+                item.label = "По играм" if self.view_mode == "users" else "По пользователям"
             # Кнопки навигации
             elif item.custom_id == "prev_button":
                 item.disabled = self.current_page == 0
@@ -140,18 +154,17 @@ class ActivityView(ui.View):
                 item.disabled = self.current_page >= self.max_pages - 1
 
     def get_current_content(self) -> str:
-        """
-        Формирует текстовое содержимое для текущей страницы и режима отображения.
+        """Формирует текстовое содержимое для текущей страницы и режима отображения.
 
         Returns:
             Строка с отформатированным отчетом для отправки в Discord.
         """
-        report_title = 'Ежедневный отчет' if self.report_type == 'daily' else 'Статистика'
+        report_title = "Ежедневный отчет" if self.report_type == "daily" else "Статистика"
         header = f"# 📊 {report_title} игровой активности{self.date_str}\n\n"
 
         if self.view_mode == "users":
             content = self._get_users_content()
-        else: # view_mode == "games"
+        else:  # view_mode == "games"
             content = self._get_games_content()
 
         # Добавляем общую статистику и номер страницы
@@ -177,9 +190,7 @@ class ActivityView(ui.View):
 
             # Сортируем игры пользователя по времени
             activities = sorted(
-                self.users_data[user_id].items(),
-                key=lambda item: item[1],
-                reverse=True
+                self.users_data[user_id].items(), key=lambda item: item[1], reverse=True
             )
             # Формируем строку игр
             games_list = [
@@ -211,20 +222,25 @@ class ActivityView(ui.View):
                 continue
 
             # Формируем информацию об игроках
-            players_info = f"{players_count} {'игрока' if 2 <= players_count <= 4 else 'игроков'}" if players_count > 1 else "1 игрок"
+            players_info = (
+                f"{players_count} {'игрока' if 2 <= players_count <= 4 else 'игроков'}"
+                if players_count > 1
+                else "1 игрок"
+            )
             content += f"**{game_name}**: {players_info} ⏱️ {format_time_short(total_time)}\n"
 
         return content
 
     def _get_summary(self) -> str:
-        """
-        Формирует строку с общей статистикой (всего игроков, игр, времени, топ игра).
+        """Формирует строку с общей статистикой (всего игроков, игр, времени, топ игра).
 
         Returns:
             Строка с общей статистикой.
         """
         total_users = len(self.users_data)
-        total_games = len(self.games_data) # Используем games_data, т.к. там только игры с >0 временем
+        total_games = len(
+            self.games_data
+        )  # Используем games_data, т.к. там только игры с >0 временем
 
         most_popular_game: Optional[str] = None
         max_players = 0
@@ -235,22 +251,28 @@ class ActivityView(ui.View):
                 most_popular_game = game
 
         # Считаем общее время
-        total_time = sum(sum(user_activities.values()) for user_activities in self.users_data.values())
+        total_time = sum(
+            sum(user_activities.values()) for user_activities in self.users_data.values()
+        )
 
         # Формируем строку
-        summary = f"## 📊 Общая статистика\n"
+        summary = "## 📊 Общая статистика\n"
         summary += f"Всего игроков: {total_users} | "
         summary += f"Уникальных игр: {total_games} | "
-        summary += f"Общее время: {format_time_short(total_time)}" # Используем краткий формат
+        summary += f"Общее время: {format_time_short(total_time)}"  # Используем краткий формат
         if most_popular_game:
-            players_str = f"{max_players} {'игрока' if 2 <= max_players <= 4 else 'игроков'}" if max_players > 1 else "1 игрок"
+            players_str = (
+                f"{max_players} {'игрока' if 2 <= max_players <= 4 else 'игроков'}"
+                if max_players > 1
+                else "1 игрок"
+            )
             summary += f"\nСамая популярная игра: **{most_popular_game}** ({players_str})"
         return summary
 
     # --- Кнопки ---
 
     @ui.button(label="⬅️ Назад", style=ButtonStyle.gray, custom_id="prev_button")
-    async def previous_button(self, interaction: Interaction, button: ui.Button):
+    async def previous_button(self, interaction: Interaction, button: ui.Button) -> None:
         """Переключает на предыдущую страницу."""
         if self.current_page > 0:
             self.current_page -= 1
@@ -261,16 +283,16 @@ class ActivityView(ui.View):
             await interaction.response.defer()
 
     @ui.button(label="По играм", style=ButtonStyle.blurple, custom_id="toggle_mode_button")
-    async def toggle_mode(self, interaction: Interaction, button: ui.Button):
+    async def toggle_mode(self, interaction: Interaction, button: ui.Button) -> None:
         """Переключает режим отображения (пользователи/игры)."""
         self.view_mode = "games" if self.view_mode == "users" else "users"
-        self.current_page = 0 # Сбрасываем на первую страницу
-        self._recalculate_max_pages() # Пересчитываем кол-во страниц для нового режима
-        self._update_buttons() # Обновляем текст кнопки и состояние кнопок навигации
+        self.current_page = 0  # Сбрасываем на первую страницу
+        self._recalculate_max_pages()  # Пересчитываем кол-во страниц для нового режима
+        self._update_buttons()  # Обновляем текст кнопки и состояние кнопок навигации
         await interaction.response.edit_message(content=self.get_current_content(), view=self)
 
     @ui.button(label="Вперед ➡️", style=ButtonStyle.gray, custom_id="next_button")
-    async def next_button(self, interaction: Interaction, button: ui.Button):
+    async def next_button(self, interaction: Interaction, button: ui.Button) -> None:
         """Переключает на следующую страницу."""
         if self.current_page < self.max_pages - 1:
             self.current_page += 1
@@ -280,7 +302,7 @@ class ActivityView(ui.View):
             # Если уже на последней странице, ничего не делаем (кнопка должна быть disabled)
             await interaction.response.defer()
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Отключает кнопки при истечении времени ожидания."""
         for item in self.children:
             if isinstance(item, (ui.Button, ui.Select)):
@@ -293,18 +315,25 @@ class ActivityView(ui.View):
                 # Игнорируем ошибки, если сообщение было удалено или недоступно
                 pass
 
+
 # --- Представление для /mystats и /mystatsall ---
 
-class StatsView(ui.View):
-    """
-    Интерактивное представление (View) для пагинации статистики игр пользователя
-    (используется командами /mystats и /mystatsall).
 
+class StatsView(ui.View):
+    """Интерактивное представление (View) для пагинации статистики игр пользователя.
+
+    Используется командами /mystats и /mystatsall.
     Отображает статистику в виде эмбеда и позволяет листать страницы.
     """
-    def __init__(self, title: str, games_data: List[Tuple[str, int]], user: Optional[discord.Member] = None, items_per_page: int = 5):
-        """
-        Инициализирует представление статистики пользователя.
+
+    def __init__(
+        self,
+        title: str,
+        games_data: List[Tuple[str, int]],
+        user: Optional[discord.User | discord.Member] = None,
+        items_per_page: int = 5,
+    ):
+        """Инициализирует представление статистики пользователя.
 
         Args:
             title: Заголовок для эмбеда.
@@ -312,19 +341,21 @@ class StatsView(ui.View):
             user: Объект пользователя Discord (для аватарки).
             items_per_page: Количество игр на одной странице эмбеда.
         """
-        super().__init__(timeout=86400) # 24 часа таймаут
+        super().__init__(timeout=86400)  # 24 часа таймаут
         self.title = title
-        self.games_data = games_data # Список [(game, seconds)]
+        self.games_data = games_data  # Список [(game, seconds)]
         self.user = user
         self.items_per_page = items_per_page
         self.current_page = 0
-        self.max_pages = max(1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page)
-        self.message: Optional[discord.Message] = None # Для редактирования при таймауте
+        self.max_pages = max(
+            1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page
+        )
+        self.message: Optional[discord.Message] = None  # Для редактирования при таймауте
 
         # Обновляем состояние кнопок при инициализации
         self._update_buttons()
 
-    def _update_buttons(self):
+    def _update_buttons(self) -> None:
         """Обновляет состояние кнопок навигации."""
         for item in self.children:
             if not isinstance(item, ui.Button):
@@ -335,8 +366,7 @@ class StatsView(ui.View):
                 item.disabled = self.current_page >= self.max_pages - 1
 
     def get_current_embed(self) -> discord.Embed:
-        """
-        Формирует эмбед для текущей страницы статистики.
+        """Формирует эмбед для текущей страницы статистики.
 
         Returns:
             Объект discord.Embed для отправки.
@@ -344,7 +374,7 @@ class StatsView(ui.View):
         embed = discord.Embed(
             title=self.title,
             color=discord.Color.blue(),
-            timestamp=datetime.now() # Время генерации эмбеда
+            timestamp=datetime.now(),  # Время генерации эмбеда
         )
         if self.user:
             embed.set_thumbnail(url=self.user.display_avatar.url)
@@ -360,7 +390,7 @@ class StatsView(ui.View):
             description = "*Нет данных для отображения на этой странице.*"
         else:
             for i, (game_name, time_spent) in enumerate(current_games, start=start_idx + 1):
-                formatted_time = format_time_short(time_spent) # Используем хелпер
+                formatted_time = format_time_short(time_spent)  # Используем хелпер
                 description += f"{i}. {game_name} - {formatted_time}\n"
 
         embed.description = description
@@ -369,13 +399,16 @@ class StatsView(ui.View):
         total_time = sum(game[1] for game in self.games_data)
         embed.add_field(
             name="📊 Общее игровое время",
-            value=f"{format_time_short(total_time)}", # Используем хелпер
-            inline=False
+            value=f"{format_time_short(total_time)}",  # Используем хелпер
+            inline=False,
         )
 
         # Устанавливаем футер с информацией о страницах
         if self.max_pages > 1:
-            footer_text = f"Всего игр: {len(self.games_data)} • Страница {self.current_page + 1}/{self.max_pages}"
+            footer_text = (
+                f"Всего игр: {len(self.games_data)} • "
+                f"Страница {self.current_page + 1}/{self.max_pages}"
+            )
         else:
             footer_text = f"Всего игр: {len(self.games_data)}"
         embed.set_footer(text=footer_text)
@@ -385,7 +418,7 @@ class StatsView(ui.View):
     # --- Кнопки ---
 
     @ui.button(label="⬅️ Назад", style=ButtonStyle.gray, custom_id="prev_button_stats")
-    async def previous_button(self, interaction: Interaction, button: ui.Button):
+    async def previous_button(self, interaction: Interaction, button: ui.Button) -> None:
         """Переключает на предыдущую страницу эмбеда."""
         if self.current_page > 0:
             self.current_page -= 1
@@ -395,7 +428,7 @@ class StatsView(ui.View):
             await interaction.response.defer()
 
     @ui.button(label="Вперед ➡️", style=ButtonStyle.gray, custom_id="next_button_stats")
-    async def next_button(self, interaction: Interaction, button: ui.Button):
+    async def next_button(self, interaction: Interaction, button: ui.Button) -> None:
         """Переключает на следующую страницу эмбеда."""
         if self.current_page < self.max_pages - 1:
             self.current_page += 1
@@ -404,7 +437,7 @@ class StatsView(ui.View):
         else:
             await interaction.response.defer()
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Отключает кнопки при истечении времени ожидания."""
         for item in self.children:
             if isinstance(item, (ui.Button, ui.Select)):
@@ -413,4 +446,4 @@ class StatsView(ui.View):
             try:
                 await self.message.edit(view=self)
             except discord.HTTPException:
-                pass # Игнорируем ошибки, если сообщение недоступно
+                pass  # Игнорируем ошибки, если сообщение недоступно

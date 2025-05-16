@@ -1,27 +1,49 @@
-"""Модуль для генерации и отправки отчетов об игровой активности пользователей."""
-import discord
+"""Модуль для генерации и отправки отчетов об игровой активности пользователей.
+
+Содержит функции для формирования и отправки ежедневных и ежемесячных отчетов
+об игровой активности пользователей в указанный канал Discord.
+"""
+
 import asyncio
 import logging
-import pytz
-from datetime import date, timedelta, datetime
-from collections import defaultdict # Используется в _get_monthly_summary_text
-from typing import Dict, Any, Optional
+from collections import defaultdict  # Используется в _get_monthly_summary_text
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
+if TYPE_CHECKING:
+    from cogs.activity import ActivityTracker
+
+import discord
+import pytz  # type: ignore
 
 from utils.activity_data_manager import ActivityDataManager
-from .views import ActivityView
-from .helpers import format_time_short
 
-logger = logging.getLogger("bot.activity.reports")
+from .helpers import format_time_short
+from .views import ActivityView
+
+logger = logging.getLogger("bot.utils.activity")
 
 # Словарь для названий месяцев
 MONTH_NAMES_RU = {
-    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель", 5: "Май", 6: "Июнь",
-    7: "Июль", 8: "Август", 9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
+    1: "Январь",
+    2: "Февраль",
+    3: "Март",
+    4: "Апрель",
+    5: "Май",
+    6: "Июнь",
+    7: "Июль",
+    8: "Август",
+    9: "Сентябрь",
+    10: "Октябрь",
+    11: "Ноябрь",
+    12: "Декабрь",
 }
 
-async def _get_report_channel(bot: discord.Client, config: Dict[str, Any]) -> Optional[discord.TextChannel]:
-    """
-    Находит и возвращает канал для отправки отчетов.
+
+async def _get_report_channel(
+    bot: discord.Client, config: Dict[str, Any]
+) -> Optional[discord.TextChannel]:
+    """Находит и возвращает канал для отправки отчетов.
 
     Args:
         bot: Экземпляр бота Discord.
@@ -42,15 +64,15 @@ async def _get_report_channel(bot: discord.Client, config: Dict[str, Any]) -> Op
         return None
     return channel
 
+
 async def send_daily_report(
     target_date: date,
     bot: discord.Client,
     data_manager: ActivityDataManager,
     config: Dict[str, Any],
-    channel: Optional[discord.TextChannel] = None
+    channel: Optional[discord.TextChannel] = None,
 ) -> bool:
-    """
-    Получает данные за указанную дату и отправляет ежедневный отчет в виде ActivityView.
+    """Получает данные за указанную дату и отправляет ежедневный отчет в виде ActivityView.
 
     Args:
         target_date: Дата, за которую нужно отправить отчет.
@@ -63,41 +85,61 @@ async def send_daily_report(
         True, если отчет успешно отправлен (или данных не было), False при ошибке.
     """
     logger.info(f"Запрос на отправку ежедневного отчета за {target_date.isoformat()}")
-    
+
     # Если канал не указан, получаем его из конфигурации
     if channel is None:
         channel = await _get_report_channel(bot, config)
         if not channel:
-            return False # Ошибка уже залогирована в _get_report_channel
+            return False  # Ошибка уже залогирована в _get_report_channel
 
     try:
         daily_data = await data_manager.get_daily_stats(target_date)
 
         if not daily_data:
             await channel.send(f"За {target_date.strftime('%d.%m.%Y')} никто не играл в игры 😢")
-            logger.info(f"Отправлено уведомление об отсутствии данных для ежедневного отчета за {target_date.isoformat()}.")
-            return True # Считаем успехом, т.к. обработали случай отсутствия данных
+            logger.info(
+                f"Отправлено уведомление об отсутствии данных для ежедневного отчета "
+                f"за {target_date.isoformat()}."
+            )
+            return True  # Считаем успехом, т.к. обработали случай отсутствия данных
         else:
             # Форматируем дату для отображения в отчете
             formatted_date = target_date.strftime("%d.%m.%Y")
             # Используем ActivityView для интерактивного отчета
-            view = ActivityView(bot, daily_data, report_type="daily", date_str=f" ({formatted_date})")
+            view = ActivityView(
+                bot, daily_data, report_type="daily", date_str=f" ({formatted_date})"
+            )
             message = await channel.send(content=view.get_current_content(), view=view)
-            view.message = message # Сохраняем сообщение для возможности отключения кнопок по таймауту
+            view.message = (
+                message  # Сохраняем сообщение для возможности отключения кнопок по таймауту
+            )
             logger.info(f"Отправлен ежедневный отчет за {target_date.isoformat()}")
             return True
     except Exception as e:
-        logger.error(f"Ошибка при получении данных или отправке ежедневного отчета за {target_date.isoformat()}: {e}", exc_info=True)
+        logger.error(
+            f"Ошибка при получении данных или отправке ежедневного отчета "
+            f"за {target_date.isoformat()}: {e}",
+            exc_info=True,
+        )
         try:
             # Попытка уведомить об ошибке в тот же канал
-            await channel.send(f"Не удалось сформировать ежедневный отчет за {target_date.strftime('%d.%m.%Y')}. Ошибка: {e}")
+            await channel.send(
+                (
+                    f"Не удалось сформировать ежедневный отчет за "
+                    f"{target_date.strftime('%d.%m.%Y')}. "
+                    f"Ошибка: {e}"
+                )
+            )
         except Exception as send_e:
-            logger.error(f"Не удалось отправить сообщение об ошибке генерации ежедневного отчета: {send_e}")
+            logger.error(
+                f"Не удалось отправить сообщение об ошибке генерации ежедневного отчета: {send_e}"
+            )
         return False
 
+
 def _get_monthly_summary_text(data: Dict[int, Dict[str, int]], month: int, year: int) -> str:
-    """
-    Формирует текстовую сводку для ежемесячного отчета.
+    """Формирует текстовую сводку для ежемесячного отчета.
+
     Использует краткий формат времени.
 
     Args:
@@ -138,16 +180,26 @@ def _get_monthly_summary_text(data: Dict[int, Dict[str, int]], month: int, year:
     summary = f"## 📊 Общая статистика за {month_str} {year}\n"
     summary += f"👥 Всего активных игроков: **{total_users}**\n"
     summary += f"🎮 Уникальных игр: **{total_unique_games}**\n"
-    summary += f"⏱️ Общее время в играх: **{format_time_short(total_time_all_games)}**\n\n" # Краткий формат времени
+    summary += (
+        "⏱️ Общее время в играх: **" + format_time_short(total_time_all_games) + "**\n\n"
+    )  # Краткий формат времени
 
     if most_popular_game_name:
-        players_str = f"{max_players} {'игрока' if 2 <= max_players <= 4 else 'игроков'}" if max_players > 1 else "1 игрок"
+        players_str = (
+            f"{max_players} {'игрока' if 2 <= max_players <= 4 else 'игроков'}"
+            if max_players > 1
+            else "1 игрок"
+        )
         summary += f"🏆 Самая популярная игра: **{most_popular_game_name}** ({players_str})\n"
     if most_time_game_name and most_time_game_name != most_popular_game_name:
-         # Показываем игру с наибольшим временем, только если она не совпадает с самой популярной
-         summary += f"⭐ Игра с наибольшим временем: **{most_time_game_name}** ({format_time_short(max_time)})\n" # Краткий формат времени
+        # Показываем игру с наибольшим временем, только если она не совпадает с самой популярной
+        summary += (
+            f"⭐ Игра с наибольшим временем: **{most_time_game_name}** "
+            f"({format_time_short(max_time)})\n"
+        )  # Краткий формат времени
 
     return summary
+
 
 async def send_monthly_report(
     year: int,
@@ -155,10 +207,9 @@ async def send_monthly_report(
     bot: discord.Client,
     data_manager: ActivityDataManager,
     config: Dict[str, Any],
-    channel: Optional[discord.TextChannel] = None
+    channel: Optional[discord.TextChannel] = None,
 ) -> bool:
-    """
-    Получает данные за указанный месяц/год и отправляет ежемесячный отчет.
+    """Получает данные за указанный месяц/год и отправляет ежемесячный отчет.
 
     Args:
         year: Год.
@@ -173,7 +224,7 @@ async def send_monthly_report(
     """
     month_name = MONTH_NAMES_RU.get(month, f"Месяц {month}")
     logger.info(f"Запрос на отправку ежемесячного отчета за {month_name} {year}")
-    
+
     # Если канал не указан, получаем его из конфигурации
     if channel is None:
         channel = await _get_report_channel(bot, config)
@@ -186,14 +237,17 @@ async def send_monthly_report(
 
         if not data:
             await channel.send(f"Нет данных об активности за {month_name} {year} 😢")
-            logger.info(f"Отправлено уведомление об отсутствии данных для ежемесячного отчета за {year}-{month:02d}.")
-            return True # Считаем успехом
+            logger.info(
+                f"Отправлено уведомление об отсутствии данных для ежемесячного отчета "
+                f"за {year}-{month:02d}."
+            )
+            return True  # Считаем успехом
 
         # Формируем заголовок и основную часть отчета
         header = f"# 📊 Ежемесячный отчет за {month_name} {year}\n\n"
         content = "## 👤 Активность всех пользователей\n"
         content += "*(Показаны только игры с временем более 30 минут)*\n\n"
-        guild = channel.guild # Получаем гильдию из канала для поиска участников
+        guild = channel.guild  # Получаем гильдию из канала для поиска участников
 
         # Получаем имена пользователей для сортировки по алфавиту
         users_with_names = []
@@ -204,13 +258,15 @@ async def send_monthly_report(
             member = guild.get_member(user_id)
             username = member.name if member else f"Пользователь {user_id}"
             # Фильтруем игры с временем менее заданного порога
-            filtered_activities = {game: time for game, time in activities.items() if time >= min_time_threshold}
+            filtered_activities = {
+                game: time for game, time in activities.items() if time >= min_time_threshold
+            }
             total_time = sum(activities.values())  # Общее время считаем по всем играм
             users_with_names.append((user_id, filtered_activities, username, total_time))
 
         # Сортируем пользователей по имени (алфавитный порядок)
         sorted_users = sorted(users_with_names, key=lambda x: x[2].lower())
-        
+
         # Находим топ-3 игроков по игровому времени
         top_players = sorted(users_with_names, key=lambda x: x[3], reverse=True)[:3]
 
@@ -219,61 +275,61 @@ async def send_monthly_report(
         for user_id, activities, username, total_time_user in sorted_users:
             # Формируем строку для пользователя с курсивом для времени
             user_line = f"**{username}** (*{format_time_short(total_time_user)}*): "
-            
+
             # Сортируем игры пользователя по времени
             sorted_activities = sorted(activities.items(), key=lambda item: item[1], reverse=True)
-            
+
             # Используем краткий формат времени для отдельных игр
             games_list = [
                 f"{game_name} ({format_time_short(time_spent)})"
                 for game_name, time_spent in sorted_activities
             ]
-            
+
             all_users_content += user_line + ", ".join(games_list) + "\n"
-        
+
         # Формируем информацию о топ-3 игроках
         top_players_text = "## 🏆 Топ-3 игрока по игровому времени\n"
         for i, (_, _, username, total_time) in enumerate(top_players, 1):
             top_players_text += f"{i}. **{username}** (*{format_time_short(total_time)}*)\n"
-        
+
         # Добавляем общую статистику
         summary_text = _get_monthly_summary_text(data, month, year)
-        
+
         # Отправка сообщения (с разбивкой, если длинное)
         full_content = content + all_users_content + top_players_text + summary_text
-        
+
         if len(header + full_content) <= 2000:
             await channel.send(header + full_content)
         else:
             # Отправляем заголовок
             await channel.send(header)
-            
+
             # Разбиваем содержимое на части, чтобы не разрывать информацию о пользователях
             # Максимальная длина сообщения Discord
             max_message_length = 1900  # Оставляем запас для форматирования
-            
+
             # Сначала отправляем заголовок содержимого
             await channel.send(content)
-            
+
             # Разбиваем пользователей на части
             current_chunk = ""
             lines = all_users_content.split("\n")
-            
+
             for line in lines:
                 if not line:  # Пропускаем пустые строки
                     continue
-                    
+
                 if len(current_chunk) + len(line) + 1 > max_message_length:  # +1 для "\n"
                     await channel.send(current_chunk)
                     current_chunk = line + "\n"
                     await asyncio.sleep(1)  # Небольшая задержка между частями
                 else:
                     current_chunk += line + "\n"
-            
+
             # Отправляем последний чанк с пользователями, если он есть
             if current_chunk:
                 await channel.send(current_chunk)
-            
+
             # Отправляем топ-3 игроков и общую статистику
             final_part = top_players_text + summary_text
             if len(final_part) <= 2000:
@@ -286,36 +342,50 @@ async def send_monthly_report(
         return True
 
     except Exception as e:
-        logger.error(f"Ошибка при получении данных или отправке ежемесячного отчета за {year}-{month:02d}: {e}", exc_info=True)
+        logger.error(
+            f"Ошибка при получении данных или отправке ежемесячного отчета "
+            f"за {year}-{month:02d}: {e}",
+            exc_info=True,
+        )
         try:
-            await channel.send(f"Не удалось сформировать ежемесячный отчет за {month_name} {year}. Ошибка: {e}")
+            await channel.send(
+                f"Не удалось сформировать ежемесячный отчет за {month_name} {year}. Ошибка: {e}"
+            )
         except Exception as send_e:
-            logger.error(f"Не удалось отправить сообщение об ошибке генерации ежемесячного отчета: {send_e}")
+            logger.error(
+                f"Не удалось отправить сообщение об ошибке генерации ежемесячного отчета: {send_e}"
+            )
         return False
+
 
 # --- Функции для автоматического запуска из Cog ---
 
-async def run_automatic_daily_report(cog_instance: Any):
-    """
-    Выполняет полную логику автоматического ежедневного отчета:
+
+async def run_automatic_daily_report(cog_instance: "ActivityTracker") -> None:
+    """Выполняет полную логику автоматического ежедневного отчета.
+
     1. Обновляет текущие сессии.
     2. Отправляет отчет за вчерашний день.
     3. Переносит данные daily -> monthly.
 
     Args:
-        cog_instance: Экземпляр кога ActivityTracker (для доступа к bot, data_manager, config, update_current_activities).
+        cog_instance: Экземпляр кога ActivityTracker (для доступа к bot, data_manager, config,
+        update_current_activities).
     """
     bot = cog_instance.bot
     data_manager = cog_instance.data_manager
-    config = getattr(bot, 'config', {}) # Получаем конфиг из бота
+    config = getattr(bot, "config", {})  # Получаем конфиг из бота
 
     try:
         # Получаем текущую дату в московском часовом поясе
-        moscow_tz = pytz.timezone('Europe/Moscow')
+        moscow_tz = pytz.timezone("Europe/Moscow")
         moscow_now = datetime.now(moscow_tz)
         today = moscow_now.date()
         yesterday = today - timedelta(days=1)
-        logger.info(f"Запуск автоматической обработки ежедневного отчета. Текущая дата (МСК): {today.isoformat()}, вчерашняя дата: {yesterday.isoformat()}")
+        logger.info(
+            f"Запуск автоматической обработки ежедневного отчета. "
+            f"Текущая дата (МСК): {today.isoformat()}, вчерашняя дата: {yesterday.isoformat()}"
+        )
 
         # 1. Обновляем текущие сессии перед обработкой
         logger.debug("run_automatic_daily_report: Обновление текущих активностей...")
@@ -326,21 +396,33 @@ async def run_automatic_daily_report(cog_instance: Any):
         await send_daily_report(yesterday, bot, data_manager, config)
 
         # 3. Переносим данные daily -> monthly и очищаем daily
-        logger.info(f"run_automatic_daily_report: Запуск переноса данных за {yesterday.isoformat()}...")
+        logger.info(
+            f"run_automatic_daily_report: Запуск переноса данных за {yesterday.isoformat()}..."
+        )
         transfer_success = await data_manager.transfer_daily_to_monthly(yesterday)
         if not transfer_success:
             # Ошибка уже должна быть залогирована в data_manager
-            logger.error(f"run_automatic_daily_report: Не удалось перенести дневные данные за {yesterday.isoformat()} в месячную статистику!")
+            logger.error(
+                f"run_automatic_daily_report: Не удалось перенести дневные данные "
+                f"за {yesterday.isoformat()} в месячную статистику!"
+            )
         else:
-            logger.info(f"run_automatic_daily_report: Дневные данные за {yesterday.isoformat()} успешно перенесены и удалены.")
+            logger.info(
+                f"run_automatic_daily_report: Дневные данные за {yesterday.isoformat()} "
+                "успешно перенесены и удалены."
+            )
 
     except Exception as e:
         # Логируем общую ошибку выполнения задачи
-        logger.error(f"Критическая ошибка при выполнении автоматического ежедневного отчета: {e}", exc_info=True)
+        logger.error(
+            f"Критическая ошибка при выполнении автоматического ежедневного отчета: {e}",
+            exc_info=True,
+        )
 
-async def run_automatic_monthly_report(cog_instance: Any):
-    """
-    Выполняет логику автоматического ежемесячного отчета:
+
+async def run_automatic_monthly_report(cog_instance: "ActivityTracker") -> None:
+    """Выполняет логику автоматического ежемесячного отчета.
+
     1. Проверяет, является ли сегодня 1-е число.
     2. Определяет предыдущий месяц/год.
     3. Отправляет отчет за предыдущий месяц.
@@ -350,19 +432,27 @@ async def run_automatic_monthly_report(cog_instance: Any):
     """
     bot = cog_instance.bot
     data_manager = cog_instance.data_manager
-    config = getattr(bot, 'config', {})
+    config = getattr(bot, "config", {})
 
     try:
         # Получаем текущую дату в московском часовом поясе
-        moscow_tz = pytz.timezone('Europe/Moscow')
+        moscow_tz = pytz.timezone("Europe/Moscow")
         moscow_now = datetime.now(moscow_tz)
         today = moscow_now.date()
-        logger.info(f"run_automatic_monthly_report: Проверка даты. Текущая дата (МСК): {today.isoformat()}, день месяца: {today.day}")
+        logger.info(
+            f"run_automatic_monthly_report: Проверка даты. Текущая дата (МСК): "
+            f"{today.isoformat()}, день месяца: {today.day}"
+        )
         if today.day != 1:
             logger.debug("run_automatic_monthly_report: Сегодня не 1-е число, отчет пропускается.")
-            return # Запускаем только первого числа
+            return  # Запускаем только первого числа
 
-        logger.info("run_automatic_monthly_report: Запуск формирования ежемесячного отчета за предыдущий месяц.")
+        logger.info(
+            (
+                "run_automatic_monthly_report: Запуск формирования ежемесячного отчета "
+                "за предыдущий месяц."
+            )
+        )
         # Определяем предыдущий месяц и год
         first_day_of_current_month = today.replace(day=1)
         last_day_of_prev_month = first_day_of_current_month - timedelta(days=1)
@@ -373,4 +463,7 @@ async def run_automatic_monthly_report(cog_instance: Any):
         await send_monthly_report(prev_year, prev_month, bot, data_manager, config)
 
     except Exception as e:
-        logger.error(f"Критическая ошибка при выполнении автоматического ежемесячного отчета: {e}", exc_info=True)
+        logger.error(
+            f"Критическая ошибка при выполнении автоматического ежемесячного отчета: {e}",
+            exc_info=True,
+        )

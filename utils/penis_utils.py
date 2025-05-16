@@ -1,16 +1,27 @@
+"""
+Утилиты для команды измерения пениса.
 
-import random
-import discord
+Этот модуль предоставляет функциональность для генерации случайного размера пениса
+и отображения результата в виде эмбеда Discord с соответствующим форматированием
+и цветовой индикацией в зависимости от размера.
+"""
+
 import logging
-from discord.ext import commands # Добавляем импорт commands
-from typing import Optional # Добавляем импорт Optional для target_user
+import random
+from typing import Optional
 
-logger = logging.getLogger("bot")
+import discord
+from discord.ext import commands
 
-async def measure_penis(ctx: commands.Context, target_user: Optional[discord.Member] = None):
+logger = logging.getLogger("bot.utils.penis_utils")
+
+
+async def measure_penis(
+    ctx: commands.Context, target_user: Optional[discord.Member] = None
+) -> None:
     """
     Генерирует случайный размер пениса и отправляет его в виде эмбеда.
-    
+
     Args:
         ctx: Контекст команды
         target_user: Пользователь, для которого генерируется размер (опционально)
@@ -20,7 +31,7 @@ async def measure_penis(ctx: commands.Context, target_user: Optional[discord.Mem
         user = target_user if target_user else ctx.author
         penis_length = random.randint(0, 25)
         penis_representation = "8" + "=" * penis_length + "D"
-        
+
         # Определяем цвет в зависимости от размера
         if penis_length >= 15:
             color = discord.Color.green()
@@ -35,14 +46,10 @@ async def measure_penis(ctx: commands.Context, target_user: Optional[discord.Mem
         else:
             description = f"Пенис {user.mention}\n{penis_representation}"
 
-        embed = discord.Embed(
-            title="Измеритель пениса",
-            description=description,
-            color=color
-        )
-        
+        embed = discord.Embed(title="Измеритель пениса", description=description, color=color)
+
         embed.add_field(name="Длина", value=f"{penis_length} см", inline=True)
-        
+
         await ctx.send(embed=embed)
     except Exception as e:
         logger.error(f"Ошибка при измерении пениса: {e}", exc_info=True)

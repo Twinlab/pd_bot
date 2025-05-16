@@ -1,20 +1,26 @@
-import pytest
+from unittest.mock import MagicMock
+
 import discord
-from unittest.mock import MagicMock, AsyncMock
+import pytest
+
 from cogs.giveaway import GiveawayCog
+
 
 @pytest.fixture
 def mock_bot():
     bot = MagicMock(spec=discord.ext.commands.Bot)
     return bot
 
+
 @pytest.fixture
 def giveaway_cog(mock_bot):
     return GiveawayCog(mock_bot)
 
+
 def test_giveaway_cog_init(giveaway_cog):
     assert isinstance(giveaway_cog, GiveawayCog)
     assert hasattr(giveaway_cog, "bot")
+
 
 @pytest.mark.asyncio
 async def test_giveaway_cog_registers_commands(giveaway_cog):

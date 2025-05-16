@@ -1,3 +1,5 @@
+"""Конфигурационный файл для pytest, содержит фикстуры и хуки."""
+
 import sys
 from pathlib import Path
 

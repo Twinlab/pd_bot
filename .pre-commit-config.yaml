@@ -1,0 +1,39 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.3.0
+    hooks:
+      - id: black
+        exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$
+
+  - repo: https://github.com/PyCQA/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        additional_dependencies: [
+            flake8,
+            flake8-docstrings,  # Для проверки docstrings
+            flake8-print        # Для проверки на отсутствие print
+        ]
+        exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: end-of-file-fixer
+        exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$
+      - id: trailing-whitespace
+        exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$
+      - id: check-added-large-files
+        exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$

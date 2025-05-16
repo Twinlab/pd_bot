@@ -1,0 +1,32 @@
+[tool.black]
+line-length = 100
+target-version = ['py312']
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | venv
+  | data
+  | downloads
+  | logs
+  | check_docstrings\.py
+  | check_standards\.py
+  | check_typing\.py
+  | fix_logging\.py
+  | format_code\.py
+  | unify_project\.py
+  | docstring_template\.py
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+skip = ["data", "downloads", "logs", ".venv", "venv", "check_docstrings.py", "check_standards.py", "check_typing.py", "fix_logging.py", "format_code.py", "unify_project.py", "docstring_template.py"]
+
+[tool.mypy]
+python_version = 3.13
+ignore_missing_imports = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+exclude = 'data|downloads|logs|venv|\.venv|check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py'
