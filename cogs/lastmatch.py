@@ -43,8 +43,8 @@ class LastMatchCog(commands.Cog):
         Для указанного пользователя (или автора команды).
         Требует предварительной привязки Steam ID через команду /link.
         """
-        # Получаем доступ к когу Links для получения привязок аккаунтов
-        links_cog = self.bot.get_cog("Links")
+        # Получаем доступ к когу LinksCog для получения привязок аккаунтов
+        links_cog = self.bot.get_cog("LinksCog")
         if not links_cog:
             # Используем safe_send для обработки ошибок отправки
             from utils.error_handler import safe_send_error
