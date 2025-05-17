@@ -21,7 +21,6 @@ from discord.ext import commands
 
 from config import load_config
 from utils import dota_api
-from utils.cog_utils import log_cog_load
 from utils.database import DB_PATH, initialize_database
 from utils.logging_utils import setup_logging
 
@@ -100,8 +99,8 @@ async def load_cogs() -> None:
             cog_module = f"cogs.{filepath.stem}"
             try:
                 await bot.load_extension(cog_module)
-                # Используем нашу утилиту для логирования загрузки кога
-                log_cog_load(filepath.stem, "main")
+                # Мы не логируем загрузку здесь, так как это делается в самих когах
+                # Утилита should_log_cog_load используется в когах для предотвращения дублирования
             except Exception as e:
                 logger.error(f"Ошибка при загрузке кога {filepath.name}: {e}")
 
