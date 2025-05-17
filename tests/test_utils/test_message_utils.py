@@ -6,6 +6,6 @@ from utils.message_utils import handle_message
 
 
 @pytest.mark.asyncio
-async def test_handle_message():
+async def test_handle_message() -> None:
     message = MagicMock()
     await handle_message(message)

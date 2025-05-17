@@ -1,4 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock, patch
+from typing import Any
 
 import pytest
 
@@ -6,7 +7,7 @@ from utils.error_handler import command_error_handler, safe_send, safe_send_erro
 
 
 @pytest.mark.asyncio
-async def test_safe_send():
+async def test_safe_send() -> None:
     ctx = MagicMock()
     ctx.send = AsyncMock()
     with patch("utils.error_handler.logger"):
@@ -15,7 +16,7 @@ async def test_safe_send():
 
 
 @pytest.mark.asyncio
-async def test_safe_send_error():
+async def test_safe_send_error() -> None:
     ctx = MagicMock()
     ctx.send = AsyncMock()
     with patch("utils.error_handler.logger"):
@@ -24,11 +25,11 @@ async def test_safe_send_error():
 
 
 @pytest.mark.asyncio
-async def test_command_error_handler():
+async def test_command_error_handler() -> None:
     called = {"flag": False}
 
     @command_error_handler
-    async def dummy(self, ctx, *a, **kw):
+    async def dummy(self: Any, ctx: Any, *a: Any, **kw: Any) -> None:
         called["flag"] = True
 
     class DummySelf:

@@ -6,7 +6,7 @@ from utils.penis_utils import measure_penis
 
 
 @pytest.mark.asyncio
-async def test_measure_penis():
+async def test_measure_penis() -> None:
     ctx = MagicMock()
     ctx.send = AsyncMock()
     ctx.author = MagicMock()

@@ -6,7 +6,7 @@ from utils.avatar_utils import display_avatar
 
 
 @pytest.mark.asyncio
-async def test_display_avatar():
+async def test_display_avatar() -> None:
     ctx = MagicMock()
     ctx.send = AsyncMock()
     mentioned_user = MagicMock()

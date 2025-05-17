@@ -15,5 +15,5 @@ from utils.dota_utils import get_role
         ("unknown", "Неизвестно"),
     ],
 )
-def test_get_role(player_position, expected):
+def test_get_role(player_position: str | None, expected: str) -> None:
     assert get_role(player_position) == expected

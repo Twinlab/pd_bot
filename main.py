@@ -79,7 +79,7 @@ class MyBot(commands.Bot):
     config: Dict[str, Any]
     log_file_path: str
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Инициализирует кастомного бота.
 
         Args:

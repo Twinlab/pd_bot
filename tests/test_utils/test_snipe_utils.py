@@ -6,7 +6,7 @@ from utils.snipe_utils import show_sniped_message
 
 
 @pytest.mark.asyncio
-async def test_show_sniped_message():
+async def test_show_sniped_message() -> None:
     ctx = MagicMock()
     ctx.send = AsyncMock()
     ctx.channel = MagicMock()

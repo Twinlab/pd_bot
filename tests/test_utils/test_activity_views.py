@@ -46,7 +46,7 @@ class TestActivityView:
             self.user_ids = sorted(self.users_data.keys())
         else:
 
-            def get_username(user_id):
+            def get_username(user_id: int) -> str:
                 member = guild.get_member(user_id)
                 return member.name.lower() if member else f"user_{user_id}"
 
