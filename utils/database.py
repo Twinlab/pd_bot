@@ -143,3 +143,50 @@ async def initialize_database() -> None:
     except Exception as e:
         logger.critical(f"Критическая ошибка при инициализации базы данных: {e}", exc_info=True)
         raise  # Передаем исключение дальше, чтобы бот не запустился с нерабочей БД
+
+
+async def execute_query(query: str, params: tuple | None = None) -> list:
+    """Выполняет SQL-запрос и возвращает результат.
+
+    Args:
+        query: SQL-запрос.
+        params: Параметры запроса (опционально).
+
+    Returns:
+        Список результатов запроса.
+
+    Raises:
+        Exception: Если произошла ошибка при выполнении запроса.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute(query, params or ())
+            result = await cursor.fetchall()
+            return [dict(row) for row in result]
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении запроса: {e}", exc_info=True)
+        raise
+
+
+async def execute_update(query: str, params: tuple | None = None) -> int:
+    """Выполняет SQL-запрос на обновление данных и возвращает количество затронутых строк.
+
+    Args:
+        query: SQL-запрос.
+        params: Параметры запроса (опционально).
+
+    Returns:
+        Количество затронутых строк.
+
+    Raises:
+        Exception: Если произошла ошибка при выполнении запроса.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(query, params or ())
+            await db.commit()
+            return int(cursor.rowcount)
+    except Exception as e:
+        logger.error(f"Ошибка при выполнении обновления: {e}", exc_info=True)
+        raise
