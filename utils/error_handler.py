@@ -123,6 +123,7 @@ async def safe_send(
     *,
     embed: Optional[discord.Embed] = None,
     ephemeral: bool = False,
+    delete_after: Optional[float] = None,
 ) -> Optional[discord.Message]:
     """
     Безопасно отправляет сообщение, учитывая тип контекста (Context или Interaction).
@@ -144,7 +145,7 @@ async def safe_send(
                 await ctx.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
                 return await ctx.original_response()
         else:
-            return await ctx.send(content=content, embed=embed)
+            return await ctx.send(content=content, embed=embed, delete_after=delete_after)
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
         return None

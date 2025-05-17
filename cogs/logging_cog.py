@@ -9,8 +9,10 @@
 непосредственно в Discord.
 """
 
+import json
 import logging
 import os
+from datetime import datetime
 
 import discord
 from discord.ext import commands, tasks
@@ -166,12 +168,86 @@ class LoggingCog(commands.Cog):
         await self.bot.wait_until_ready()
         logger.info("[LogCog] Задача tail_log_file готова к запуску (после on_ready).")
 
+    def format_json_log(self, log_line: str) -> str:
+        """Преобразует JSON-лог в удобочитаемый формат.
+
+        Args:
+            log_line: Строка лога в формате JSON
+
+        Returns:
+            Отформатированная строка лога
+        """
+        try:
+            # Проверяем, является ли строка JSON
+            if log_line.strip().startswith("{") and "}" in log_line:
+                log_data = json.loads(log_line)
+
+                # Форматируем время
+                timestamp = log_data.get("timestamp", "")
+                if timestamp:
+                    try:
+                        dt = datetime.fromisoformat(timestamp)
+                        timestamp = dt.strftime("%H:%M:%S")
+                    except (ValueError, TypeError):
+                        pass
+
+                # Получаем основные поля
+                level = log_data.get("level", "")
+                logger_name = log_data.get("logger", "").split(".")[
+                    -1
+                ]  # Берем только последнюю часть имени логгера
+                message = log_data.get("message", "")
+                module = log_data.get("module", "")
+                function = log_data.get("function", "")
+
+                # Форматируем сообщение
+                formatted = f"[{timestamp}] {level:<8} {logger_name:<15} - {message}"
+
+                # Добавляем информацию о модуле и функции
+                if module and function:
+                    formatted += f" ({module}.{function})"
+
+                # Добавляем контекст, если он есть
+                if "context" in log_data:
+                    context = log_data["context"]
+                    context_str = ", ".join(f"{k}={v}" for k, v in context.items())
+                    formatted += f" [{context_str}]"
+
+                # Добавляем информацию об исключении, если оно есть
+                if "exception" in log_data:
+                    exc = log_data["exception"]
+                    exc_type = exc.get("type", "")
+                    exc_msg = exc.get("message", "")
+                    formatted += f"\nИсключение: {exc_type}: {exc_msg}"
+
+                return formatted
+            else:
+                # Если это не JSON, возвращаем строку как есть
+                return log_line
+        except json.JSONDecodeError:
+            # Если не удалось распарсить JSON, возвращаем строку как есть
+            return log_line
+        except Exception as e:
+            # В случае любой другой ошибки, логируем её и возвращаем исходную строку
+            logger.error(f"Ошибка при форматировании лога: {e}", exc_info=True)
+            return log_line
+
     async def send_log_message(self, message: str) -> None:
         """Отправляет отформатированное сообщение лога в Discord канал."""
         if not self.log_channel:
             return
+
         try:
-            await self.log_channel.send(f"```\n{message.strip()}\n```")
+            # Разбиваем сообщение на строки и форматируем каждую
+            lines = message.strip().split("\n")
+            formatted_lines = [self.format_json_log(line) for line in lines if line.strip()]
+
+            # Собираем отформатированные строки обратно
+            formatted_message = "\n".join(formatted_lines)
+
+            # Отправляем сообщение
+            if formatted_message:
+                await self.log_channel.send(f"```\n{formatted_message}\n```")
         except discord.HTTPException as e:
             logger.error(f"[LogCog] Ошибка Discord API при отправке лога: {e}")
         except Exception as e:
