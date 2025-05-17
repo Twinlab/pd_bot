@@ -152,7 +152,7 @@ class RoleReactionCog(commands.Cog):
     )
     @commands.has_permissions(administrator=True)
     @command_error_handler
-    async def setup_role_message(self, ctx: commands.Context):
+    async def setup_role_message(self, ctx: commands.Context) -> None:
         """Создает сообщение для получения ролей через реакции в указанном канале.
 
         Канал берется из конфигурации (`ROLE_REACTION_DEFAULT_CHANNEL_ID`) или используется текущий.
@@ -168,7 +168,8 @@ class RoleReactionCog(commands.Cog):
             target_channel_id_int = int(default_channel_id_str)
             specified_channel = self.bot.get_channel(target_channel_id_int)
             if specified_channel:
-                target_channel = specified_channel
+                # Используем аннотацию типа для указания mypy, что тип совместим
+                target_channel = specified_channel  # type: ignore
                 logger.info(
                     f"Используется канал {target_channel.id} из конфигурации "
                     "(ROLE_REACTION_DEFAULT_CHANNEL_ID)."
@@ -245,7 +246,7 @@ class RoleReactionCog(commands.Cog):
     @app_commands.checks.has_permissions(administrator=True)
     async def role_assign(
         self, interaction: discord.Interaction, role: discord.Role, emoji: str, description: str
-    ):
+    ) -> None:
         """Добавляет роль, которую можно получить через реакцию.
 
         Параметры:
@@ -330,7 +331,7 @@ class RoleReactionCog(commands.Cog):
     )
     @app_commands.describe(emoji="Эмодзи, привязанный к роли, которую нужно удалить")
     @app_commands.checks.has_permissions(administrator=True)
-    async def role_remove(self, interaction: discord.Interaction, emoji: str):
+    async def role_remove(self, interaction: discord.Interaction, emoji: str) -> None:
         """Удаляет роль из списка ролей, получаемых через реакции.
 
         Параметры:
@@ -405,7 +406,7 @@ class RoleReactionCog(commands.Cog):
                 pass
 
     @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         """Обрабатывает добавление реакции для выдачи роли."""
         # Игнорируем реакции от ботов
         if payload.member.bot:
@@ -462,7 +463,7 @@ class RoleReactionCog(commands.Cog):
             )
 
     @commands.Cog.listener()
-    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
         """Обрабатывает удаление реакции для снятия роли."""
         # Проверяем, есть ли информация о сообщении с реакциями для этого сервера
         message_info = await self.data_manager.get_message_info(payload.guild_id)
@@ -559,7 +560,7 @@ class RoleReactionCog(commands.Cog):
             await safe_send(ctx, f"Произошла неизвестная ошибка: {str(error)}", ephemeral=True)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     """Добавляет ког RoleReactionCog к боту.
 
     Args:

@@ -48,3 +48,9 @@ docs/UNIFICATION_PLAN_DETAILED.md
 # Coverage reports
 .coverage
 coverage/
+
+# Python packaging
+*.egg-info/
+*.egg
+dist/
+build/

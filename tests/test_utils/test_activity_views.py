@@ -1,7 +1,9 @@
 from collections import defaultdict
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock
 
+import discord
 import pytest
 
 # --- Тестовые версии классов ---
@@ -25,14 +27,14 @@ class TestActivityView:
     games_list: list
     max_pages: int
 
-    def _get_guild(self):
+    def _get_guild(self) -> MagicMock | None:
         if self.ctx and hasattr(self.ctx, "guild"):
             return self.ctx.guild
         if self.bot.guilds:
             return self.bot.guilds[0]
         return None
 
-    def prepare_data(self):
+    def prepare_data(self) -> None:
         # Отображение по пользователям
         self.users_data = {}
         for user_id, activities in self.data.items():
@@ -48,7 +50,9 @@ class TestActivityView:
 
             def get_username(user_id: int) -> str:
                 member = guild.get_member(user_id)
-                return member.name.lower() if member else f"user_{user_id}"
+                if member:
+                    return member.name.lower()
+                return f"user_{user_id}"
 
             self.user_ids = sorted(self.users_data.keys(), key=get_username)
 
@@ -68,7 +72,7 @@ class TestActivityView:
         # Считаем общее количество страниц
         self._recalculate_max_pages()
 
-    def _recalculate_max_pages(self):
+    def _recalculate_max_pages(self) -> None:
         if self.view_mode == "users":
             count = len(self.user_ids)
         else:  # view_mode == "games"
@@ -77,7 +81,7 @@ class TestActivityView:
         if self.current_page >= self.max_pages:
             self.current_page = 0
 
-    def _get_users_content(self):
+    def _get_users_content(self) -> str:
         from utils.activity.helpers import format_time_short
 
         content = "## 👤 По пользователям\n"
@@ -105,7 +109,7 @@ class TestActivityView:
 
         return content
 
-    def _get_games_content(self):
+    def _get_games_content(self) -> str:
         from utils.activity.helpers import format_time_short
 
         content = "## 🎮 По играм\n"
@@ -133,7 +137,7 @@ class TestActivityView:
 
         return content
 
-    def _get_summary(self):
+    def _get_summary(self) -> str:
         from utils.activity.helpers import format_time_short
 
         total_users = len(self.users_data)
@@ -163,7 +167,7 @@ class TestActivityView:
             summary += f"\nСамая популярная игра: **{most_popular_game}** ({players_str})"
         return summary
 
-    def get_current_content(self):
+    def get_current_content(self) -> str:
         report_title = "Ежедневный отчет" if self.report_type == "daily" else "Статистика"
         header = f"# 📊 {report_title} игровой активности\n\n"
 
@@ -189,7 +193,7 @@ class TestStatsView:
     max_pages: int
     message: MagicMock | None
 
-    def get_current_embed(self):
+    def get_current_embed(self) -> "discord.Embed":
         import discord
 
         from utils.activity.helpers import format_time_short
@@ -236,7 +240,7 @@ class TestStatsView:
 
 
 @pytest.fixture
-def mock_bot():
+def mock_bot() -> MagicMock:
     """Создает мок для бота Discord."""
     bot = MagicMock()
     guild = MagicMock()
@@ -259,7 +263,7 @@ def mock_bot():
 
 
 @pytest.fixture
-def activity_data():
+def activity_data() -> dict[int, dict[str, int]]:
     """Создает тестовые данные активности."""
     return {
         1: {"Game1": 3600, "Game2": 1800},  # User1: 1 час Game1, 30 минут Game2
@@ -269,7 +273,7 @@ def activity_data():
 
 
 @pytest.fixture
-def stats_data():
+def stats_data() -> list[tuple[str, int]]:
     """Создает тестовые данные для StatsView."""
     return [
         ("Game1", 3600),  # 1 час
@@ -282,7 +286,7 @@ def stats_data():
 
 
 @pytest.fixture
-def mock_user():
+def mock_user() -> MagicMock:
     """Создает мок для пользователя Discord."""
     user = MagicMock()
     user.name = "TestUser"
@@ -293,7 +297,9 @@ def mock_user():
 # --- Тесты для ActivityView ---
 
 
-def test_activity_view_prepare_data(mock_bot, activity_data) -> None:
+def test_activity_view_prepare_data(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
     """Проверяет правильность подготовки данных в ActivityView."""
     view = TestActivityView()
     view.bot = mock_bot
@@ -321,7 +327,9 @@ def test_activity_view_prepare_data(mock_bot, activity_data) -> None:
     assert view.games_list[0] == "Game1"  # Самая популярная игра (2 игрока, больше всего времени)
 
 
-def test_activity_view_recalculate_max_pages(mock_bot, activity_data) -> None:
+def test_activity_view_recalculate_max_pages(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
     """Проверяет правильность расчета количества страниц."""
     view = TestActivityView()
     view.bot = mock_bot
@@ -349,7 +357,9 @@ def test_activity_view_recalculate_max_pages(mock_bot, activity_data) -> None:
     assert view.max_pages == 2  # 3 игры / 2 на страницу = 2 страницы
 
 
-def test_activity_view_get_users_content(mock_bot, activity_data) -> None:
+def test_activity_view_get_users_content(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
     """Проверяет правильность формирования контента для режима 'users'."""
     view = TestActivityView()
     view.bot = mock_bot
@@ -378,7 +388,9 @@ def test_activity_view_get_users_content(mock_bot, activity_data) -> None:
     assert "Game3 (1h 30m)" in content  # User3: Game3 - 1.5 часа
 
 
-def test_activity_view_get_games_content(mock_bot, activity_data) -> None:
+def test_activity_view_get_games_content(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
     """Проверяет правильность формирования контента для режима 'games'."""
     view = TestActivityView()
     view.bot = mock_bot
@@ -410,7 +422,9 @@ def test_activity_view_get_games_content(mock_bot, activity_data) -> None:
     assert "1h 30m" in content  # Game3: 1h 30m
 
 
-def test_activity_view_get_summary(mock_bot, activity_data) -> None:
+def test_activity_view_get_summary(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
     """Проверяет правильность формирования общей статистики."""
     view = TestActivityView()
     view.bot = mock_bot
@@ -439,7 +453,9 @@ def test_activity_view_get_summary(mock_bot, activity_data) -> None:
     assert "(2 игрока)" in summary
 
 
-def test_activity_view_get_current_content(mock_bot, activity_data) -> None:
+def test_activity_view_get_current_content(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
     """Проверяет правильность формирования полного контента."""
     # Используем report_type="command" для получения заголовка "Статистика"
     view = TestActivityView()
@@ -470,7 +486,9 @@ def test_activity_view_get_current_content(mock_bot, activity_data) -> None:
 # --- Тесты для StatsView ---
 
 
-def test_stats_view_get_current_embed(stats_data, mock_user) -> None:
+def test_stats_view_get_current_embed(
+    stats_data: list[tuple[str, int]], mock_user: MagicMock
+) -> None:
     """Проверяет правильность формирования эмбеда."""
     view = TestStatsView()
     view.title = "Статистика TestUser"
@@ -505,7 +523,7 @@ def test_stats_view_get_current_embed(stats_data, mock_user) -> None:
     assert "Страница 1/2" in embed.footer.text
 
 
-def test_stats_view_second_page(stats_data, mock_user) -> None:
+def test_stats_view_second_page(stats_data: list[tuple[str, int]], mock_user: MagicMock) -> None:
     """Проверяет правильность формирования эмбеда для второй страницы."""
     view = TestStatsView()
     view.title = "Статистика TestUser"

@@ -106,12 +106,10 @@ class AdminCog(commands.Cog):
             ctx.channel, (discord.TextChannel, discord.Thread)
         ):  # Проверка типа канала
             try:
-                deleted = await ctx.channel.delete_messages(recent_messages)
-                # delete_messages может вернуть None, если удалено только одно сообщение
-                if deleted is None:
-                    deleted_count += len(recent_messages)
-                else:
-                    deleted_count += len(deleted)
+                # delete_messages не возвращает значение, всегда возвращает None
+                await ctx.channel.delete_messages(recent_messages)
+                # Считаем, что все сообщения были удалены успешно
+                deleted_count += len(recent_messages)
             except discord.HTTPException as e:
                 logger.warning(f"Не удалось массово удалить сообщения, пробуем по одному: {e}")
                 # Если пачковое удаление не удалось, пробуем удалить по одному

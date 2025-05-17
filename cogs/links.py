@@ -67,7 +67,7 @@ class LinksCog(commands.Cog):
 
     @commands.hybrid_command(description="Привязать аккаунт Dota 2")
     @command_error_handler
-    async def link(self, ctx, player_id: int) -> None:
+    async def link(self, ctx: commands.Context, player_id: int) -> None:
         """Привязывает аккаунт Dota 2 к Discord аккаунту."""
         is_interaction = hasattr(ctx, "interaction") and ctx.interaction is not None
         if is_interaction:
@@ -123,7 +123,7 @@ class LinksCog(commands.Cog):
 
     @commands.hybrid_command(description="Отвязать аккаунт Dota 2")
     @command_error_handler
-    async def unlink(self, ctx, player_id: Optional[int] = None) -> None:
+    async def unlink(self, ctx: commands.Context, player_id: Optional[int] = None) -> None:
         """Отвязывает аккаунт Dota 2 от Discord аккаунта."""
         is_interaction = hasattr(ctx, "interaction") and ctx.interaction is not None
         if is_interaction:

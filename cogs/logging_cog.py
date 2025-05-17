@@ -80,7 +80,16 @@ class LoggingCog(commands.Cog):
         Проверяет доступность канала и права бота на отправку сообщений.
         """
         # Получаем канал
-        self.log_channel = self.bot.get_channel(self.log_channel_id)
+        channel = self.bot.get_channel(self.log_channel_id)
+        # Проверяем, что канал является текстовым
+        if isinstance(channel, discord.TextChannel):
+            self.log_channel = channel
+        else:
+            logger.error(
+                f"[LogCog] Канал с ID {self.log_channel_id} не является текстовым каналом. "
+                "Логирование невозможно."
+            )
+            return
         if not self.log_channel:
             logger.error(
                 f"[LogCog] Не удалось получить канал логирования (ID: {self.log_channel_id}). "

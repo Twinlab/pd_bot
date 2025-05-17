@@ -46,7 +46,7 @@ class UpdateCog(commands.Cog):
     )
     @commands.is_owner()
     @command_error_handler
-    async def update(self, ctx: commands.Context):
+    async def update(self, ctx: commands.Context) -> None:
         """(Владелец) Обновляет код бота (`git pull`) и перезапускает его.
 
         Перезапуск выполняется через пользовательский сервис systemd.
@@ -77,11 +77,13 @@ class UpdateCog(commands.Cog):
 
             if process.returncode != 0:
                 logger.error(f"Ошибка Git при обновлении (код {process.returncode}): {stderr_str}")
-                return await message.edit(content=f"❌ Ошибка Git: ```{stderr_str}```")
+                await message.edit(content=f"❌ Ошибка Git: ```{stderr_str}```")
+                return
 
             if "Already up to date" in stdout_str:
                 logger.info("Бот уже обновлен до последней версии (git pull: Already up to date)")
-                return await message.edit(content="✅ Бот уже обновлен до последней версии!")
+                await message.edit(content="✅ Бот уже обновлен до последней версии!")
+                return
 
             # Успешное обновление
             logger.info("Обновление получено, инициируем перезапуск бота через systemctl --user...")
@@ -150,16 +152,21 @@ class UpdateCog(commands.Cog):
         """
         if isinstance(error, commands.NotOwner):
             await ctx.send("❌ Эта команда доступна только владельцу бота.", ephemeral=True)
+            cmd_name = ctx.command.name if ctx.command else "неизвестная команда"
             logger.warning(
                 f"Пользователь {ctx.author} (ID: {ctx.author.id}) попытался использовать "
-                f"команду только для владельца: {ctx.command.name}"
+                f"команду только для владельца: {cmd_name}"
             )
         else:
-            logger.error(f"Ошибка в команде {ctx.command.name}: {error}", exc_info=error)
+            cmd_name = ctx.command.name if ctx.command else "неизвестная команда"
+            logger.error(
+                f"Ошибка в команде {cmd_name}: {error}",
+                exc_info=error,
+            )
             await ctx.send(f"❌ Произошла ошибка: {error}", ephemeral=True)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot: commands.Bot) -> None:
     """Добавляет ког UpdateCog к боту.
 
     Args:

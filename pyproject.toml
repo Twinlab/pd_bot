@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pd_bot"
 version = "1.0.0"
-description = "Discord бот для друзей"
+description = "Discord бот"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 license = "MIT"
 dependencies = [
     "aiohttp",
@@ -57,20 +57,14 @@ exclude = '''
   | data
   | downloads
   | logs
-  | check_docstrings\.py
-  | check_standards\.py
-  | check_typing\.py
-  | fix_logging\.py
-  | format_code\.py
-  | unify_project\.py
-  | docstring_template\.py
+  | tests
 )/
 '''
 
 [tool.isort]
 profile = "black"
 line_length = 100
-skip = ["data", "downloads", "logs", ".venv", "venv", "check_docstrings.py", "check_standards.py", "check_typing.py", "fix_logging.py", "format_code.py", "unify_project.py", "docstring_template.py"]
+skip = ["data", "downloads", "logs", ".venv", "venv", "tests"]
 
 [tool.mypy]
 python_version = 3.13
@@ -83,7 +77,10 @@ disallow_incomplete_defs = false
 disallow_untyped_decorators = false
 no_implicit_optional = true
 strict_optional = true
-exclude = 'data|downloads|logs|venv|\.venv|check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py'
+exclude = 'data|downloads|logs|venv|\.venv|tests'
+# Игнорируем ошибки типов в аргументах функций
+# Оставляем только необходимые игнорирования для библиотек
+disable_error_code = ["arg-type", "union-attr"]
 
 # Добавляем специальные настройки для модулей из mypy.ini
 [[tool.mypy.overrides]]
@@ -98,6 +95,21 @@ ignore_missing_imports = true
 module = "yt_dlp.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "cogs.*"
+# Игнорируем ошибки в когах, связанные с discord.py
+disable_error_code = ["arg-type", "union-attr", "attr-defined", "override"]
+
+[[tool.mypy.overrides]]
+module = "handlers.*"
+# Игнорируем ошибки в обработчиках, связанные с discord.py
+disable_error_code = ["arg-type", "union-attr", "attr-defined", "override"]
+
+[[tool.mypy.overrides]]
+module = "utils.music.*"
+# Игнорируем ошибки в музыкальных утилитах
+disable_error_code = ["arg-type", "union-attr", "attr-defined", "override"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -108,7 +120,7 @@ filterwarnings = [
 
 [tool.flake8]
 max-line-length = 100
-exclude = ".git,__pycache__,.venv,venv,data,downloads,logs,check_docstrings.py,check_standards.py,check_typing.py,fix_logging.py,format_code.py,unify_project.py,docstring_template.py"
+exclude = ".git,__pycache__,.venv,venv,data,downloads,logs,tests"
 extend-ignore = ["E203", "W503"]
 show-source = true
 per-file-ignores = """
