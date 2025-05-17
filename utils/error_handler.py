@@ -141,13 +141,15 @@ async def safe_send(
         if isinstance(ctx, discord.Interaction):
             if ctx.response.is_done():
                 # Явное приведение типа для mypy
-                msg = await ctx.followup.send(content=content, embed=embed, ephemeral=ephemeral)
-                return msg
+                followup_msg: discord.Message = await ctx.followup.send(
+                    content=content, embed=embed, ephemeral=ephemeral
+                )
+                return followup_msg
             else:
                 await ctx.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
                 # Явное приведение типа для mypy
-                msg = await ctx.original_response()
-                return msg
+                response_msg: discord.Message = await ctx.original_response()
+                return response_msg
         else:
             return await ctx.send(content=content, embed=embed, delete_after=delete_after)
     except Exception as e:

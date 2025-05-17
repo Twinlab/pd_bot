@@ -99,7 +99,6 @@ async def load_cogs() -> None:
             cog_module = f"cogs.{filepath.stem}"
             try:
                 await bot.load_extension(cog_module)
-                logger.info(f"Загружен ког: {cog_module}")
             except Exception as e:
                 logger.error(f"Ошибка при загрузке кога {filepath.name}: {e}")
 
