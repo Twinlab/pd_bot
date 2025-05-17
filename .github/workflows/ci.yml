@@ -46,12 +46,3 @@ jobs:
     - name: Test with pytest and generate coverage report
       run: |
         pytest --cov=./ --cov-report=xml:coverage/coverage.xml
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }} # Необходимо добавить токен Codecov в секреты репозитория
-        file: ./coverage/coverage.xml
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: true
