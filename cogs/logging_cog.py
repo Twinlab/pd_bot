@@ -201,11 +201,11 @@ class LoggingCog(commands.Cog):
                 function = log_data.get("function", "")
 
                 # Форматируем сообщение
-                formatted = f"[{timestamp}] {level:<8} {logger_name:<15} - {message}"
+                formatted = f"[{timestamp}] {level:<7} {logger_name:<12} - {message}"
 
-                # Добавляем информацию о модуле и функции
-                if module and function:
-                    formatted += f" ({module}.{function})"
+                # Добавляем информацию о модуле и функции только если они не дублируют logger_name
+                if module and function and module != logger_name.lower():
+                    formatted += f" ({module})"
 
                 # Добавляем контекст, если он есть
                 if "context" in log_data:
