@@ -42,8 +42,7 @@ pd_bot/
 │   └── update.py          # Команда обновления бота
 ├── docs/                  # Документация
 │   ├── CONTRIBUTING.md    # Руководство по контрибьюции
-│   ├── STYLE_GUIDE.md     # Руководство по стилю кода
-│   └── UNIFICATION_PLAN_DETAILED.md # Подробный план унификации проекта
+│   └── STYLE_GUIDE.md     # Руководство по стилю кода
 ├── handlers/              # Обработчики событий
 │   ├── events.py          # Обработчики событий Discord (on_ready, on_presence_update, etc.)
 │   └── message_handler.py # Обработчик текстовых сообщений (если нужен)
