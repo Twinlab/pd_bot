@@ -36,7 +36,6 @@ class GiveawayCog(commands.Cog):
         self.bot: commands.Bot = bot
         # Словарь для хранения задач asyncio, отслеживающих активные розыгрыши {message_id: task}
         self.active_giveaways: Dict[int, asyncio.Task] = {}
-        logger.info(f"Ког {self.__class__.__name__} загружен")
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога, отменяет все активные задачи розыгрышей."""

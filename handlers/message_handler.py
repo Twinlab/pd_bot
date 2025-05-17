@@ -30,7 +30,6 @@ class MessageHandler(commands.Cog):
         # Словарь для отслеживания времени последней обработки сообщения от пользователя
         # {user_id: timestamp}
         self.cooldowns: Dict[int, float] = {}
-        logger.info(f"Ког {self.__class__.__name__} загружен")
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.

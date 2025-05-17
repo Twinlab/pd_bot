@@ -42,7 +42,6 @@ class FunCog(commands.Cog):
             bot: Экземпляр бота discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
-        logger.info(f"Ког {self.__class__.__name__} загружен.")
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message) -> None:

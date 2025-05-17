@@ -33,7 +33,6 @@ class LinksCog(commands.Cog):
         """
         self.bot = bot
         self.links_manager = LinksDataManager()
-        logger.info(f"Ког {self.__class__.__name__} загружен")
 
     async def send_response(self, ctx: commands.Context, message: str) -> None:
         """Отправляет ответ пользователю, пытаясь использовать наиболее подходящий метод.

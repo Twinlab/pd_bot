@@ -68,7 +68,6 @@ class Events(commands.Cog):
             bot: Экземпляр бота Discord.
         """
         self.bot: commands.Bot = bot
-        logger.info(f"Ког {self.__class__.__name__} загружен")
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.

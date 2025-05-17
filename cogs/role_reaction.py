@@ -47,7 +47,6 @@ class RoleReactionCog(commands.Cog):
 
         Загружает кеш сообщений с реакциями из базы данных.
         """
-        logger.info("Ког RoleReactionCog загружен")
         # Загружаем кеш сообщений при старте
         await self.load_message_cache()
 

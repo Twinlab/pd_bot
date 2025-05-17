@@ -92,8 +92,6 @@ class TwitchCog(commands.Cog):
         Инициализирует таблицу в БД, Twitch API и запускает фоновую задачу
         для проверки статуса стримов, если API ключи доступны.
         """
-        logger.info("Ког TwitchCog загружен")
-
         # Инициализируем таблицу в БД
         await self.data_manager.initialize_table()
 
