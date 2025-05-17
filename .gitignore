@@ -24,7 +24,6 @@ __pycache__/
 venv/
 env/
 .env/
-path/
 
 # Исключаем системные файлы
 .DS_Store
@@ -44,8 +43,8 @@ format_code.py
 unify_project.py
 docstring_template.py
 UNIFICATION_PLAN.md
-UNIFICATION_PLAN_DETAILED.md
+docs/UNIFICATION_PLAN_DETAILED.md
 
 # Coverage reports
 .coverage
-coverage.xml
+coverage/

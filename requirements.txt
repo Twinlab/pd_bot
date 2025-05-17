@@ -1,3 +1,4 @@
+# Основные зависимости
 aiohttp
 aiosqlite
 async-timeout
@@ -8,11 +9,23 @@ ffmpeg-python
 matplotlib
 Pillow
 PyNaCl
-pytest
-pytest-asyncio
-pytest-cov
-freezegun
 pytz
 typing-extensions
 ujson
 yt-dlp
+
+# Зависимости для разработки
+# Установка: pip install -e .[dev]
+flake8
+black
+isort
+mypy
+pre-commit
+pytest
+pytest-asyncio
+pytest-cov
+freezegun
+types-pytz
+flake8-docstrings
+flake8-print
+flake8-pyproject

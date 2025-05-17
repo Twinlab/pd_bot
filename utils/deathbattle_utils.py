@@ -76,7 +76,7 @@ async def create_deathbattle_image(
 ) -> Optional[BytesIO]:
     """Создает изображение для deathbattle, накладывая аватары участников на фон.
 
-    Фоновое изображение 'deathbattle.jpg'.
+    Фоновое изображение 'assets/deathbattle.jpg'.
 
     Args:
         member1: Первый участник.
@@ -86,7 +86,7 @@ async def create_deathbattle_image(
         Optional[BytesIO]: BytesIO буфер с PNG-изображением или None в случае ошибки.
     """
     # Путь к фоновому изображению (относительно корня проекта)
-    image_path = "deathbattle.jpg"
+    image_path = "assets/deathbattle.jpg"
 
     # Проверяем наличие фонового файла
     if not os.path.exists(image_path):

@@ -18,7 +18,8 @@ repos:
         additional_dependencies: [
             flake8,
             flake8-docstrings,  # Для проверки docstrings
-            flake8-print        # Для проверки на отсутствие print
+            flake8-print,       # Для проверки на отсутствие print
+            flake8-pyproject    # Для чтения настроек из pyproject.toml
         ]
         exclude: ^(check_docstrings\.py|check_standards\.py|check_typing\.py|fix_logging\.py|format_code\.py|unify_project\.py|docstring_template\.py)$
 
