@@ -3,6 +3,7 @@
 Содержит кнопки и выборы.
 """
 
+import logging
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 import discord
@@ -11,8 +12,10 @@ import discord
 if TYPE_CHECKING:
     from .player import MusicPlayer  # pragma: no cover
 
-from .config import logger  # Импортируем логгер
 from .embeds import format_duration  # create_embed не используется в этом файле
+
+# Создаем логгер с иерархическим именем
+logger = logging.getLogger("bot.utils.music.ui")
 
 
 class PlayerControlView(discord.ui.View):

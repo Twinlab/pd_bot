@@ -1,12 +1,16 @@
 """Модуль для взаимодействия с yt-dlp для скачивания треков и поиска видео на YouTube."""
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yt_dlp
 
-from .config import DOWNLOADS_DIR, PROXY_URL, YDL_OPTS_BASE, logger
+from .config import DOWNLOADS_DIR, PROXY_URL, YDL_OPTS_BASE
+
+# Создаем логгер с иерархическим именем
+logger = logging.getLogger("bot.utils.music.yt_integration")
 
 
 async def download_track(url: str) -> Optional[Dict[str, Any]]:

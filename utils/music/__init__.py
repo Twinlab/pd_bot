@@ -2,7 +2,7 @@
 
 from .config import COLORS
 from .embeds import create_embed
-from .player import MusicPlayer, logger
+from .player import MusicPlayer
 from .ui import SearchView
 from .yt_integration import search_youtube
 
@@ -11,6 +11,5 @@ __all__ = [
     "MusicPlayer",
     "SearchView",
     "create_embed",
-    "logger",
     "search_youtube",
 ]

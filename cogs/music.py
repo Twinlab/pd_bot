@@ -1,13 +1,15 @@
 """Ког для управления воспроизведением музыки в Discord."""
 
 import asyncio
+import logging
 
 import discord
 from discord.ext import commands
 
-from utils.music import COLORS, MusicPlayer, SearchView, create_embed
-from utils.music import logger as music_logger
-from utils.music import search_youtube
+from utils.music import COLORS, MusicPlayer, SearchView, create_embed, search_youtube
+
+# Создаем логгер с иерархическим именем, как в других когах
+logger = logging.getLogger("bot.cogs.music")
 
 
 class MusicCog(commands.Cog, name="Music"):  # type: ignore
@@ -24,20 +26,20 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore
         """
         self.bot: commands.Bot = bot
         self.player: MusicPlayer = MusicPlayer(bot)
-        music_logger.info("Музыкальный модуль инициализирован.")
+        logger.info("Музыкальный модуль инициализирован.")
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.
 
         Отменяет задачу очистки файлов и отключает плеер.
         """
-        music_logger.info("Выгрузка музыкального модуля...")
+        logger.info("Выгрузка музыкального модуля...")
         if self.player and hasattr(self.player, "_cleanup_task") and self.player._cleanup_task:
             self.player._cleanup_task.cancel()
-            music_logger.info("Задача очистки файлов отменена")
+            logger.info("Задача очистки файлов отменена")
         if self.player:
             await self.player.disconnect()
-        music_logger.info("Музыкальный модуль выгружен.")
+        logger.info("Музыкальный модуль выгружен.")
 
     @commands.Cog.listener()
     async def on_voice_state_update(
@@ -84,9 +86,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore
             # Проверяем количество "живых" пользователей в текущем канале бота
             human_members = [m for m in current_vc.channel.members if not m.bot]
             if not human_members:
-                music_logger.info(
-                    f"Бот остался один в канале '{current_vc.channel.name}'. Отключаемся."
-                )
+                logger.info(f"Бот остался один в канале '{current_vc.channel.name}'. Отключаемся.")
                 await self.player.disconnect()
 
     async def _ensure_voice(self, interaction: discord.Interaction) -> bool:
@@ -143,13 +143,13 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore
         if not self.player.text_channel and interaction.channel:
             if isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
                 self.player.text_channel = interaction.channel
-                music_logger.info(
+                logger.info(
                     f"Текстовый канал плеера установлен: #{interaction.channel.name} "
                     f"({interaction.channel.id})"
                 )
             else:
                 # Логируем, если канал не текстовый, но не прерываем операцию
-                music_logger.warning(
+                logger.warning(
                     f"Канал взаимодействия '{interaction.channel.name}' "
                     f"(тип: {type(interaction.channel)}) не является TextChannel или Thread. "
                     "Сообщения плеера могут не отображаться."
@@ -333,7 +333,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore
             interaction: Взаимодействие, где произошла ошибка.
             error: Объект ошибки.
         """
-        music_logger.error(
+        logger.error(
             f"Ошибка в музыкальной команде "
             f"'{interaction.command.name if interaction.command else 'неизвестно'}': {error}",
             exc_info=error,
@@ -369,7 +369,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore
             else:
                 await interaction.response.send_message(error_message, ephemeral=False)
         except Exception as e:
-            music_logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
+            logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
 
 
 async def setup(bot: commands.Bot) -> None:
@@ -379,4 +379,4 @@ async def setup(bot: commands.Bot) -> None:
         bot: Экземпляр discord.ext.commands.Bot.
     """
     await bot.add_cog(MusicCog(bot))
-    music_logger.info("Музыкальный модуль (MusicCog) добавлен к боту.")
+    logger.info("Музыкальный модуль (MusicCog) добавлен к боту.")

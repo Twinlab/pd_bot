@@ -9,8 +9,8 @@ from pathlib import Path
 
 import discord
 
-# --- Логгер для музыкального модуля ---
-logger = logging.getLogger("bot.utils.music")
+# --- Логгер для конфигурационного модуля музыки ---
+logger = logging.getLogger("bot.utils.music.config")
 
 # --- Константы и конфигурация ---
 DOWNLOADS_DIR = Path("downloads")

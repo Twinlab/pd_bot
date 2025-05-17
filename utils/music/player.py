@@ -1,6 +1,7 @@
 """Модуль, содержащий классы Track и MusicPlayer для управления музыкальным плеером."""
 
 import asyncio
+import logging
 import time
 from collections import deque
 from pathlib import Path
@@ -8,9 +9,12 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 import discord
 
-from .config import COLORS, DOWNLOADS_DIR, FFMPEG_OPTIONS, logger
+from .config import COLORS, DOWNLOADS_DIR, FFMPEG_OPTIONS
 from .embeds import create_embed, format_duration
 from .yt_integration import download_track
+
+# Создаем логгер с иерархическим именем
+logger = logging.getLogger("bot.utils.music.player")
 
 if TYPE_CHECKING:
     from discord.ext import commands  # Для type hinting bot
