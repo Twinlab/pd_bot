@@ -231,3 +231,46 @@ sequenceDiagram
         Cog->>ErrorHandler: Перехват исключения
         ErrorHandler->>User: Сообщение об ошибке
     end
+```
+
+## Система логирования
+
+```mermaid
+graph TD
+    A[main.py] --> B[setup_logging]
+    B --> C[Файл логов]
+    B --> D[Консоль]
+
+    E[Модули] --> F[Логгеры]
+    F --> G[Иерархия логгеров]
+
+    G --> H[bot.main]
+    G --> I[bot.cogs.*]
+    G --> J[bot.utils.*]
+    G --> K[bot.handlers.*]
+
+    I --> I1[bot.cogs.music]
+    I --> I2[bot.cogs.activity]
+    I --> I3[bot.cogs.logging_cog]
+
+    J --> J1[bot.utils.dota_api]
+    J --> J2[bot.utils.music.*]
+
+    J2 --> J2_1[bot.utils.music.player]
+    J2 --> J2_2[bot.utils.music.ui]
+    J2 --> J2_3[bot.utils.music.config]
+    J2 --> J2_4[bot.utils.music.yt_integration]
+
+    C --> L[LoggingCog]
+    L --> M[Discord канал]
+```
+
+### Особенности системы логирования
+
+- **Иерархическая структура**: Все логгеры следуют единой иерархии, начиная с `bot`
+- **JSON-форматирование**: Логи сохраняются в JSON-формате для удобного анализа
+- **Цветной вывод в консоль**: Разные уровни логирования отображаются разными цветами
+- **Пересылка в Discord**: Логи автоматически пересылаются в указанный Discord-канал
+- **Контекстное логирование**: Возможность добавления контекста к группе логов
+
+Подробная документация по системе логирования доступна в [LOGGING.md](LOGGING.md).
