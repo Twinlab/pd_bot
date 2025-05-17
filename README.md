@@ -22,8 +22,7 @@ PD Bot - это многофункциональный Discord бот, разр�
 pd_bot/
 ├── main.py                # Точка входа приложения
 ├── config.py              # Управление конфигурацией
-├── pyproject.toml         # Конфигурация проекта и инструментов (black, isort, mypy, flake8, pytest)
-├── requirements.txt       # Зависимости Python (основные и для разработки)
+├── pyproject.toml         # Конфигурация проекта, инструментов и зависимостей
 ├── LICENSE                # Лицензия проекта
 ├── README.md              # Документация проекта
 ├── assets/                # Ресурсы проекта
@@ -143,28 +142,14 @@ pd_bot/
 
 ### 3.1 Требования
 
-*   Python 3.12+ (согласно pyproject.toml)
-*   Зависимости из `requirements.txt`
+*   Python 3.12+
 *   FFmpeg (для музыкального плеера)
 
 ### 3.2 Установка зависимостей
 
-#### Основные зависимости
+Все зависимости (основные и для разработки) определены в pyproject.toml. Для установки выполните:
 
 ```bash
-pip install -r requirements.txt
-```
-
-#### Зависимости для разработки
-
-```bash
-pip install -e .[dev]
-```
-
-Или установить все зависимости сразу:
-
-```bash
-pip install -r requirements.txt
 pip install -e .[dev]
 ```
 

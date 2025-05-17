@@ -24,8 +24,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install -e .[dev] # Устанавливаем dev-зависимости для линтеров и тестов
+        pip install -e .[dev] # Устанавливаем основные и dev-зависимости из pyproject.toml
 
     - name: Lint with flake8
       run: |
