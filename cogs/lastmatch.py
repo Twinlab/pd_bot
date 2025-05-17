@@ -15,6 +15,7 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
+from utils.cog_utils import log_cog_load
 from utils.dota_match_utils import handle_lastmatch
 from utils.error_handler import command_error_handler
 
@@ -31,7 +32,8 @@ class LastMatchCog(commands.Cog):
             bot: Экземпляр бота discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
-        logger.info(f"Ког {self.__class__.__name__} загружен")
+        # Используем нашу утилиту для логирования загрузки кога
+        log_cog_load(self.__class__.__name__, "init")
 
     @commands.hybrid_command(description="Показать информацию о последнем матче Dota 2")
     @command_error_handler
@@ -115,4 +117,5 @@ async def setup(bot: commands.Bot) -> None:
         bot: Экземпляр бота discord.ext.commands.Bot.
     """
     await bot.add_cog(LastMatchCog(bot))
-    logger.info("Ког LastMatchCog успешно загружен.")
+    # Используем нашу утилиту для логирования загрузки кога
+    log_cog_load("LastMatchCog", "setup")
