@@ -13,9 +13,8 @@
 
 import asyncio
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict  # Добавляем Dict и Any
+from typing import Any, Dict
 
 from discord import Intents
 from discord.ext import commands
@@ -23,34 +22,18 @@ from discord.ext import commands
 from config import load_config
 from utils import dota_api
 from utils.database import DB_PATH, initialize_database
+from utils.logging_utils import setup_logging
 
-# === Логирование: создаём logs/ и уникальный файл ===
-LOGS_DIR: Path = Path("logs")
-LOGS_DIR.mkdir(exist_ok=True)
-log_filename: str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
-log_path: Path = LOGS_DIR / log_filename
-
-# Создаём/обновляем симлинк на последний лог
-latest_symlink: Path = LOGS_DIR / "latest.log"
-try:
-    if latest_symlink.exists() or latest_symlink.is_symlink():
-        latest_symlink.unlink(missing_ok=True)  # Добавим missing_ok=True для unlink
-    latest_symlink.symlink_to(log_filename)
-except OSError as e:
-    logging.warning(
-        f"Не удалось создать/обновить симлинк 'latest.log': {e}"
-    )  # Используем logging вместо logger, т.к. logger еще не настроен
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler(log_path, mode="a", encoding=None, delay=False),
-        logging.StreamHandler(),
-    ],
+# Настройка расширенного логирования
+log_path = setup_logging(
+    log_dir="logs",
+    log_level=logging.INFO,
+    enable_json_logs=True,
+    enable_console_logs=True,
 )
-logger: logging.Logger = logging.getLogger("bot.main")  # Используем иерархическое имя логгера
+
+# Получаем логгер для текущего модуля
+logger: logging.Logger = logging.getLogger("bot.main")
 
 # Настройка интентов бота
 intents: Intents = Intents.default()

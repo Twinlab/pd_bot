@@ -41,6 +41,7 @@ pd_bot/
 │   ├── role_reaction.py   # Система ролей по реакциям
 │   └── update.py          # Команда обновления бота
 ├── docs/                  # Документация
+│   ├── ARCHITECTURE.md    # Визуальные схемы и диаграммы архитектуры
 │   ├── CONTRIBUTING.md    # Руководство по контрибьюции
 │   └── STYLE_GUIDE.md     # Руководство по стилю кода
 ├── handlers/              # Обработчики событий
@@ -53,8 +54,9 @@ pd_bot/
 │   ├── dota_api.py
 │   ├── dota_match_utils.py
 │   ├── dota_utils.py
-│   ├── error_handler.py
+│   ├── error_handler.py    # Централизованная обработка ошибок
 │   ├── links_data_manager.py
+│   ├── logging_utils.py    # Расширенная система логирования
 │   ├── message_utils.py
 │   ├── penis_utils.py
 │   ├── role_reaction_data_manager.py
@@ -196,6 +198,7 @@ python main.py
 
 Проект содержит подробную документацию в директории `docs/`:
 
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)**: Визуальные схемы и диаграммы архитектуры проекта, включая структуру проекта, потоки данных и структуру базы данных
 - **[CONTRIBUTING.md](docs/CONTRIBUTING.md)**: Руководство по контрибьюции, содержащее правила и стандарты разработки
 - **[STYLE_GUIDE.md](docs/STYLE_GUIDE.md)**: Подробное руководство по стилю кода, включая правила форматирования, именования и документирования
 - **[UNIFICATION_PLAN_DETAILED.md](docs/UNIFICATION_PLAN_DETAILED.md)**: Подробный план унификации проекта
@@ -312,32 +315,28 @@ python main.py
 
 ### 8.1 Конфигурация логирования
 
-Логирование настраивается в `main.py` с помощью `logging.basicConfig`:
+Логирование настраивается в `main.py` с использованием расширенной системы логирования из `utils/logging_utils.py`:
 
 ```python
 import logging
+from utils.logging_utils import setup_logging
 
-from pathlib import Path
-from datetime import datetime
-
-LOGS_DIR = Path("logs")
-LOGS_DIR.mkdir(exist_ok=True)
-log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
-log_path = LOGS_DIR / log_filename
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_path, mode="a", encoding=None, delay=False, buffering=1),
-        logging.StreamHandler()
-    ]
+# Настройка расширенного логирования
+log_path = setup_logging(
+    log_dir="logs",
+    log_level=logging.INFO,
+    enable_json_logs=True,
+    enable_console_logs=True,
 )
-logger = logging.getLogger("bot")
+
+# Получаем логгер для текущего модуля
+logger = logging.getLogger("bot.main")
 ```
 
 - Все логи пишутся в отдельный файл в папке `logs/` для каждого запуска бота (например, `logs/2025-04-30_01-16-00.log`) и выводятся в консоль.
-- Формат логов: время, имя логгера, уровень, сообщение.
+- Поддерживается JSON-форматирование логов для удобного анализа.
+- Цветное логирование в консоли для лучшей читаемости.
+- Автоматическое создание симлинка на последний лог-файл.
 
 ### 8.2 Именование логгеров
 
@@ -389,6 +388,24 @@ logger.error("Ошибка при выполнении команды", exc_info
 ```python
 import logging
 logger = logging.getLogger("bot.subsystem")
+```
+
+### 8.7 Расширенные возможности логирования
+
+Модуль `utils/logging_utils.py` предоставляет дополнительные возможности для логирования:
+
+- **JSON-форматирование логов**: Класс `JsonFormatter` для структурированного логирования в формате JSON.
+- **Контекстное логирование**: Декоратор `with_context` для добавления контекстной информации к логам внутри функций.
+- **Гибкая настройка**: Функция `setup_logging` с параметрами для настройки директории, уровня логирования, форматов и т.д.
+
+Пример использования контекстного логирования:
+
+```python
+from utils.logging_utils import with_context
+
+@with_context(logger, {"user_id": 123, "guild_id": 456})
+def process_command():
+    logger.info("Обработка команды")  # Лог будет содержать контекст {"user_id": 123, "guild_id": 456}
 ```
 ## 9. Отслеживание Twitch-стримов (`cogs/twitch.py`)
 

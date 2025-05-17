@@ -1,181 +1,171 @@
-"""
-Модуль для унифицированной обработки ошибок в командах бота.
-
-Этот модуль предоставляет декоратор и вспомогательные функции для обработки
-ошибок в командах Discord бота. Он обеспечивает:
-- Единообразную обработку исключений в командах
-- Безопасную отправку сообщений об ошибках пользователям
-- Логирование ошибок с контекстом
-- Поддержку как обычных команд, так и slash-команд
-"""
+"""Модуль для централизованной обработки ошибок."""
 
 import functools
 import logging
-from typing import Any, Callable, Optional, TypeVar, cast
+from typing import Any, Callable, Dict, Optional, TypeVar, Union, cast
 
 import discord
 from discord.ext import commands
 
-logger: logging.Logger = logging.getLogger("bot.utils.error_handler")
+logger = logging.getLogger("bot.utils.error_handler")
 
-# Определяем типы для декоратора
+# Типы для аннотаций
 F = TypeVar("F", bound=Callable[..., Any])
+
+# Словарь с пользовательскими сообщениями для разных типов ошибок
+ERROR_MESSAGES: Dict[type, str] = {
+    commands.MissingRequiredArgument: "Отсутствует обязательный аргумент: {error.param.name}",
+    commands.BadArgument: "Неверный аргумент: {error}",
+    commands.MissingPermissions: "У вас недостаточно прав для выполнения этой команды.",
+    commands.BotMissingPermissions: "У бота недостаточно прав для выполнения этой команды.",
+    commands.CommandOnCooldown: "Команда на перезарядке. Попробуйте через {error.retry_after:.1f} "
+    "сек.",
+    commands.NotOwner: "Эта команда доступна только владельцу бота.",
+    commands.MemberNotFound: "Участник не найден: {error.argument}",
+    commands.ChannelNotFound: "Канал не найден: {error.argument}",
+    commands.RoleNotFound: "Роль не найдена: {error.argument}",
+    commands.CommandNotFound: "Команда не найдена.",
+    discord.HTTPException: "Ошибка Discord API: {error}",
+    discord.Forbidden: "У бота нет прав для выполнения этого действия.",
+    discord.NotFound: "Ресурс не найден: {error}",
+    ValueError: "Ошибка значения: {error}",
+    TypeError: "Ошибка типа: {error}",
+    KeyError: "Ключ не найден: {error}",
+    IndexError: "Индекс вне диапазона: {error}",
+    FileNotFoundError: "Файл не найден: {error}",
+    PermissionError: "Ошибка прав доступа: {error}",
+    TimeoutError: "Превышено время ожидания: {error}",
+    ConnectionError: "Ошибка подключения: {error}",
+}
 
 
 def command_error_handler(func: F) -> F:
     """
-    Декоратор для унифицированной обработки ошибок в командах.
-
-    Оборачивает функцию команды в try-except блок, который перехватывает
-    все исключения, логирует их и отправляет пользователю сообщение об ошибке.
-    Поддерживает как обычные команды, так и slash-команды.
+    Декоратор для обработки ошибок команд.
 
     Args:
-        func: Функция команды для обработки ошибок.
+        func: Функция команды.
 
     Returns:
-        Обернутая функция с обработкой ошибок.
-
-    Examples:
-        @commands.hybrid_command()
-        @command_error_handler
-        async def my_command(self, ctx):
-            # Код команды
-            pass
+        Декорированная функция.
     """
 
     @functools.wraps(func)
     async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> Any:
-        """
-        Обертка для функции команды с обработкой ошибок.
-
-        Args:
-            self: Экземпляр кога.
-            ctx: Контекст команды.
-            *args: Позиционные аргументы команды.
-            **kwargs: Именованные аргументы команды.
-
-        Returns:
-            Результат выполнения оригинальной функции или None в случае ошибки.
-
-        Raises:
-            Не выбрасывает исключений, все они перехватываются и обрабатываются.
-        """
         try:
             return await func(self, ctx, *args, **kwargs)
-        except discord.NotFound as e:
-            # Если это ошибка "Unknown interaction" или "Unknown Message", просто логируем
-            error_str = str(e).lower()
-            if "unknown message" in error_str or "unknown interaction" in error_str:
-                logger.info(f"Взаимодействие не найдено при выполнении {func.__name__}: {e}")
-                return
+        except Exception as error:
+            # Логируем ошибку
+            logger.error(
+                f"Ошибка в команде {ctx.command}: {error}",
+                exc_info=error,
+                extra={
+                    "command": ctx.command.name if ctx.command else "unknown",
+                    "author": f"{ctx.author} ({ctx.author.id})",
+                    "guild": f"{ctx.guild} ({ctx.guild.id})" if ctx.guild else "DM",
+                    "channel": f"{ctx.channel} ({ctx.channel.id})",
+                    "message": ctx.message.content if hasattr(ctx, "message") else "No message",
+                },
+            )
 
-            # Для других ошибок NotFound пытаемся отправить сообщение
-            logger.error(f"Ошибка 'Not Found' в команде {func.__name__}: {e}", exc_info=True)
-            await safe_send_error(ctx, e)
+            # Получаем сообщение об ошибке
+            error_message = get_error_message(error)
 
-        except Exception as e:
-            logger.error(f"Ошибка в команде {func.__name__}: {e}", exc_info=True)
-            await safe_send_error(ctx, e)
+            # Отправляем сообщение об ошибке
+            await safe_send_error(ctx, error_message)
+
+            # Если это критическая ошибка, пересылаем её дальше
+            if isinstance(error, (commands.CommandInvokeError, commands.HybridCommandError)):
+                original = error.original
+                if isinstance(original, (SystemExit, KeyboardInterrupt)):
+                    raise original
+
+            # Записываем метрики ошибки, если есть
+            if hasattr(self.bot, "metrics"):
+                self.bot.metrics.record_error(
+                    command_name=ctx.command.name if ctx.command else "unknown",
+                    error_type=type(error).__name__,
+                    user_id=ctx.author.id,
+                )
 
     return cast(F, wrapper)
 
 
-async def safe_send_error(ctx: commands.Context | discord.Interaction, error: Exception) -> None:
+def get_error_message(error: Exception) -> str:
     """
-    Вспомогательная функция для безопасной отправки сообщений об ошибках.
-
-    Определяет тип команды (обычная или slash) и отправляет сообщение об ошибке
-    соответствующим способом. Обрабатывает различные состояния взаимодействия
-    для slash-команд.
+    Возвращает пользовательское сообщение об ошибке.
 
     Args:
-        ctx: Контекст команды (может быть Context или Interaction).
-        error: Исключение, которое нужно отобразить пользователю.
+        error: Объект ошибки.
 
     Returns:
-        None
+        Сообщение об ошибке.
     """
-    try:
-        # Проверяем тип контекста и статус отложенного ответа
-        if isinstance(ctx, discord.Interaction):
-            # Для slash-команд
-            interaction = ctx  # Теперь ctx это discord.Interaction
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"Произошла ошибка: {error}", ephemeral=True
-                )
-            else:
-                try:
-                    await interaction.followup.send(f"Произошла ошибка: {error}", ephemeral=True)
-                except discord.NotFound:
-                    # Если взаимодействие/канал потеряны, логируем
-                    if interaction.channel and isinstance(
-                        interaction.channel, discord.abc.Messageable
-                    ):
-                        error_message = f"Произошла ошибка при выполнении команды: {error}"
-                        await interaction.channel.send(error_message, delete_after=10)
-                    else:
-                        warning_message = (
-                            "Не удалось отправить сообщение об ошибке в канал для взаимодействия "
-                            f"{interaction.id}."
-                        )
-                        logger.warning(warning_message)
-        elif isinstance(ctx, commands.Context):
-            # Для обычных команд
-            await ctx.send(f"Произошла ошибка: {error}")
-        else:
-            logger.error(f"Неизвестный тип контекста в safe_send_error: {type(ctx)}")
-    except Exception as send_error:
-        logger.error(f"Не удалось отправить сообщение об ошибке: {send_error}")
+    # Если это ошибка вызова команды, получаем оригинальную ошибку
+    if isinstance(error, (commands.CommandInvokeError, commands.HybridCommandError)):
+        error = error.original
+
+    # Ищем сообщение в словаре ERROR_MESSAGES
+    for error_type, message_template in ERROR_MESSAGES.items():
+        if isinstance(error, error_type):
+            try:
+                return message_template.format(error=error)
+            except Exception:
+                return f"Произошла ошибка: {error}"
+
+    # Если не нашли, возвращаем общее сообщение
+    return f"Произошла непредвиденная ошибка: {error}"
 
 
 async def safe_send(
-    ctx: commands.Context | discord.Interaction, content: str, **kwargs: Any
+    ctx: Union[commands.Context, discord.Interaction],
+    content: Optional[str] = None,
+    *,
+    embed: Optional[discord.Embed] = None,
+    ephemeral: bool = False,
 ) -> Optional[discord.Message]:
     """
-    Безопасно отправляет сообщение в зависимости от типа команды.
-
-    Определяет тип команды (обычная или slash) и отправляет сообщение
-    соответствующим способом. Поддерживает дополнительные параметры,
-    такие как ephemeral для slash-команд и delete_after для обычных команд.
+    Безопасно отправляет сообщение, учитывая тип контекста (Context или Interaction).
 
     Args:
-        ctx: Контекст команды (может быть Context или Interaction).
-        content: Текст сообщения для отправки.
-        **kwargs: Дополнительные параметры для передачи в функцию отправки.
-            - ephemeral: Видимо только автору (для slash-команд).
-            - delete_after: Удалить сообщение через указанное время (для обычных команд).
+        ctx: Контекст команды или взаимодействие.
+        content: Текст сообщения.
+        embed: Эмбед для отправки.
+        ephemeral: Отправить как эфемерное сообщение (только для Interaction).
 
     Returns:
-        discord.Message: Отправленное сообщение (для обычных команд) или None (для slash-команд).
+        Отправленное сообщение или None в случае ошибки.
     """
     try:
-        # delete_after поддерживается только у обычного ctx.send
-        delete_after = kwargs.pop("delete_after", None)
-
         if isinstance(ctx, discord.Interaction):
-            # Для slash-команд
-            interaction = ctx  # Теперь ctx это discord.Interaction
-            if not interaction.response.is_done():
-                await interaction.response.send_message(content, **kwargs)
-                return None  # WebhookMessage не возвращается или не используется
+            if ctx.response.is_done():
+                return await ctx.followup.send(content=content, embed=embed, ephemeral=ephemeral)
             else:
-                # followup.send может вернуть WebhookMessage, но мы его не используем
-                await interaction.followup.send(content, **kwargs)
-                return None
-        elif isinstance(ctx, commands.Context):
-            # Для обычных команд
-            message: Optional[discord.Message] = None  # Объявляем message здесь
-            if delete_after is not None:
-                message = await ctx.send(content, delete_after=delete_after, **kwargs)
-                return message
-            else:
-                message = await ctx.send(content, **kwargs)
-                return message
+                await ctx.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
+                return await ctx.original_response()
         else:
-            logger.error(f"Неизвестный тип контекста в safe_send: {type(ctx)}")
-            return None
+            return await ctx.send(content=content, embed=embed)
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
         return None
+
+
+async def safe_send_error(
+    ctx: Union[commands.Context, discord.Interaction], error_message: str
+) -> Optional[discord.Message]:
+    """
+    Безопасно отправляет сообщение об ошибке.
+
+    Args:
+        ctx: Контекст команды или взаимодействие.
+        error_message: Сообщение об ошибке.
+
+    Returns:
+        Отправленное сообщение или None в случае ошибки.
+    """
+    embed = discord.Embed(
+        title="❌ Ошибка",
+        description=error_message,
+        color=discord.Color.red(),
+    )
+    return await safe_send(ctx, embed=embed, ephemeral=True)
