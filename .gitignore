@@ -54,3 +54,6 @@ coverage/
 *.egg
 dist/
 build/
+
+# Исключаем план улучшений
+docs/IMPROVEMENT_PLAN_COMPLETE.md
