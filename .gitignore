@@ -34,17 +34,9 @@ Thumbs.db
 # Исключаем логи
 *.log
 
-# Исключаем файлы унификации
-check_docstrings.py
-check_standards.py
-check_typing.py
-fix_logging.py
-format_code.py
-unify_project.py
-docstring_template.py
-UNIFICATION_PLAN.md
+# Исключаем временные планы
 docs/UNIFICATION_PLAN_DETAILED.md
-
+docs/TEST_COVERAGE_PLAN.md
 # Coverage reports
 .coverage
 coverage/
