@@ -64,7 +64,11 @@ def command_error_handler(func: F) -> F:
                     "author": f"{ctx.author} ({ctx.author.id})",
                     "guild": f"{ctx.guild} ({ctx.guild.id})" if ctx.guild else "DM",
                     "channel": f"{ctx.channel} ({ctx.channel.id})",
-                    "message": ctx.message.content if hasattr(ctx, "message") else "No message",
+                    "user_message_content": (
+                        ctx.message.content
+                        if hasattr(ctx, "message") and ctx.message
+                        else "No message"
+                    ),
                 },
             )
 

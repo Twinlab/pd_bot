@@ -116,25 +116,26 @@ class LoggingCog(commands.Cog):
                 buffer = ""
                 for line in f:
                     if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
-                        await self.send_log_message(buffer)
+                        if buffer:  # Отправляем, только если буфер не пуст
+                            await self.send_log_message(buffer)
                         buffer = line
                     else:
                         buffer += line
-                if buffer:
+                if buffer:  # Отправляем остаток, если он есть
                     await self.send_log_message(buffer)
                 self.last_read_position = f.tell()
             logger.info(
                 f"[LogCog] Весь лог '{self.log_file_path}' отправлен в канал "
                 f"{self.log_channel.name}."
             )
+            # Запускаем задачу tail только при успехе
+            if not self._tail_task_started:
+                self.tail_log_file.start()
+                self._tail_task_started = True
+                logger.info("[LogCog] Задача tail_log_file успешно запущена.")
         except Exception as e:
             logger.error(f"[LogCog] Ошибка при отправке лога: {e}", exc_info=True)
-
-        # Запускаем задачу tail
-        if not self._tail_task_started:
-            self.tail_log_file.start()
-            self._tail_task_started = True
-            logger.info("[LogCog] Задача tail_log_file успешно запущена.")
+            # Не запускаем tail, если была ошибка с основным логом
 
     @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
     async def tail_log_file(self) -> None:
@@ -152,11 +153,12 @@ class LoggingCog(commands.Cog):
                 buffer = ""
                 for line in new_lines:
                     if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
-                        await self.send_log_message(buffer)
+                        if buffer:  # Отправляем, только если буфер не пуст
+                            await self.send_log_message(buffer)
                         buffer = line
                     else:
                         buffer += line
-                if buffer:
+                if buffer:  # Отправляем остаток, если он есть
                     await self.send_log_message(buffer)
             self.last_read_position = new_position
         except Exception as e:
@@ -183,13 +185,15 @@ class LoggingCog(commands.Cog):
                 log_data = json.loads(log_line)
 
                 # Форматируем время
-                timestamp = log_data.get("timestamp", "")
-                if timestamp:
+                timestamp_val = log_data.get("timestamp")
+                timestamp_str = ""
+                if timestamp_val:
                     try:
-                        dt = datetime.fromisoformat(timestamp)
-                        timestamp = dt.strftime("%H:%M:%S")
+                        dt = datetime.fromisoformat(str(timestamp_val))
+                        timestamp_str = f"[{dt.strftime('%H:%M:%S')}] "
                     except (ValueError, TypeError):
-                        pass
+                        # Если не удалось распарсить, но значение есть, отображаем как есть
+                        timestamp_str = f"[{timestamp_val}] "
 
                 # Получаем основные поля
                 level = log_data.get("level", "")
@@ -201,7 +205,7 @@ class LoggingCog(commands.Cog):
                 function = log_data.get("function", "")
 
                 # Форматируем сообщение
-                formatted = f"[{timestamp}] {level:<7} {logger_name:<12} - {message}"
+                formatted = f"{timestamp_str}{level:<7} {logger_name:<12} - {message}"
 
                 # Добавляем информацию о модуле и функции только если они не дублируют logger_name
                 if module and function and module != logger_name.lower():

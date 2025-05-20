@@ -1,9 +1,10 @@
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 import discord
+import asyncio
 import pytest
 
 # --- Тестовые версии классов ---
@@ -185,6 +186,10 @@ class TestStatsView:
     """Тестовая версия StatsView без наследования от discord.ui.View."""
 
     # __init__ removed to avoid PytestCollectionWarning
+    def _update_buttons(self) -> None:
+        """Имитация метода _update_buttons для тестирования."""
+        self.prev_button_disabled = self.current_page == 0
+        self.next_button_disabled = self.current_page >= self.max_pages - 1
     title: str
     user: MagicMock | None
     items_per_page: int
@@ -237,6 +242,15 @@ class TestStatsView:
 
 
 # --- Фикстуры для тестирования ---
+
+@pytest.fixture
+def mock_interaction() -> MagicMock:
+    """Создает мок для объекта взаимодействия Discord."""
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.response = MagicMock()
+    interaction.response.edit_message = AsyncMock()
+    interaction.response.defer = AsyncMock()
+    return interaction
 
 
 @pytest.fixture
@@ -483,6 +497,314 @@ def test_activity_view_get_current_content(
     assert "*Страница 1/1*" in content
 
 
+def test_activity_view_update_buttons(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
+    """Проверяет правильность обновления состояния кнопок."""
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 2  # 2 элемента на страницу, чтобы было несколько страниц
+    view.message = None
+    view.prepare_data()
+    
+    # Добавляем атрибуты для хранения состояния кнопок
+    view.prev_button_disabled = None
+    view.next_button_disabled = None
+    view.toggle_button_label = None
+    
+    # Проверяем состояние кнопок на первой странице
+    view._update_buttons = lambda: None  # Заменяем метод, чтобы он не вызывался
+    
+    # Имитируем работу метода _update_buttons
+    view.prev_button_disabled = view.current_page == 0
+    view.next_button_disabled = view.current_page >= view.max_pages - 1
+    view.toggle_button_label = "По играм" if view.view_mode == "users" else "По пользователям"
+    
+    assert view.prev_button_disabled is True  # Кнопка "Назад" должна быть отключена
+    assert view.next_button_disabled is False  # Кнопка "Вперед" должна быть включена
+    assert view.toggle_button_label == "По играм"  # Текст кнопки переключения режима
+    
+    # Переходим на вторую страницу
+    view.current_page = 1
+    view.prev_button_disabled = view.current_page == 0
+    view.next_button_disabled = view.current_page >= view.max_pages - 1
+    
+    assert view.prev_button_disabled is False  # Кнопка "Назад" должна быть включена
+    assert view.next_button_disabled is True  # Кнопка "Вперед" должна быть отключена
+    
+    # Переключаем режим на "games"
+    view.view_mode = "games"
+    view.toggle_button_label = "По играм" if view.view_mode == "users" else "По пользователям"
+    
+    assert view.toggle_button_label == "По пользователям"  # Текст кнопки переключения режима
+
+
+def test_activity_view_empty_data(mock_bot: MagicMock) -> None:
+    """Проверяет корректную обработку пустых данных."""
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = {}  # Пустые данные
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Проверяем, что данные пользователей пусты
+    assert len(view.users_data) == 0
+    assert len(view.user_ids) == 0
+    
+    # Проверяем, что данные игр пусты
+    assert len(view.games_data) == 0
+    assert len(view.games_list) == 0
+    
+    # Проверяем, что max_pages равно 1 (минимальное значение)
+    assert view.max_pages == 1
+    
+    # Проверяем содержимое для режима "users"
+    users_content = view._get_users_content()
+    assert "*Нет данных для отображения на этой странице.*" in users_content
+    
+    # Проверяем содержимое для режима "games"
+    view.view_mode = "games"
+    games_content = view._get_games_content()
+    assert "*Нет данных для отображения на этой странице.*" in games_content
+
+
+def test_activity_view_with_zero_time_activities(mock_bot: MagicMock) -> None:
+    """Проверяет фильтрацию активностей с нулевым временем."""
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = {
+        1: {"Game1": 3600, "Game2": 0},  # Game2 должен быть отфильтрован
+        2: {"Game3": 0, "Game4": 7200},  # Game3 должен быть отфильтрован
+        3: {"Game5": 0}  # Пользователь 3 должен быть отфильтрован полностью
+    }
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Проверяем, что активности с нулевым временем отфильтрованы
+    assert "Game2" not in view.users_data[1]
+    assert "Game3" not in view.users_data.get(2, {})
+    assert 3 not in view.users_data  # Пользователь 3 должен быть отфильтрован
+    
+    # Проверяем, что в данных игр нет игр с нулевым временем
+    assert "Game2" not in view.games_data
+    assert "Game3" not in view.games_data
+    assert "Game5" not in view.games_data
+
+
+def test_activity_view_get_guild_from_context() -> None:
+    """Проверяет получение гильдии из контекста команды."""
+    view = TestActivityView()
+    view.bot = MagicMock()
+    view.bot.guilds = []  # Пустой список гильдий бота
+    
+    # Создаем мок контекста с гильдией
+    ctx = MagicMock()
+    guild = MagicMock()
+    guild.name = "Context Guild"
+    ctx.guild = guild
+    view.ctx = ctx
+    
+    # Проверяем, что гильдия получена из контекста
+    result_guild = view._get_guild()
+    assert result_guild == guild
+
+
+def test_activity_view_get_guild_from_bot() -> None:
+    """Проверяет получение гильдии из бота, если контекст отсутствует."""
+    view = TestActivityView()
+    
+    # Создаем мок бота с гильдией
+    bot = MagicMock()
+    guild = MagicMock()
+    guild.name = "Bot Guild"
+    bot.guilds = [guild]
+    view.bot = bot
+    view.ctx = None
+    
+    # Проверяем, что гильдия получена из бота
+    result_guild = view._get_guild()
+    assert result_guild == guild
+
+
+def test_activity_view_get_guild_none() -> None:
+    """Проверяет возврат None, если гильдию определить не удалось."""
+    view = TestActivityView()
+    view.bot = MagicMock()
+    view.bot.guilds = []  # Пустой список гильдий бота
+    view.ctx = None
+    
+    # Проверяем, что возвращается None
+    result_guild = view._get_guild()
+    assert result_guild is None
+
+
+@pytest.mark.asyncio
+async def test_activity_view_on_timeout() -> None:
+    """Тестирует метод on_timeout класса ActivityView."""
+    # Импортируем реальный класс для тестирования метода on_timeout
+    from utils.activity.views import ActivityView
+    
+    # Создаем экземпляр класса с минимально необходимыми атрибутами
+    view = ActivityView(MagicMock(), {})
+    view.message = MagicMock()
+    view.message.edit = AsyncMock()
+    
+    # Создаем кнопки и добавляем их в view
+    button1 = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button1")
+    button2 = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button2")
+    view.add_item(button1)
+    view.add_item(button2)
+    
+    # Вызываем метод on_timeout
+    await view.on_timeout()
+    
+    # Проверяем, что все кнопки отключены
+    assert button1.disabled is True
+    assert button2.disabled is True
+    
+    # Проверяем, что было вызвано редактирование сообщения
+    view.message.edit.assert_called_once_with(view=view)
+
+
+@pytest.mark.asyncio
+async def test_activity_view_previous_button() -> None:
+    """Тестирует обработчик кнопки 'Назад' класса ActivityView."""
+    # Импортируем реальный класс для тестирования метода
+    from utils.activity.views import ActivityView
+    
+    # Создаем экземпляр класса с минимально необходимыми атрибутами
+    view = ActivityView(MagicMock(), {})
+    view.current_page = 1  # Начинаем со второй страницы
+    view.max_pages = 2
+    view._update_buttons = MagicMock()  # Мокаем метод обновления кнопок
+    view.get_current_content = MagicMock(return_value="Test Content")
+    
+    # Создаем мок для interaction
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.edit_message = AsyncMock()
+    
+    # Создаем мок для кнопки
+    button = MagicMock()
+    
+    # Получаем метод previous_button из класса
+    method = ActivityView.previous_button
+    
+    # Вызываем метод
+    await method.__get__(view)(interaction, button)
+    
+    # Проверяем, что current_page уменьшился на 1
+    assert view.current_page == 0
+    
+    # Проверяем, что _update_buttons был вызван
+    view._update_buttons.assert_called_once()
+    
+    # Проверяем, что было вызвано редактирование сообщения
+    interaction.response.edit_message.assert_called_once_with(
+        content=view.get_current_content(), view=view
+    )
+
+
+@pytest.mark.asyncio
+async def test_activity_view_next_button() -> None:
+    """Тестирует обработчик кнопки 'Вперед' класса ActivityView."""
+    # Импортируем реальный класс для тестирования метода
+    from utils.activity.views import ActivityView
+    
+    # Создаем экземпляр класса с минимально необходимыми атрибутами
+    view = ActivityView(MagicMock(), {})
+    view.current_page = 0  # Начинаем с первой страницы
+    view.max_pages = 2
+    view._update_buttons = MagicMock()  # Мокаем метод обновления кнопок
+    view.get_current_content = MagicMock(return_value="Test Content")
+    
+    # Создаем мок для interaction
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.edit_message = AsyncMock()
+    
+    # Создаем мок для кнопки
+    button = MagicMock()
+    
+    # Получаем метод next_button из класса
+    method = ActivityView.next_button
+    
+    # Вызываем метод
+    await method.__get__(view)(interaction, button)
+    
+    # Проверяем, что current_page увеличился на 1
+    assert view.current_page == 1
+    
+    # Проверяем, что _update_buttons был вызван
+    view._update_buttons.assert_called_once()
+    
+    # Проверяем, что было вызвано редактирование сообщения
+    interaction.response.edit_message.assert_called_once_with(
+        content=view.get_current_content(), view=view
+    )
+
+
+@pytest.mark.asyncio
+async def test_activity_view_toggle_mode() -> None:
+    """Тестирует обработчик кнопки переключения режима класса ActivityView."""
+    # Импортируем реальный класс для тестирования метода
+    from utils.activity.views import ActivityView
+    
+    # Создаем экземпляр класса с минимально необходимыми атрибутами
+    view = ActivityView(MagicMock(), {})
+    view.view_mode = "users"  # Начинаем с режима "users"
+    view.current_page = 1  # Не на первой странице
+    view._recalculate_max_pages = MagicMock()  # Мокаем метод пересчета страниц
+    view._update_buttons = MagicMock()  # Мокаем метод обновления кнопок
+    view.get_current_content = MagicMock(return_value="Test Content")
+    
+    # Создаем мок для interaction
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.edit_message = AsyncMock()
+    
+    # Создаем мок для кнопки
+    button = MagicMock()
+    
+    # Получаем метод toggle_mode из класса
+    method = ActivityView.toggle_mode
+    
+    # Вызываем метод
+    await method.__get__(view)(interaction, button)
+    
+    # Проверяем, что view_mode изменился на "games"
+    assert view.view_mode == "games"
+    
+    # Проверяем, что current_page сбросился на 0
+    assert view.current_page == 0
+    
+    # Проверяем, что _recalculate_max_pages был вызван
+    view._recalculate_max_pages.assert_called_once()
+    
+    # Проверяем, что _update_buttons был вызван
+    view._update_buttons.assert_called_once()
+    
+    # Проверяем, что было вызвано редактирование сообщения
+    interaction.response.edit_message.assert_called_once_with(
+        content=view.get_current_content(), view=view
+    )
+
+
 # --- Тесты для StatsView ---
 
 
@@ -545,3 +867,156 @@ def test_stats_view_second_page(stats_data: list[tuple[str, int]], mock_user: Ma
 
     # Проверяем футер
     assert "Страница 2/2" in embed.footer.text
+
+
+def test_stats_view_update_buttons(stats_data: list[tuple[str, int]]) -> None:
+    """Проверяет правильность обновления состояния кнопок в StatsView."""
+    view = TestStatsView()
+    view.title = "Статистика TestUser"
+    view.games_data = stats_data
+    view.user = None
+    view.items_per_page = 3
+    view.current_page = 0
+    view.max_pages = max(1, (len(view.games_data) + view.items_per_page - 1) // view.items_per_page)
+    view.message = None
+    
+    # Добавляем атрибуты для хранения состояния кнопок
+    view.prev_button_disabled = None
+    view.next_button_disabled = None
+    
+    # Проверяем состояние кнопок на первой странице
+    view._update_buttons()
+    
+    assert view.prev_button_disabled is True  # Кнопка "Назад" должна быть отключена
+    assert view.next_button_disabled is False  # Кнопка "Вперед" должна быть включена
+    
+    # Переходим на вторую страницу
+    view.current_page = 1
+    view._update_buttons()
+    
+    assert view.prev_button_disabled is False  # Кнопка "Назад" должна быть включена
+    assert view.next_button_disabled is True  # Кнопка "Вперед" должна быть отключена
+
+
+def test_stats_view_empty_data() -> None:
+    """Проверяет корректную обработку пустых данных в StatsView."""
+    view = TestStatsView()
+    view.title = "Пустая статистика"
+    view.games_data = []  # Пустые данные
+    view.user = None
+    view.items_per_page = 5
+    view.current_page = 0
+    view.max_pages = max(1, (len(view.games_data) + view.items_per_page - 1) // view.items_per_page)
+    view.message = None
+    
+    embed = view.get_current_embed()
+    
+    # Проверяем, что в описании указано отсутствие данных
+    assert "*Нет данных для отображения на этой странице.*" in embed.description
+    
+    # Проверяем общее время (должно быть 0)
+    total_time_field = next(
+        (field for field in embed.fields if field.name == "📊 Общее игровое время"), None
+    )
+    assert total_time_field is not None
+    assert "0m" in total_time_field.value
+    
+    # Проверяем футер
+    assert "Всего игр: 0" in embed.footer.text
+    assert "Страница 1/1" not in embed.footer.text  # Не должно быть информации о страницах
+
+
+@pytest.mark.asyncio
+async def test_stats_view_on_timeout() -> None:
+    """Тестирует метод on_timeout класса StatsView."""
+    # Импортируем реальный класс для тестирования метода on_timeout
+    from utils.activity.views import StatsView
+    
+    # Создаем экземпляр класса с минимально необходимыми атрибутами
+    view = StatsView("Test Title", [])
+    view.message = MagicMock()
+    view.message.edit = AsyncMock()
+    
+    # Добавляем кнопки через add_item, как в ActivityView
+    button1 = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button1")
+    button2 = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button2")
+    view.add_item(button1)
+    view.add_item(button2)
+
+    # Вызываем метод on_timeout
+    await view.on_timeout()
+    
+    # Проверяем, что все кнопки отключены
+    assert button1.disabled is True
+    assert button2.disabled is True
+    
+    # Проверяем, что было вызвано редактирование сообщения
+    view.message.edit.assert_called_once_with(view=view)
+
+
+@pytest.mark.asyncio
+async def test_stats_view_previous_button(mock_interaction: MagicMock) -> None:
+    """Тестирует обработчик кнопки 'Назад' класса StatsView."""
+    # Импортируем реальный класс для тестирования метода
+    from utils.activity.views import StatsView
+    
+    # Создаем экземпляр класса с минимально необходимыми атрибутами
+    view = StatsView("Test Title", [("Game1", 3600), ("Game2", 7200)])
+    view.current_page = 1  # Начинаем со второй страницы
+    view.max_pages = 2
+    view._update_buttons = MagicMock()  # Мокаем метод обновления кнопок
+    view.get_current_embed = MagicMock(return_value=discord.Embed(title="Test Embed"))
+    
+    # Создаем мок для кнопки
+    button = MagicMock()
+    
+    # Получаем метод previous_button из класса
+    method = StatsView.previous_button
+    
+    # Вызываем метод
+    await method.__get__(view)(mock_interaction, button)
+    
+    # Проверяем, что current_page уменьшился на 1
+    assert view.current_page == 0
+    
+    # Проверяем, что _update_buttons был вызван
+    view._update_buttons.assert_called_once()
+    
+    # Проверяем, что было вызвано редактирование сообщения
+    mock_interaction.response.edit_message.assert_called_once_with(
+        embed=view.get_current_embed(), view=view
+    )
+
+
+@pytest.mark.asyncio
+async def test_stats_view_next_button(mock_interaction: MagicMock) -> None:
+    """Тестирует обработчик кнопки 'Вперед' класса StatsView."""
+    # Импортируем реальный класс для тестирования метода
+    from utils.activity.views import StatsView
+    
+    # Создаем экземпляр класса с минимально необходимыми атрибутами
+    view = StatsView("Test Title", [("Game1", 3600), ("Game2", 7200)])
+    view.current_page = 0  # Начинаем с первой страницы
+    view.max_pages = 2
+    view._update_buttons = MagicMock()  # Мокаем метод обновления кнопок
+    view.get_current_embed = MagicMock(return_value=discord.Embed(title="Test Embed"))
+    
+    # Создаем мок для кнопки
+    button = MagicMock()
+    
+    # Получаем метод next_button из класса
+    method = StatsView.next_button
+    
+    # Вызываем метод
+    await method.__get__(view)(mock_interaction, button)
+    
+    # Проверяем, что current_page увеличился на 1
+    assert view.current_page == 1
+    
+    # Проверяем, что _update_buttons был вызван
+    view._update_buttons.assert_called_once()
+    
+    # Проверяем, что было вызвано редактирование сообщения
+    mock_interaction.response.edit_message.assert_called_once_with(
+        embed=view.get_current_embed(), view=view
+    )

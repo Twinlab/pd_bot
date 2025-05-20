@@ -229,7 +229,10 @@ class AdminCog(commands.Cog):
             reason: Причина кика (опционально).
         """
         # Проверка иерархии ролей: нельзя кикнуть пользователя с ролью выше или равной вашей
-        if member.top_role >= ctx.author.top_role and ctx.author.id != ctx.guild.owner_id:
+        if (
+            member.top_role.position >= ctx.author.top_role.position
+            and ctx.author.id != ctx.guild.owner_id
+        ):
             await safe_send(
                 ctx,
                 "Вы не можете кикнуть участника с равной или более высокой ролью.",
@@ -237,7 +240,7 @@ class AdminCog(commands.Cog):
             )
             return
         # Проверка иерархии ролей: бот не может кикнуть пользователя с ролью выше или равной своей
-        if member.top_role >= ctx.guild.me.top_role:
+        if member.top_role.position >= ctx.guild.me.top_role.position:
             await safe_send(
                 ctx, "У бота недостаточно прав для кика этого участника.", ephemeral=True
             )
