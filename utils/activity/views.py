@@ -49,7 +49,7 @@ class ActivityView(ui.View):
         self.date_str = date_str  # Строка с датой для заголовка
         self.current_page = 0
         self.view_mode = "users"  # "users" или "games"
-        self.max_items_per_page = 30
+        self.max_items_per_page = 25  # Количество пользователей на одной странице
         self.message: Optional[discord.Message] = None  # Для редактирования при таймауте
 
         # Подготавливаем данные для отображения
