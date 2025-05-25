@@ -258,7 +258,8 @@ async def test_send_daily_report_exception(mock_bot, mock_channel, mock_data_man
     # Проверяем, что было отправлено сообщение об ошибке
     assert mock_channel.send.called
     assert "Не удалось сформировать" in mock_channel.send.call_args[0][0]
-    assert "Test error" in mock_channel.send.call_args[0][0]
+    # Сообщение об ошибке не содержит детали ошибки, только общее уведомление
+    assert "Попробуйте позже или обратитесь к администратору" in mock_channel.send.call_args[0][0]
 
 
 # --- Тесты для send_monthly_report ---

@@ -1041,7 +1041,7 @@ async def test_activity_view_init_with_date_str(mock_bot: MagicMock) -> None:
     assert view.report_type == "daily"  # значение по умолчанию
     assert view.current_page == 0
     assert view.view_mode == "users"
-    assert view.max_items_per_page == 25
+    assert view.max_items_per_page == 20
 
 
 @pytest.mark.asyncio

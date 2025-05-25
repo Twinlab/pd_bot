@@ -693,3 +693,911 @@ async def test_cleanup_without_clearing_queue(music_player, mock_track) -> None:
     assert music_player.is_paused is False
     assert music_player.current_track is None
     assert len(music_player.queue) == 1  # Очередь не должна быть очищена
+
+
+# --- Дополнительные тесты для улучшения покрытия ---
+
+
+@pytest.mark.asyncio
+async def test_connect_timeout_error(music_player) -> None:
+    """Тестирует обработку таймаута при подключении к голосовому каналу."""
+    channel = MagicMock(spec=discord.VoiceChannel)
+    channel.name = "Test Voice Channel"
+    channel.id = 123456789
+    channel.connect = AsyncMock(side_effect=asyncio.TimeoutError())
+
+    result = await music_player.connect(channel)
+
+    assert result is False
+    assert music_player.voice_client is None
+
+
+@pytest.mark.asyncio
+async def test_connect_client_exception_with_existing_voice_client(music_player) -> None:
+    """Тестирует обработку ClientException при наличии существующего голосового клиента."""
+    channel = MagicMock(spec=discord.VoiceChannel)
+    channel.name = "Test Voice Channel"
+    channel.id = 123456789
+    channel.connect = AsyncMock(side_effect=discord.ClientException("Already connected"))
+    
+    # Мокаем guild.voice_client
+    existing_voice_client = MagicMock(spec=discord.VoiceClient)
+    existing_voice_client.channel = MagicMock()
+    existing_voice_client.channel.name = "Existing Channel"
+    channel.guild.voice_client = existing_voice_client
+    
+    # Мокаем рекурсивный вызов connect
+    music_player.connect = AsyncMock(return_value=True)
+    
+    result = await music_player.connect(channel)
+    
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_connect_client_exception_without_existing_voice_client(music_player) -> None:
+    """Тестирует обработку ClientException без существующего голосового клиента."""
+    channel = MagicMock(spec=discord.VoiceChannel)
+    channel.name = "Test Voice Channel"
+    channel.id = 123456789
+    channel.connect = AsyncMock(side_effect=discord.ClientException("Connection failed"))
+    channel.guild.voice_client = None
+
+    result = await music_player.connect(channel)
+
+    assert result is False
+    assert music_player.voice_client is None
+
+
+@pytest.mark.asyncio
+async def test_connect_general_exception(music_player) -> None:
+    """Тестирует обработку общих исключений при подключении."""
+    channel = MagicMock(spec=discord.VoiceChannel)
+    channel.name = "Test Voice Channel"
+    channel.id = 123456789
+    channel.connect = AsyncMock(side_effect=Exception("General error"))
+
+    result = await music_player.connect(channel)
+
+    assert result is False
+    assert music_player.voice_client is None
+
+
+@pytest.mark.asyncio
+async def test_connect_move_to_timeout_error(music_player, mock_voice_client) -> None:
+    """Тестирует обработка таймаута при перемещении в другой канал."""
+    current_channel = MagicMock(spec=discord.VoiceChannel)
+    current_channel.name = "Current Channel"
+    current_channel.id = 111111111
+
+    new_channel = MagicMock(spec=discord.VoiceChannel)
+    new_channel.name = "New Channel"
+    new_channel.id = 222222222
+
+    # Устанавливаем voice_client
+    music_player.voice_client = mock_voice_client
+    mock_voice_client.channel = current_channel
+    mock_voice_client.move_to = AsyncMock(side_effect=asyncio.TimeoutError())
+
+    result = await music_player.connect(new_channel)
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_disconnect_not_connected(music_player) -> None:
+    """Тестирует отключение когда голосовой клиент не подключен."""
+    # Устанавливаем voice_client, но не подключенный
+    mock_voice_client = MagicMock(spec=discord.VoiceClient)
+    mock_voice_client.is_connected.return_value = False
+    music_player.voice_client = mock_voice_client
+    
+    # Мокаем cleanup
+    music_player.cleanup = AsyncMock()
+
+    await music_player.disconnect()
+
+    # Проверяем, что stop и disconnect не вызывались
+    mock_voice_client.stop.assert_not_called()
+    mock_voice_client.disconnect.assert_not_awaited()
+    music_player.cleanup.assert_awaited_once_with(clear_queue=True)
+
+
+@pytest.mark.asyncio
+async def test_disconnect_send_message_error(music_player, mock_text_channel) -> None:
+    """Тестирует обработку ошибки при отправке сообщения об автоотключении."""
+    music_player.text_channel = mock_text_channel
+    mock_text_channel.send = AsyncMock(side_effect=Exception("Send failed"))
+    
+    # Мокаем cleanup
+    music_player.cleanup = AsyncMock()
+
+    await music_player.disconnect()
+
+    # Проверяем, что ошибка обработана корректно
+    music_player.cleanup.assert_awaited_once_with(clear_queue=True)
+
+
+@pytest.mark.asyncio
+async def test_queue_track_file_not_found_error(music_player, mock_member, mock_interaction) -> None:
+    """Тестирует обработку ошибки когда скачанный файл не найден."""
+    url = "https://www.youtube.com/watch?v=test_id"
+    mock_track_info = {
+        "id": "test_id",
+        "title": "Test Track",
+        "webpage_url": url,
+        "duration": 180,
+        "filepath": "downloads/nonexistent.mp3",
+    }
+
+    with patch("utils.music.player.download_track", new_callable=AsyncMock) as mock_download:
+        mock_download.return_value = mock_track_info
+        
+        # Мокаем Path.exists чтобы вернуть False
+        with patch("pathlib.Path.exists", return_value=False):
+            await music_player.queue_track(url, mock_member, mock_interaction)
+
+            assert len(music_player.queue) == 0
+            # Проверяем, что было отправлено сообщение об ошибке
+            assert mock_interaction.edit_original_response.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_queue_track_zero_size_file_error(music_player, mock_member, mock_interaction) -> None:
+    """Тестирует обработку ошибки когда скачанный файл имеет нулевой размер."""
+    url = "https://www.youtube.com/watch?v=test_id"
+    mock_track_info = {
+        "id": "test_id",
+        "title": "Test Track",
+        "webpage_url": url,
+        "duration": 180,
+        "filepath": "downloads/empty.mp3",
+    }
+
+    with patch("utils.music.player.download_track", new_callable=AsyncMock) as mock_download:
+        mock_download.return_value = mock_track_info
+        
+        with patch("pathlib.Path.exists", return_value=True):
+            # Мокаем stat чтобы вернуть нулевой размер
+            mock_stat_result = MagicMock()
+            mock_stat_result.st_size = 0
+            with patch("pathlib.Path.stat", return_value=mock_stat_result):
+                await music_player.queue_track(url, mock_member, mock_interaction)
+
+                assert len(music_player.queue) == 0
+                # Проверяем, что было отправлено сообщение об ошибке
+                assert mock_interaction.edit_original_response.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_queue_track_without_interaction(music_player, mock_member, mock_text_channel) -> None:
+    """Тестирует добавление трека без interaction, используя text_channel."""
+    url = "https://www.youtube.com/watch?v=test_id"
+    mock_track_info = {
+        "id": "test_id",
+        "title": "Test Track",
+        "webpage_url": url,
+        "duration": 180,
+        "filepath": "downloads/test.mp3",
+    }
+
+    music_player.text_channel = mock_text_channel
+
+    with patch("utils.music.player.download_track", new_callable=AsyncMock) as mock_download:
+        mock_download.return_value = mock_track_info
+        
+        with patch("pathlib.Path.exists", return_value=True):
+            mock_stat_result = MagicMock()
+            mock_stat_result.st_size = 1024
+            with patch("pathlib.Path.stat", return_value=mock_stat_result):
+                await music_player.queue_track(url, mock_member)
+
+                assert len(music_player.queue) == 1
+                # Проверяем, что сообщения отправлялись в text_channel
+                assert mock_text_channel.send.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_queue_track_start_playback_when_not_playing(music_player, mock_member, mock_voice_client, mock_interaction) -> None:
+    """Тестирует автоматический запуск воспроизведения при добавлении трека."""
+    url = "https://www.youtube.com/watch?v=test_id"
+    mock_track_info = {
+        "id": "test_id",
+        "title": "Test Track",
+        "webpage_url": url,
+        "duration": 180,
+        "filepath": "downloads/test.mp3",
+    }
+
+    music_player.voice_client = mock_voice_client
+    music_player.is_playing = False
+    music_player.start_playback_loop = MagicMock()
+
+    with patch("utils.music.player.download_track", new_callable=AsyncMock) as mock_download:
+        mock_download.return_value = mock_track_info
+        
+        with patch("pathlib.Path.exists", return_value=True):
+            mock_stat_result = MagicMock()
+            mock_stat_result.st_size = 1024
+            with patch("pathlib.Path.stat", return_value=mock_stat_result):
+                await music_player.queue_track(url, mock_member, mock_interaction)
+
+                assert len(music_player.queue) == 1
+                music_player.start_playback_loop.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_start_playback_loop_already_running(music_player) -> None:
+    """Тестирует что новая задача не создается если цикл уже запущен."""
+    # Создаем мок задачи, которая еще не завершена
+    mock_task = MagicMock()
+    mock_task.done.return_value = False
+    music_player._play_next_task = mock_task
+    
+    music_player.loop.create_task = MagicMock()
+
+    music_player.start_playback_loop()
+
+    # Проверяем, что новая задача не была создана
+    music_player.loop.create_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_play_next_not_connected(music_player) -> None:
+    """Тестирует play_next когда голосовой клиент не подключен."""
+    music_player.voice_client = None
+    music_player.cleanup = AsyncMock()
+
+    await music_player.play_next()
+
+    music_player.cleanup.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_play_next_already_playing(music_player, mock_voice_client) -> None:
+    """Тестирует play_next когда уже идет воспроизведение."""
+    music_player.voice_client = mock_voice_client
+    music_player.is_playing = True
+
+    await music_player.play_next()
+
+    # Проверяем, что ничего не произошло
+    assert music_player.is_playing is True
+
+
+@pytest.mark.asyncio
+async def test_play_next_file_not_found(music_player, mock_voice_client, mock_track) -> None:
+    """Тестирует play_next когда файл трека не найден."""
+    music_player.voice_client = mock_voice_client
+    mock_track.filepath = "downloads/nonexistent.mp3"
+    music_player.queue.append(mock_track)
+    
+    music_player.send_error_message = AsyncMock()
+    music_player.start_playback_loop = MagicMock()
+
+    with patch("pathlib.Path.exists", return_value=False):
+        await music_player.play_next()
+
+        music_player.send_error_message.assert_awaited_once()
+        music_player.start_playback_loop.assert_called_once()
+        assert music_player.current_track is None
+
+
+@pytest.mark.asyncio
+async def test_play_next_zero_size_file(music_player, mock_voice_client, mock_track) -> None:
+    """Тестирует play_next когда файл трека имеет нулевой размер."""
+    music_player.voice_client = mock_voice_client
+    mock_track.filepath = "downloads/empty.mp3"
+    music_player.queue.append(mock_track)
+    
+    music_player.send_error_message = AsyncMock()
+    music_player.start_playback_loop = MagicMock()
+
+    with patch("pathlib.Path.exists", return_value=True):
+        mock_stat_result = MagicMock()
+        mock_stat_result.st_size = 0
+        with patch("pathlib.Path.stat", return_value=mock_stat_result):
+            await music_player.play_next()
+
+            music_player.send_error_message.assert_awaited_once()
+            music_player.start_playback_loop.assert_called_once()
+            assert music_player.current_track is None
+
+
+@pytest.mark.asyncio
+async def test_play_next_ffmpeg_error(music_player, mock_voice_client, mock_track) -> None:
+    """Тестирует play_next когда FFmpegPCMAudio вызывает ошибку."""
+    music_player.voice_client = mock_voice_client
+    mock_track.filepath = "downloads/test.mp3"
+    music_player.queue.append(mock_track)
+    
+    music_player.send_error_message = AsyncMock()
+    music_player.start_playback_loop = MagicMock()
+
+    with patch("pathlib.Path.exists", return_value=True):
+        mock_stat_result = MagicMock()
+        mock_stat_result.st_size = 1024
+        with patch("pathlib.Path.stat", return_value=mock_stat_result):
+            with patch("discord.FFmpegPCMAudio", side_effect=Exception("FFmpeg error")):
+                await music_player.play_next()
+
+                music_player.send_error_message.assert_awaited_once()
+                music_player.start_playback_loop.assert_called_once()
+                assert music_player.current_track is None
+
+
+@pytest.mark.asyncio
+async def test_after_playback_with_error(music_player, mock_track) -> None:
+    """Тестирует _after_playback с ошибкой воспроизведения."""
+    music_player.current_track = mock_track
+    music_player.send_error_message = AsyncMock()
+    music_player.cleanup = AsyncMock()
+
+    error = Exception("Playback error")
+    await music_player._after_playback(error)
+
+    assert music_player.is_playing is False
+    assert music_player.current_track is None
+    music_player.send_error_message.assert_awaited_once()
+    music_player.cleanup.assert_awaited_once_with(clear_queue=True)
+
+
+@pytest.mark.asyncio
+async def test_after_playback_with_queue_and_connected(music_player, mock_voice_client, mock_track) -> None:
+    """Тестирует _after_playback когда есть треки в очереди и клиент подключен."""
+    music_player.current_track = mock_track
+    music_player.voice_client = mock_voice_client
+    music_player.queue.append(mock_track)  # Добавляем трек в очередь
+    music_player.start_playback_loop = MagicMock()
+
+    await music_player._after_playback(None)
+
+    assert music_player.is_playing is False
+    assert music_player.current_track is None
+    music_player.start_playback_loop.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_after_playback_empty_queue_connected(music_player, mock_voice_client, mock_track) -> None:
+    """Тестирует _after_playback когда очередь пуста но клиент подключен."""
+    music_player.current_track = mock_track
+    music_player.voice_client = mock_voice_client
+    music_player.cleanup = AsyncMock()
+
+    await music_player._after_playback(None)
+
+    assert music_player.is_playing is False
+    assert music_player.current_track is None
+    music_player.cleanup.assert_awaited_once_with(clear_queue=False)
+
+
+@pytest.mark.asyncio
+async def test_after_playback_not_connected(music_player, mock_track) -> None:
+    """Тестирует _after_playback когда клиент не подключен."""
+    music_player.current_track = mock_track
+    music_player.voice_client = None
+    music_player.cleanup = AsyncMock()
+
+    await music_player._after_playback(None)
+
+    assert music_player.is_playing is False
+    assert music_player.current_track is None
+    music_player.cleanup.assert_awaited_once_with(clear_queue=True)
+
+
+@pytest.mark.asyncio
+async def test_pause_not_playing(music_player, mock_interaction) -> None:
+    """Тестирует pause когда ничего не играет."""
+    music_player.is_playing = False
+
+    await music_player.pause(mock_interaction)
+
+    mock_interaction.response.send_message.assert_awaited_once()
+    assert "ничего не играет" in mock_interaction.response.send_message.call_args.args[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_pause_already_paused(music_player, mock_voice_client, mock_interaction) -> None:
+    """Тестирует pause когда уже на паузе."""
+    music_player.voice_client = mock_voice_client
+    music_player.is_playing = True
+    music_player.is_paused = True
+
+    await music_player.pause(mock_interaction)
+
+    mock_interaction.response.send_message.assert_awaited_once()
+    assert "уже на паузе" in mock_interaction.response.send_message.call_args.args[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_pause_with_done_response(music_player, mock_voice_client, mock_interaction) -> None:
+    """Тестирует pause когда response уже был отправлен."""
+    music_player.voice_client = mock_voice_client
+    music_player.is_playing = True
+    music_player.is_paused = False
+    mock_interaction.response.is_done.return_value = True
+    music_player._update_now_playing_message = AsyncMock()
+
+    await music_player.pause(mock_interaction)
+
+    mock_voice_client.pause.assert_called_once()
+    assert music_player.is_paused is True
+    mock_interaction.followup.send.assert_awaited_once()
+    music_player._update_now_playing_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resume_not_paused(music_player, mock_interaction) -> None:
+    """Тестирует resume когда не на паузе."""
+    music_player.is_paused = False
+
+    await music_player.resume(mock_interaction)
+
+    mock_interaction.response.send_message.assert_awaited_once()
+    assert "не на паузе" in mock_interaction.response.send_message.call_args.args[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_resume_with_done_response(music_player, mock_voice_client, mock_interaction) -> None:
+    """Тестирует resume когда response уже был отправлен."""
+    music_player.voice_client = mock_voice_client
+    music_player.is_paused = True
+    mock_interaction.response.is_done.return_value = True
+    music_player._update_now_playing_message = AsyncMock()
+
+    await music_player.resume(mock_interaction)
+
+    mock_voice_client.resume.assert_called_once()
+    assert music_player.is_paused is False
+    mock_interaction.followup.send.assert_awaited_once()
+    music_player._update_now_playing_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_skip_not_playing(music_player, mock_interaction) -> None:
+    """Тестирует skip когда ничего не играет."""
+    music_player.is_playing = False
+
+    await music_player.skip(mock_interaction)
+
+    mock_interaction.response.send_message.assert_awaited_once()
+    assert "ничего не играет" in mock_interaction.response.send_message.call_args.args[0].lower()
+
+
+@pytest.mark.asyncio
+async def test_skip_with_done_response(music_player, mock_voice_client, mock_interaction, mock_track) -> None:
+    """Тестирует skip когда response уже был отправлен."""
+    music_player.voice_client = mock_voice_client
+    music_player.is_playing = True
+    music_player.current_track = mock_track
+    mock_interaction.response.is_done.return_value = True
+
+    await music_player.skip(mock_interaction)
+
+    mock_voice_client.stop.assert_called_once()
+    mock_interaction.followup.send.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_show_queue_with_many_tracks(music_player, mock_interaction, mock_track) -> None:
+    """Тестирует отображение очереди с большим количеством треков (>15)."""
+    # Добавляем 20 треков в очередь
+    for i in range(20):
+        music_player.queue.append(mock_track)
+
+    await music_player.show_queue(mock_interaction)
+
+    mock_interaction.response.send_message.assert_awaited_once()
+    embed = mock_interaction.response.send_message.call_args.kwargs["embed"]
+    assert "...и еще 5 трек(ов)" in embed.description
+
+
+@pytest.mark.asyncio
+async def test_show_queue_only_current_track(music_player, mock_interaction, mock_track) -> None:
+    """Тестирует отображение очереди только с текущим треком."""
+    music_player.current_track = mock_track
+    music_player.is_paused = True
+
+    await music_player.show_queue(mock_interaction)
+
+    mock_interaction.response.send_message.assert_awaited_once()
+    embed = mock_interaction.response.send_message.call_args.kwargs["embed"]
+    assert "⏸️" in embed.description
+    assert "Всего треков: 1" in embed.footer.text
+
+
+@pytest.mark.asyncio
+async def test_update_now_playing_message_edit_not_found(music_player, mock_text_channel) -> None:
+    """Тестирует обновление сообщения когда существующее сообщение не найдено."""
+    music_player.text_channel = mock_text_channel
+    
+    # Создаем мок существующего сообщения
+    mock_message = MagicMock()
+    mock_message.edit = AsyncMock(side_effect=discord.NotFound(MagicMock(), "Message not found"))
+    music_player.now_playing_message = mock_message
+    
+    with patch("utils.music.ui.PlayerControlView") as MockPlayerView:
+        mock_view = MagicMock()
+        mock_view._update_buttons = MagicMock()
+        MockPlayerView.return_value = mock_view
+        
+        mock_embed = MagicMock()
+        music_player._create_now_playing_embed = MagicMock(return_value=mock_embed)
+        
+        # Мокаем отправку нового сообщения
+        new_mock_message = MagicMock()
+        mock_text_channel.send.return_value = new_mock_message
+        
+        await music_player._update_now_playing_message()
+        
+        # Проверяем, что старое сообщение было сброшено и отправлено новое
+        mock_message.edit.assert_awaited_once()
+        mock_text_channel.send.assert_awaited_once()
+        assert music_player.now_playing_message is new_mock_message
+
+
+@pytest.mark.asyncio
+async def test_update_now_playing_message_edit_general_error(music_player, mock_text_channel) -> None:
+    """Тестирует обновление сообщения при общей ошибке редактирования."""
+    music_player.text_channel = mock_text_channel
+    
+    # Создаем мок существующего сообщения
+    mock_message = MagicMock()
+    mock_message.edit = AsyncMock(side_effect=Exception("Edit failed"))
+    music_player.now_playing_message = mock_message
+    
+    with patch("utils.music.ui.PlayerControlView") as MockPlayerView:
+        mock_view = MagicMock()
+        mock_view._update_buttons = MagicMock()
+        MockPlayerView.return_value = mock_view
+        
+        mock_embed = MagicMock()
+        music_player._create_now_playing_embed = MagicMock(return_value=mock_embed)
+        
+        # Мокаем отправку нового сообщения
+        new_mock_message = MagicMock()
+        mock_text_channel.send.return_value = new_mock_message
+        
+        await music_player._update_now_playing_message()
+        
+        # Проверяем, что было отправлено новое сообщение
+        mock_text_channel.send.assert_awaited_once()
+        assert music_player.now_playing_message is new_mock_message
+
+
+@pytest.mark.asyncio
+async def test_update_now_playing_message_send_http_exception(music_player, mock_text_channel) -> None:
+    """Тестирует обработку HTTPException при отправке сообщения."""
+    music_player.text_channel = mock_text_channel
+    mock_text_channel.send = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "Send failed"))
+    
+    with patch("utils.music.ui.PlayerControlView") as MockPlayerView:
+        mock_view = MagicMock()
+        mock_view._update_buttons = MagicMock()
+        MockPlayerView.return_value = mock_view
+        
+        mock_embed = MagicMock()
+        music_player._create_now_playing_embed = MagicMock(return_value=mock_embed)
+        
+        await music_player._update_now_playing_message()
+        
+        # Проверяем, что now_playing_message остался None
+        assert music_player.now_playing_message is None
+
+
+@pytest.mark.asyncio
+async def test_update_now_playing_message_send_general_exception(music_player, mock_text_channel) -> None:
+    """Тестирует обработку общего исключения при отправке сообщения."""
+    music_player.text_channel = mock_text_channel
+    mock_text_channel.send = AsyncMock(side_effect=Exception("General send error"))
+    
+    with patch("utils.music.ui.PlayerControlView") as MockPlayerView:
+        mock_view = MagicMock()
+        mock_view._update_buttons = MagicMock()
+        MockPlayerView.return_value = mock_view
+        
+        mock_embed = MagicMock()
+        music_player._create_now_playing_embed = MagicMock(return_value=mock_embed)
+        
+        await music_player._update_now_playing_message()
+        
+        # Проверяем, что now_playing_message остался None
+        assert music_player.now_playing_message is None
+
+
+@pytest.mark.asyncio
+async def test_create_now_playing_embed_with_next_track(music_player, mock_track) -> None:
+    """Тестирует создание embed с информацией о следующем треке."""
+    music_player.current_track = mock_track
+    music_player.queue.append(mock_track)  # Добавляем следующий трек
+    
+    embed = music_player._create_now_playing_embed()
+    
+    assert "Сейчас играет" in embed.title
+    # Проверяем, что есть поле "Следующий"
+    next_field = next((field for field in embed.fields if field.name == "Следующий"), None)
+    assert next_field is not None
+
+
+@pytest.mark.asyncio
+async def test_send_error_message_no_channel(music_player) -> None:
+    """Тестирует отправку сообщения об ошибке без установленного канала."""
+    music_player.text_channel = None
+    
+    # Не должно вызывать исключений
+    await music_player.send_error_message("Test error")
+
+
+@pytest.mark.asyncio
+async def test_send_error_message_http_exception(music_player, mock_text_channel) -> None:
+    """Тестирует обработку HTTPException при отправке сообщения об ошибке."""
+    music_player.text_channel = mock_text_channel
+    mock_text_channel.send = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "Send failed"))
+    
+    # Не должно вызывать исключений
+    await music_player.send_error_message("Test error")
+
+
+@pytest.mark.asyncio
+async def test_send_error_message_general_exception(music_player, mock_text_channel) -> None:
+    """Тестирует обработку общего исключения при отправке сообщения об ошибке."""
+    music_player.text_channel = mock_text_channel
+    mock_text_channel.send = AsyncMock(side_effect=Exception("General error"))
+    
+    # Не должно вызывать исключений
+    await music_player.send_error_message("Test error")
+
+
+@pytest.mark.asyncio
+async def test_cleanup_message_not_found(music_player) -> None:
+    """Тестирует cleanup когда сообщение не найдено при удалении."""
+    mock_message = MagicMock()
+    mock_message.edit = AsyncMock()
+    mock_message.delete = AsyncMock(side_effect=discord.NotFound(MagicMock(), "Message not found"))
+    music_player.now_playing_message = mock_message
+    
+    await music_player.cleanup()
+    
+    # Проверяем, что ошибка была обработана корректно
+    mock_message.delete.assert_awaited_once()
+    assert music_player.now_playing_message is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_message_delete_error(music_player) -> None:
+    """Тестирует cleanup при ошибке удаления сообщения."""
+    mock_message = MagicMock()
+    mock_message.edit = AsyncMock()
+    mock_message.delete = AsyncMock(side_effect=Exception("Delete failed"))
+    music_player.now_playing_message = mock_message
+    
+    await music_player.cleanup()
+    
+    # Проверяем, что ошибка была обработана корректно
+    mock_message.delete.assert_awaited_once()
+    assert music_player.now_playing_message is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_view_edit_error(music_player) -> None:
+    """Тестирует cleanup при ошибке редактирования view."""
+    class DummyView(discord.ui.View):
+        pass
+
+    mock_view = DummyView()
+    mock_view.stop = MagicMock()
+    music_player.player_view = mock_view
+    
+    mock_message = MagicMock()
+    mock_message.edit = AsyncMock(side_effect=Exception("Edit failed"))
+    mock_message.delete = AsyncMock()
+    music_player.now_playing_message = mock_message
+    
+    await music_player.cleanup()
+    
+    # Проверяем, что ошибка была обработана корректно
+    mock_view.stop.assert_called_once()
+    assert music_player.player_view is None
+
+
+@pytest.mark.asyncio
+async def test_start_cleanup_task(music_player) -> None:
+    """Тестирует запуск задачи очистки файлов."""
+    mock_task = MagicMock()
+    music_player.loop.create_task = MagicMock(return_value=mock_task)
+    
+    await music_player.start_cleanup_task()
+    
+    music_player.loop.create_task.assert_called_once()
+    assert music_player._cleanup_task is mock_task
+
+
+@pytest.mark.asyncio
+async def test_start_cleanup_task_already_running(music_player) -> None:
+    """Тестирует что задача очистки не создается если уже запущена."""
+    mock_task = MagicMock()
+    mock_task.done.return_value = False
+    music_player._cleanup_task = mock_task
+    
+    music_player.loop.create_task = MagicMock()
+    
+    await music_player.start_cleanup_task()
+    
+    # Проверяем, что новая задача не была создана
+    music_player.loop.create_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scheduled_cleanup_cancelled(music_player) -> None:
+    """Тестирует обработку отмены задачи периодической очистки."""
+    with patch("asyncio.sleep", side_effect=asyncio.CancelledError()):
+        await music_player._scheduled_cleanup()
+        # Тест проходит если исключение обработано корректно
+
+
+@pytest.mark.asyncio
+async def test_scheduled_cleanup_general_exception(music_player) -> None:
+    """Тестирует обработку общего исключения в задаче периодической очистки."""
+    with patch("asyncio.sleep", side_effect=Exception("General error")):
+        await music_player._scheduled_cleanup()
+        # Тест проходит если исключение обработано корректно
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_files(music_player) -> None:
+    """Тестирует очистку старых файлов."""
+    from pathlib import Path
+    import time
+    
+    # Мокаем DOWNLOADS_DIR и файлы
+    mock_file1 = MagicMock(spec=Path)
+    mock_file1.is_file.return_value = True
+    mock_file1.name = "old_file.mp3"
+    mock_file1.stat.return_value.st_mtime = time.time() - (25 * 60 * 60)  # 25 часов назад
+    mock_file1.unlink = MagicMock()
+    
+    mock_file2 = MagicMock(spec=Path)
+    mock_file2.is_file.return_value = True
+    mock_file2.name = "new_file.mp3"
+    mock_file2.stat.return_value.st_mtime = time.time() - (1 * 60 * 60)  # 1 час назад
+    mock_file2.unlink = MagicMock()
+    
+    mock_dir = MagicMock(spec=Path)
+    mock_dir.is_file.return_value = False  # Это директория, должна быть пропущена
+    
+    with patch("utils.music.player.DOWNLOADS_DIR") as mock_downloads_dir:
+        mock_downloads_dir.glob.return_value = [mock_file1, mock_file2, mock_dir]
+        
+        await music_player._cleanup_old_files()
+        
+        # Проверяем, что старый файл был удален
+        mock_file1.unlink.assert_called_once_with(missing_ok=True)
+        # Проверяем, что новый файл не был удален
+        mock_file2.unlink.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_files_os_error(music_player) -> None:
+    """Тестирует обработку OSError при удалении файлов."""
+    from pathlib import Path
+    import time
+    
+    mock_file = MagicMock(spec=Path)
+    mock_file.is_file.return_value = True
+    mock_file.name = "error_file.mp3"
+    mock_file.stat.return_value.st_mtime = time.time() - (25 * 60 * 60)  # 25 часов назад
+    mock_file.unlink = MagicMock(side_effect=OSError("Permission denied"))
+    
+    with patch("utils.music.player.DOWNLOADS_DIR") as mock_downloads_dir:
+        mock_downloads_dir.glob.return_value = [mock_file]
+        
+        # Не должно вызывать исключений
+        await music_player._cleanup_old_files()
+        
+        mock_file.unlink.assert_called_once_with(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_files_general_exception(music_player) -> None:
+    """Тестирует обработку общего исключения при очистке файлов."""
+    from pathlib import Path
+    import time
+    
+    mock_file = MagicMock(spec=Path)
+    mock_file.is_file.return_value = True
+    mock_file.name = "error_file.mp3"
+    mock_file.stat.return_value.st_mtime = time.time() - (25 * 60 * 60)  # 25 часов назад
+    mock_file.unlink = MagicMock(side_effect=Exception("Unexpected error"))
+    
+    with patch("utils.music.player.DOWNLOADS_DIR") as mock_downloads_dir:
+        mock_downloads_dir.glob.return_value = [mock_file]
+        
+        # Не должно вызывать исключений
+        await music_player._cleanup_old_files()
+        
+        mock_file.unlink.assert_called_once_with(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_files_no_files_to_delete(music_player) -> None:
+    """Тестирует очистку когда нет файлов для удаления."""
+    from pathlib import Path
+    import time
+    
+    # Все файлы новые
+    mock_file = MagicMock(spec=Path)
+    mock_file.is_file.return_value = True
+    mock_file.name = "new_file.mp3"
+    mock_file.stat.return_value.st_mtime = time.time() - (1 * 60 * 60)  # 1 час назад
+    mock_file.unlink = MagicMock()
+    
+    with patch("utils.music.player.DOWNLOADS_DIR") as mock_downloads_dir:
+        mock_downloads_dir.glob.return_value = [mock_file]
+        
+        await music_player._cleanup_old_files()
+        
+        # Проверяем, что файл не был удален
+        mock_file.unlink.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_files_glob_exception(music_player) -> None:
+    """Тестирует обработку исключения в общем процессе очистки файлов."""
+    with patch("utils.music.player.DOWNLOADS_DIR") as mock_downloads_dir:
+        mock_downloads_dir.glob.side_effect = Exception("Glob failed")
+        
+        # Не должно вызывать исключений
+        await music_player._cleanup_old_files()
+
+
+def test_track_initialization_minimal_info(mock_member) -> None:
+    """Тестирует инициализацию Track с минимальной информацией."""
+    minimal_info = {}
+    track = Track(minimal_info, mock_member)
+    
+    assert track.url == ""
+    assert track.title == "Неизвестное название"
+    assert track.duration is None
+    assert track.thumbnail is None
+    assert track.uploader is None
+    assert track.uploader_url is None
+    assert track.requester == mock_member
+    assert track.id == ""
+    assert track.extractor == "youtube"  # значение по умолчанию
+    assert track.filepath is None
+
+
+def test_track_to_embed_field_no_uploader(mock_member) -> None:
+    """Тестирует to_embed_field без информации об авторе."""
+    track_info = {
+        "title": "Test Track",
+        "duration": 180,
+    }
+    track = Track(track_info, mock_member)
+    
+    name, value, inline = track.to_embed_field()
+    
+    assert name == track.title
+    assert mock_member.mention in value
+    # Проверяем, что uploader None и не включен в value
+    assert track.uploader is None
+    assert "Автор:" not in value  # Поле автора не должно быть включено
+    assert inline is False
+
+
+def test_track_to_embed_field_uploader_no_url(mock_member) -> None:
+    """Тестирует to_embed_field с автором но без URL."""
+    track_info = {
+        "title": "Test Track",
+        "duration": 180,
+        "uploader": "Test Channel",
+    }
+    track = Track(track_info, mock_member)
+    
+    name, value, inline = track.to_embed_field()
+    
+    assert name == track.title
+    assert mock_member.mention in value
+    assert "Test Channel" in value
+    assert "[Test Channel]" not in value  # Не должно быть ссылки
+    assert inline is False

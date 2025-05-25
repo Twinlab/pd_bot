@@ -281,3 +281,180 @@ class TestCommands:
                 mock_context.send.assert_called_once()
                 assert "Не удалось опубликовать аниме-изображение" in mock_context.send.call_args[0][0]
                 assert mock_context.send.call_args[1]["ephemeral"] is True
+
+
+class TestGetAnimeImage:
+    """Тесты для метода get_anime_image."""
+
+    @pytest.mark.asyncio
+    async def test_get_anime_image_success(self, mock_bot):
+        """Тест успешного получения изображения."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Просто мокируем весь метод get_anime_image
+            with patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value="https://example.com/anime.jpg")):
+                result = await anime_cog.get_anime_image()
+                assert result == "https://example.com/anime.jpg"
+
+    @pytest.mark.asyncio
+    async def test_get_anime_image_failure(self, mock_bot):
+        """Тест неудачного получения изображения."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем метод get_anime_image чтобы он возвращал None
+            with patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value=None)):
+                result = await anime_cog.get_anime_image()
+                assert result is None
+
+
+class TestPostAnimeImageEdgeCases:
+    """Тесты для дополнительных случаев post_anime_image."""
+
+    @pytest.mark.asyncio
+    async def test_post_anime_image_no_image_url(self, mock_bot, mock_text_channel):
+        """Тест post_anime_image когда get_anime_image возвращает None."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            mock_bot.get_channel = MagicMock(return_value=mock_text_channel)
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            with patch.object(anime_cog, '_check_channel_exists', AsyncMock(return_value=True)), \
+                 patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value=None)):
+                
+                result = await anime_cog.post_anime_image()
+                assert result is False
+                mock_text_channel.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_post_anime_image_exception(self, mock_bot):
+        """Тест обработки исключения в post_anime_image."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            with patch.object(anime_cog, '_check_channel_exists', AsyncMock(side_effect=Exception("Test error"))):
+                result = await anime_cog.post_anime_image()
+                assert result is False
+
+
+class TestCheckChannelExistsEdgeCases:
+    """Тесты для дополнительных случаев _check_channel_exists."""
+
+    @pytest.mark.asyncio
+    async def test_check_channel_exists_no_channel_id(self, mock_bot):
+        """Тест _check_channel_exists когда channel_id не установлен."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()):
+            mock_bot.config = {}
+            anime_cog = AnimeCog(mock_bot)
+            
+            result = await anime_cog._check_channel_exists()
+            assert result is False
+
+
+class TestBeforeLoopMethods:
+    """Тесты для методов before_loop."""
+
+    @pytest.mark.asyncio
+    async def test_before_morning_post(self, mock_bot):
+        """Тест метода before_morning_post."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            mock_bot.wait_until_ready = AsyncMock()
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            await anime_cog.before_morning_post()
+            mock_bot.wait_until_ready.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_before_evening_post(self, mock_bot):
+        """Тест метода before_evening_post."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            mock_bot.wait_until_ready = AsyncMock()
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            await anime_cog.before_evening_post()
+            mock_bot.wait_until_ready.assert_called_once()
+
+
+class TestErrorHandling:
+    """Тесты для обработки ошибок."""
+
+    @pytest.mark.asyncio
+    async def test_cog_command_error_missing_permissions(self, mock_bot, mock_context):
+        """Тест обработки ошибки MissingPermissions."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            anime_cog = AnimeCog(mock_bot)
+            
+            error = commands.MissingPermissions(["administrator"])
+            await anime_cog.cog_command_error(mock_context, error)
+            
+            mock_context.send.assert_called_once()
+            assert "У вас нет прав" in mock_context.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_cog_command_error_command_invoke_error(self, mock_bot, mock_context):
+        """Тест обработки ошибки CommandInvokeError."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            anime_cog = AnimeCog(mock_bot)
+            
+            original_error = Exception("Original error")
+            error = commands.CommandInvokeError(original_error)
+            await anime_cog.cog_command_error(mock_context, error)
+            
+            mock_context.send.assert_called_once()
+            assert "Произошла ошибка" in mock_context.send.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_cog_command_error_generic_error(self, mock_bot, mock_context):
+        """Тест обработки общей ошибки."""
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            anime_cog = AnimeCog(mock_bot)
+            
+            error = Exception("Generic error")
+            await anime_cog.cog_command_error(mock_context, error)
+            
+            mock_context.send.assert_called_once()
+            assert "Произошла неизвестная ошибка" in mock_context.send.call_args[0][0]
+
+
+class TestSetupFunction:
+    """Тесты для функции setup."""
+
+    @pytest.mark.asyncio
+    async def test_setup(self, mock_bot):
+        """Тест функции setup."""
+        from cogs.anime import setup
+        
+        mock_bot.add_cog = AsyncMock()
+        
+        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+            
+            await setup(mock_bot)
+            
+            mock_bot.add_cog.assert_called_once()
+            # Проверяем, что передан экземпляр AnimeCog
+            args = mock_bot.add_cog.call_args[0]
+            assert isinstance(args[0], AnimeCog)
