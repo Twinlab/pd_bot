@@ -124,11 +124,9 @@ async def send_daily_report(
         try:
             # Попытка уведомить об ошибке в тот же канал
             await channel.send(
-                (
-                    f"Не удалось сформировать ежедневный отчет за "
-                    f"{target_date.strftime('%d.%m.%Y')}. "
-                    f"Ошибка: {e}"
-                )
+                f"Не удалось сформировать ежедневный отчет за "
+                f"{target_date.strftime('%d.%m.%Y')}. "
+                "Попробуйте позже или обратитесь к администратору."
             )
         except Exception as send_e:
             logger.error(
@@ -349,7 +347,8 @@ async def send_monthly_report(
         )
         try:
             await channel.send(
-                f"Не удалось сформировать ежемесячный отчет за {month_name} {year}. Ошибка: {e}"
+                f"Не удалось сформировать ежемесячный отчет за {month_name} {year}. "
+                "Попробуйте позже или обратитесь к администратору."
             )
         except Exception as send_e:
             logger.error(

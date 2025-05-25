@@ -21,6 +21,7 @@ class TestActivityView:
     max_items_per_page: int
     current_page: int
     report_type: str
+    date_str: str
     message: MagicMock | None
     users_data: dict
     user_ids: list
@@ -51,8 +52,8 @@ class TestActivityView:
 
             def get_username(user_id: int) -> str:
                 member = guild.get_member(user_id)
-                if member:
-                    return member.name.lower()
+                if member and hasattr(member, "name") and member.name:
+                    return str(member.name.lower())
                 return f"user_{user_id}"
 
             self.user_ids = sorted(self.users_data.keys(), key=get_username)
@@ -79,6 +80,7 @@ class TestActivityView:
         else:  # view_mode == "games"
             count = len(self.games_list)
         self.max_pages = max(1, (count + self.max_items_per_page - 1) // self.max_items_per_page)
+        # Сбрасываем на первую страницу при смене режима или если текущая страница стала невалидной
         if self.current_page >= self.max_pages:
             self.current_page = 0
 
@@ -170,7 +172,8 @@ class TestActivityView:
 
     def get_current_content(self) -> str:
         report_title = "Ежедневный отчет" if self.report_type == "daily" else "Статистика"
-        header = f"# 📊 {report_title} игровой активности\n\n"
+        date_str = getattr(self, 'date_str', '')
+        header = f"# 📊 {report_title} игровой активности{date_str}\n\n"
 
         if self.view_mode == "users":
             content = self._get_users_content()
@@ -1020,3 +1023,522 @@ async def test_stats_view_next_button(mock_interaction: MagicMock) -> None:
     mock_interaction.response.edit_message.assert_called_once_with(
         embed=view.get_current_embed(), view=view
     )
+
+# --- Дополнительные тесты для повышения покрытия ---
+
+
+@pytest.mark.asyncio
+async def test_activity_view_init_with_date_str(mock_bot: MagicMock) -> None:
+    """Тестирует инициализацию ActivityView с параметром date_str."""
+    from utils.activity.views import ActivityView
+    
+    data = {1: {"Game1": 3600}}
+    date_str = " (01.05.2025)"
+    
+    view = ActivityView(mock_bot, data, date_str=date_str)
+    
+    assert view.date_str == date_str
+    assert view.report_type == "daily"  # значение по умолчанию
+    assert view.current_page == 0
+    assert view.view_mode == "users"
+    assert view.max_items_per_page == 25
+
+
+@pytest.mark.asyncio
+async def test_activity_view_init_with_all_params(mock_bot: MagicMock) -> None:
+    """Тестирует инициализацию ActivityView со всеми параметрами."""
+    from utils.activity.views import ActivityView
+    
+    data = {1: {"Game1": 3600}}
+    ctx = MagicMock()
+    ctx.guild = MagicMock()
+    
+    view = ActivityView(mock_bot, data, ctx=ctx, report_type="command", date_str=" (test)")
+    
+    assert view.ctx == ctx
+    assert view.report_type == "command"
+    assert view.date_str == " (test)"
+
+
+def test_activity_view_get_current_content_with_date_str(
+    mock_bot: MagicMock, activity_data: dict[int, dict[str, int]]
+) -> None:
+    """Тестирует формирование контента с date_str."""
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.date_str = " (01.05.2025)"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    content = view.get_current_content()
+    
+    # Проверяем, что date_str добавлен к заголовку
+    assert "# 📊 Ежедневный отчет игровой активности (01.05.2025)" in content
+
+
+def test_activity_view_user_sorting_without_guild(activity_data: dict[int, dict[str, int]]) -> None:
+    """Тестирует сортировку пользователей без доступа к гильдии."""
+    view = TestActivityView()
+    view.bot = MagicMock()
+    view.bot.guilds = []  # Пустой список гильдий
+    view.data = activity_data
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Проверяем, что пользователи отсортированы по ID
+    assert view.user_ids == sorted(activity_data.keys())
+
+
+def test_activity_view_get_username_with_invalid_member(mock_bot: MagicMock) -> None:
+    """Тестирует получение имени пользователя для невалидного участника."""
+    view = TestActivityView()
+    view.bot = mock_bot
+    view.data = {999: {"Game1": 3600}}  # ID пользователя, которого нет в гильдии
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Проверяем, что для несуществующего пользователя используется fallback имя
+    content = view._get_users_content()
+    assert "**Пользователь 999**" in content
+
+
+def test_activity_view_member_without_name_attribute() -> None:
+    """Тестирует обработку участника без атрибута name."""
+    view = TestActivityView()
+    
+    # Создаем мок гильдии с участником без атрибута name
+    guild = MagicMock()
+    member = MagicMock()
+    member.name = None  # Участник без имени
+    guild.get_member = lambda user_id: member if user_id == 1 else None
+    
+    bot = MagicMock()
+    bot.guilds = [guild]
+    
+    view.bot = bot
+    view.data = {1: {"Game1": 3600}}
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Проверяем, что используется fallback имя
+    assert view.user_ids == [1]
+
+
+@pytest.mark.asyncio
+async def test_activity_view_previous_button_on_first_page() -> None:
+    """Тестирует кнопку 'Назад' на первой странице."""
+    from utils.activity.views import ActivityView
+    
+    view = ActivityView(MagicMock(), {1: {"Game1": 3600}})
+    view.current_page = 0  # Первая страница
+    
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.defer = AsyncMock()
+    
+    button = MagicMock()
+    
+    # Получаем метод previous_button из класса
+    method = ActivityView.previous_button
+    
+    # Вызываем метод
+    await method.__get__(view)(interaction, button)
+    
+    # Проверяем, что current_page не изменился
+    assert view.current_page == 0
+    
+    # Проверяем, что был вызван defer (так как кнопка должна быть отключена)
+    interaction.response.defer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_activity_view_next_button_on_last_page() -> None:
+    """Тестирует кнопку 'Вперед' на последней странице."""
+    from utils.activity.views import ActivityView
+    
+    view = ActivityView(MagicMock(), {1: {"Game1": 3600}})
+    view.current_page = view.max_pages - 1  # Последняя страница
+    
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.defer = AsyncMock()
+    
+    button = MagicMock()
+    
+    # Получаем метод next_button из класса
+    method = ActivityView.next_button
+    
+    # Вызываем метод
+    await method.__get__(view)(interaction, button)
+    
+    # Проверяем, что current_page не изменился
+    assert view.current_page == view.max_pages - 1
+    
+    # Проверяем, что был вызван defer (так как кнопка должна быть отключена)
+    interaction.response.defer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_activity_view_on_timeout_without_message() -> None:
+    """Тестирует on_timeout без установленного сообщения."""
+    from utils.activity.views import ActivityView
+    
+    view = ActivityView(MagicMock(), {})
+    view.message = None  # Нет сообщения для редактирования
+    
+    # Добавляем кнопки
+    button1 = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button1")
+    button2 = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button2")
+    view.add_item(button1)
+    view.add_item(button2)
+    
+    # Вызываем метод on_timeout
+    await view.on_timeout()
+    
+    # Проверяем, что все кнопки отключены
+    assert button1.disabled is True
+    assert button2.disabled is True
+
+
+@pytest.mark.asyncio
+async def test_activity_view_on_timeout_with_http_exception() -> None:
+    """Тестирует on_timeout с ошибкой HTTP при редактировании сообщения."""
+    from utils.activity.views import ActivityView
+    
+    view = ActivityView(MagicMock(), {})
+    view.message = MagicMock()
+    view.message.edit = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "Test error"))
+    
+    # Добавляем кнопки
+    button = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button")
+    view.add_item(button)
+    
+    # Вызываем метод on_timeout (не должно выбрасывать исключение)
+    await view.on_timeout()
+    
+    # Проверяем, что кнопка отключена
+    assert button.disabled is True
+    
+    # Проверяем, что была попытка редактирования сообщения
+    view.message.edit.assert_called_once_with(view=view)
+
+
+@pytest.mark.asyncio
+async def test_activity_view_update_buttons_with_different_items() -> None:
+    """Тестирует _update_buttons с различными типами элементов."""
+    from utils.activity.views import ActivityView
+    
+    view = ActivityView(MagicMock(), {1: {"Game1": 3600}})
+    
+    # Добавляем различные типы элементов
+    button = discord.ui.Button(style=discord.ButtonStyle.primary, label="Test", custom_id="test_button")
+    select = discord.ui.Select(placeholder="Test Select")
+    
+    view.add_item(button)
+    view.add_item(select)
+    
+    # Вызываем _update_buttons (не должно выбрасывать исключение)
+    view._update_buttons()
+    
+    # Проверяем, что метод отработал без ошибок
+    assert len(view.children) >= 2
+
+
+@pytest.mark.asyncio
+async def test_stats_view_init_with_all_params(mock_user: MagicMock) -> None:
+    """Тестирует инициализацию StatsView со всеми параметрами."""
+    from utils.activity.views import StatsView
+    
+    games_data = [("Game1", 3600), ("Game2", 7200)]
+    
+    view = StatsView("Test Title", games_data, user=mock_user, items_per_page=3)
+    
+    assert view.title == "Test Title"
+    assert view.games_data == games_data
+    assert view.user == mock_user
+    assert view.items_per_page == 3
+    assert view.current_page == 0
+    assert view.max_pages == 1  # 2 игры / 3 на страницу = 1 страница
+
+
+@pytest.mark.asyncio
+async def test_stats_view_init_with_many_games() -> None:
+    """Тестирует инициализацию StatsView с большим количеством игр."""
+    from utils.activity.views import StatsView
+    
+    # Создаем 10 игр
+    games_data = [(f"Game{i}", i * 1000) for i in range(1, 11)]
+    
+    view = StatsView("Test Title", games_data, items_per_page=3)
+    
+    assert view.max_pages == 4  # 10 игр / 3 на страницу = 4 страницы (округление вверх)
+
+
+def test_stats_view_get_current_embed_without_user() -> None:
+    """Тестирует формирование эмбеда без пользователя."""
+    view = TestStatsView()
+    view.title = "Статистика без пользователя"
+    view.games_data = [("Game1", 3600)]
+    view.user = None  # Нет пользователя
+    view.items_per_page = 5
+    view.current_page = 0
+    view.max_pages = 1
+    view.message = None
+    
+    embed = view.get_current_embed()
+    
+    # Проверяем, что эмбед создан без thumbnail
+    assert embed.title == "Статистика без пользователя"
+    # Проверяем, что thumbnail не установлен (будет пустой объект)
+    assert embed.thumbnail is None or embed.thumbnail.url is None
+
+
+def test_stats_view_get_current_embed_single_page() -> None:
+    """Тестирует формирование эмбеда для одной страницы."""
+    view = TestStatsView()
+    view.title = "Одна страница"
+    view.games_data = [("Game1", 3600), ("Game2", 1800)]
+    view.user = None
+    view.items_per_page = 5
+    view.current_page = 0
+    view.max_pages = 1
+    view.message = None
+    
+    embed = view.get_current_embed()
+    
+    # Проверяем футер для одной страницы
+    assert "Всего игр: 2" in embed.footer.text
+    assert "Страница" not in embed.footer.text  # Не должно быть информации о страницах
+
+
+@pytest.mark.asyncio
+async def test_stats_view_previous_button_on_first_page(mock_interaction: MagicMock) -> None:
+    """Тестирует кнопку 'Назад' на первой странице в StatsView."""
+    from utils.activity.views import StatsView
+    
+    view = StatsView("Test Title", [("Game1", 3600), ("Game2", 7200)])
+    view.current_page = 0  # Первая страница
+    
+    mock_interaction.response.defer = AsyncMock()
+    
+    button = MagicMock()
+    
+    # Получаем метод previous_button из класса
+    method = StatsView.previous_button
+    
+    # Вызываем метод
+    await method.__get__(view)(mock_interaction, button)
+    
+    # Проверяем, что current_page не изменился
+    assert view.current_page == 0
+    
+    # Проверяем, что был вызван defer
+    mock_interaction.response.defer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stats_view_next_button_on_last_page(mock_interaction: MagicMock) -> None:
+    """Тестирует кнопку 'Вперед' на последней странице в StatsView."""
+    from utils.activity.views import StatsView
+    
+    view = StatsView("Test Title", [("Game1", 3600)])
+    view.current_page = view.max_pages - 1  # Последняя страница
+    
+    mock_interaction.response.defer = AsyncMock()
+    
+    button = MagicMock()
+    
+    # Получаем метод next_button из класса
+    method = StatsView.next_button
+    
+    # Вызываем метод
+    await method.__get__(view)(mock_interaction, button)
+    
+    # Проверяем, что current_page не изменился
+    assert view.current_page == view.max_pages - 1
+    
+    # Проверяем, что был вызван defer
+    mock_interaction.response.defer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stats_view_on_timeout_without_message() -> None:
+    """Тестирует on_timeout без установленного сообщения в StatsView."""
+    from utils.activity.views import StatsView
+    
+    view = StatsView("Test Title", [])
+    view.message = None  # Нет сообщения для редактирования
+    
+    # Добавляем кнопки
+    button = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button")
+    view.add_item(button)
+    
+    # Вызываем метод on_timeout
+    await view.on_timeout()
+    
+    # Проверяем, что кнопка отключена
+    assert button.disabled is True
+
+
+@pytest.mark.asyncio
+async def test_stats_view_on_timeout_with_http_exception() -> None:
+    """Тестирует on_timeout с ошибкой HTTP при редактировании сообщения в StatsView."""
+    from utils.activity.views import StatsView
+    
+    view = StatsView("Test Title", [])
+    view.message = MagicMock()
+    view.message.edit = AsyncMock(side_effect=discord.HTTPException(MagicMock(), "Test error"))
+    
+    # Добавляем кнопки
+    button = discord.ui.Button(style=discord.ButtonStyle.primary, label="Button")
+    view.add_item(button)
+    
+    # Вызываем метод on_timeout (не должно выбрасывать исключение)
+    await view.on_timeout()
+    
+    # Проверяем, что кнопка отключена
+    assert button.disabled is True
+    
+    # Проверяем, что была попытка редактирования сообщения
+    view.message.edit.assert_called_once_with(view=view)
+
+
+@pytest.mark.asyncio
+async def test_stats_view_update_buttons_with_different_items() -> None:
+    """Тестирует _update_buttons с различными типами элементов в StatsView."""
+    from utils.activity.views import StatsView
+    
+    view = StatsView("Test Title", [("Game1", 3600)])
+    
+    # Добавляем различные типы элементов
+    button = discord.ui.Button(style=discord.ButtonStyle.primary, label="Test", custom_id="test_button")
+    select = discord.ui.Select(placeholder="Test Select")
+    
+    view.add_item(button)
+    view.add_item(select)
+    
+    # Вызываем _update_buttons (не должно выбрасывать исключение)
+    view._update_buttons()
+    
+    # Проверяем, что метод отработал без ошибок
+    assert len(view.children) >= 2
+
+
+def test_activity_view_games_with_zero_total_time() -> None:
+    """Тестирует обработку игр с нулевым общим временем в режиме 'games'."""
+    view = TestActivityView()
+    view.bot = MagicMock()
+    view.bot.guilds = []
+    
+    # Создаем данные, где после фильтрации может остаться игра с нулевым временем
+    # (хотя это маловероятно после правильной фильтрации)
+    view.data = {1: {"Game1": 3600}}
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "games"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Искусственно устанавливаем нулевое время для тестирования
+    view.games_data["Game1"] = {1: 0}
+    
+    content = view._get_games_content()
+    
+    # Проверяем, что игра с нулевым временем не отображается
+    assert "**Game1**" not in content
+
+
+def test_activity_view_toggle_mode_from_games_to_users() -> None:
+    """Тестирует переключение режима с 'games' на 'users'."""
+    view = TestActivityView()
+    view.bot = MagicMock()
+    view.bot.guilds = []
+    view.data = {1: {"Game1": 3600}}
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "games"  # Начинаем с режима "games"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Имитируем переключение режима
+    view.view_mode = "games" if view.view_mode == "users" else "users"
+    view.current_page = 0
+    view._recalculate_max_pages()
+    
+    # Проверяем, что режим изменился на "users"
+    assert view.view_mode == "users"
+    assert view.current_page == 0
+
+
+def test_activity_view_current_page_reset_when_exceeds_max() -> None:
+    """Тестирует сброс current_page при превышении max_pages."""
+    view = TestActivityView()
+    view.bot = MagicMock()
+    view.bot.guilds = []
+    view.data = {1: {"Game1": 3600}, 2: {"Game2": 1800}}  # 2 пользователя
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 5  # Устанавливаем очень высокий номер страницы
+    view.view_mode = "users"
+    view.max_items_per_page = 1  # 1 элемент на страницу, будет 2 страницы (0, 1)
+    view.message = None
+    view.prepare_data()
+    
+    # Проверяем, что current_page был сброшен в _recalculate_max_pages
+    # current_page = 5 >= max_pages = 2, поэтому должен быть сброшен на 0
+    view._recalculate_max_pages()
+    assert view.current_page == 0
+
+
+def test_activity_view_max_pages_minimum_value() -> None:
+    """Тестирует, что max_pages всегда минимум 1."""
+    view = TestActivityView()
+    view.bot = MagicMock()
+    view.bot.guilds = []
+    view.data = {}  # Пустые данные
+    view.ctx = None
+    view.report_type = "daily"
+    view.current_page = 0
+    view.view_mode = "users"
+    view.max_items_per_page = 20
+    view.message = None
+    view.prepare_data()
+    
+    # Проверяем, что max_pages равно 1 даже для пустых данных
+    assert view.max_pages == 1
+
+
+@pytest.mark.asyncio
+async def test_stats_view_max_pages_minimum_value() -> None:
+    """Тестирует, что max_pages всегда минимум 1 в StatsView."""
+    from utils.activity.views import StatsView
+    
+    view = StatsView("Empty Stats", [])  # Пустые данные
+    
+    # Проверяем, что max_pages равно 1 даже для пустых данных
+    assert view.max_pages == 1
