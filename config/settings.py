@@ -152,15 +152,15 @@ class BotSettings(BaseSettings):
     """
 
     # Основные настройки из .env
-    bot_token: str = Field(env="BOT_TOKEN")
-    stratz_api_key: str = Field(env="STRATZ_API_KEY")
-    prefix: str = Field(default="!", env="BOT_PREFIX")
-    environment: Environment = Field(default=Environment.PRODUCTION, env="BOT_ENVIRONMENT")
+    bot_token: str = Field(alias="BOT_TOKEN")
+    stratz_api_key: str = Field(alias="STRATZ_API_KEY")
+    prefix: str = Field(default="!", alias="BOT_PREFIX")
+    environment: Environment = Field(default=Environment.PRODUCTION, alias="BOT_ENVIRONMENT")
 
     # Опциональные API ключи
-    twitch_client_id: Optional[str] = Field(default=None, env="TWITCH_CLIENT_ID")
-    twitch_client_secret: Optional[str] = Field(default=None, env="TWITCH_CLIENT_SECRET")
-    proxy_url: Optional[str] = Field(default=None, env="PROXY_URL")
+    twitch_client_id: Optional[str] = Field(default=None, alias="TWITCH_CLIENT_ID")
+    twitch_client_secret: Optional[str] = Field(default=None, alias="TWITCH_CLIENT_SECRET")
+    proxy_url: Optional[str] = Field(default=None, alias="PROXY_URL")
 
     # Конфигурационные блоки
     channels: ChannelConfig = ChannelConfig()
