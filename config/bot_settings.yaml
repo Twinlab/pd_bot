@@ -1,10 +1,10 @@
 # Основные настройки Discord бота
 channels:
   logging: 1365045098785542224
-  anime: null
+  anime: 298811309640646666
   twitch: 1113813039083442296
   activity_reports: 573665353327181824
-  role_reactions_default: null
+  role_reactions_default: 1366858138153910282
 
 timeouts:
   activity_min_record: 10

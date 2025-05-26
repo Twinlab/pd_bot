@@ -14,6 +14,7 @@ from typing import Optional
 import aiohttp
 from discord.ext import commands, tasks
 
+from config import get_settings
 from utils.error_handler import command_error_handler
 
 logger: logging.Logger = logging.getLogger("bot.cogs.anime")  # Иерархическое имя логгера
@@ -33,13 +34,12 @@ class AnimeCog(commands.Cog):
             bot: Экземпляр discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
-        # Получаем ID канала из конфигурации
-        self.channel_id: Optional[int] = self.bot.config.get("ANIME_CHANNEL_ID")
+        # Получаем ID канала из новой системы конфигурации
+        settings = get_settings()
+        self.channel_id: Optional[int] = settings.channels.anime
 
         if not self.channel_id:
-            logger.error(
-                "ANIME_CHANNEL_ID не найден в конфигурации. Задачи публикации не будут запущены."
-            )
+            logger.error("Канал для публикации аниме не настроен или не найден.")
             return  # Не запускаем задачи, если ID не найден
 
         # Запускаем задачи по расписанию
