@@ -152,8 +152,8 @@ class BotSettings(BaseSettings):
     """
 
     # Основные настройки из .env
-    bot_token: str = Field(..., env="BOT_TOKEN")
-    stratz_api_key: str = Field(..., env="STRATZ_API_KEY")
+    bot_token: str = Field(env="BOT_TOKEN")
+    stratz_api_key: str = Field(env="STRATZ_API_KEY")
     prefix: str = Field(default="!", env="BOT_PREFIX")
     environment: Environment = Field(default=Environment.PRODUCTION, env="BOT_ENVIRONMENT")
 
