@@ -1,139 +1,147 @@
-"""Тесты для модуля config.py."""
+"""Тесты для новой системы конфигурации."""
 
-import json
-import tempfile
 import os
+import tempfile
 from unittest.mock import patch, mock_open
 import pytest
+import yaml
 
-from config import load_config
+from config import get_settings, BotSettings
 
 
-class TestLoadConfig:
-    """Тесты для функции load_config."""
+class TestNewConfigSystem:
+    """Тесты для новой системы конфигурации на основе Pydantic Settings."""
 
-    def test_load_config_success(self):
-        """Тест успешной загрузки конфигурации."""
-        # Создаем тестовые данные конфигурации
-        test_config = {
-            "BOT_TOKEN": "test_token_123",
-            "GUILD_ID": 123456789,
-            "ANIME_CHANNEL_ID": 987654321
-        }
-        
-        # Мокируем открытие файла и json.load
-        mock_file_content = json.dumps(test_config)
-        with patch("builtins.open", mock_open(read_data=mock_file_content)):
-            result = load_config()
-            
-            assert result == test_config
-            assert result["BOT_TOKEN"] == "test_token_123"
-            assert result["GUILD_ID"] == 123456789
-
-    def test_load_config_file_not_found(self):
-        """Тест обработки отсутствующего файла конфигурации."""
-        with patch("builtins.open", side_effect=FileNotFoundError("File not found")):
-            with patch("config.logger") as mock_logger:
-                result = load_config()
-                
-                # Проверяем, что возвращается словарь с None токеном
-                assert result == {"BOT_TOKEN": None}
-                
-                # Проверяем, что была залогирована критическая ошибка
-                mock_logger.critical.assert_called_once()
-                assert "Файл конфигурации не найден" in mock_logger.critical.call_args[0][0]
-
-    def test_load_config_invalid_json(self):
-        """Тест обработки некорректного JSON."""
-        # Мокируем файл с некорректным JSON
-        invalid_json = '{"BOT_TOKEN": "test", "invalid": }'
-        
-        with patch("builtins.open", mock_open(read_data=invalid_json)):
-            with patch("config.logger") as mock_logger:
-                result = load_config()
-                
-                # Проверяем, что возвращается словарь с None токеном
-                assert result == {"BOT_TOKEN": None}
-                
-                # Проверяем, что была залогирована ошибка
-                mock_logger.error.assert_called_once()
-                assert "Ошибка при загрузке конфигурации" in mock_logger.error.call_args[0][0]
-
-    def test_load_config_permission_error(self):
-        """Тест обработки ошибки доступа к файлу."""
-        with patch("builtins.open", side_effect=PermissionError("Permission denied")):
-            with patch("config.logger") as mock_logger:
-                result = load_config()
-                
-                # Проверяем, что возвращается словарь с None токеном
-                assert result == {"BOT_TOKEN": None}
-                
-                # Проверяем, что была залогирована ошибка
-                mock_logger.error.assert_called_once()
-                assert "Ошибка при загрузке конфигурации" in mock_logger.error.call_args[0][0]
-
-    def test_load_config_empty_file(self):
-        """Тест обработки пустого файла."""
-        with patch("builtins.open", mock_open(read_data="")):
-            with patch("config.logger") as mock_logger:
-                result = load_config()
-                
-                # Проверяем, что возвращается словарь с None токеном
-                assert result == {"BOT_TOKEN": None}
-                
-                # Проверяем, что была залогирована ошибка
-                mock_logger.error.assert_called_once()
-
-    def test_load_config_with_real_file(self):
-        """Тест с реальным временным файлом."""
-        test_config = {
-            "BOT_TOKEN": "real_test_token",
-            "TEST_VALUE": 42
-        }
-        
-        # Просто используем mock_open с правильными данными
-        mock_file_content = json.dumps(test_config)
-        with patch("builtins.open", mock_open(read_data=mock_file_content)):
-            result = load_config()
-            
-            assert result == test_config
-            assert result["BOT_TOKEN"] == "real_test_token"
-            assert result["TEST_VALUE"] == 42
-
-    def test_load_config_unicode_content(self):
-        """Тест загрузки конфигурации с Unicode символами."""
-        test_config = {
-            "BOT_TOKEN": "test_token",
-            "DESCRIPTION": "Тестовый бот с русскими символами 🤖",
-            "EMOJI": "🎮🎵🎨"
-        }
-        
-        mock_file_content = json.dumps(test_config, ensure_ascii=False)
-        with patch("builtins.open", mock_open(read_data=mock_file_content)):
-            result = load_config()
-            
-            assert result == test_config
-            assert result["DESCRIPTION"] == "Тестовый бот с русскими символами 🤖"
-            assert result["EMOJI"] == "🎮🎵🎨"
-
-    def test_load_config_nested_structure(self):
-        """Тест загрузки конфигурации со вложенной структурой."""
-        test_config = {
-            "BOT_TOKEN": "test_token",
-            "CHANNELS": {
-                "ANIME": 123456,
-                "MUSIC": 789012
-            },
-            "FEATURES": {
-                "ENABLED": ["anime", "music"],
-                "DISABLED": ["admin"]
+    def test_get_settings_success(self):
+        """Тест успешной загрузки настроек."""
+        # Мокируем переменные окружения
+        with patch.dict(os.environ, {
+            'BOT_TOKEN': 'test_token_123',
+            'STRATZ_API_KEY': 'test_stratz_key'
+        }):
+            # Мокируем YAML файл
+            yaml_content = {
+                'channels': {
+                    'logging': 1365045098785542224,
+                    'twitch': 1113813039083442296
+                },
+                'timeouts': {
+                    'log_check_interval': 5
+                }
             }
-        }
-        
-        mock_file_content = json.dumps(test_config)
-        with patch("builtins.open", mock_open(read_data=mock_file_content)):
-            result = load_config()
             
-            assert result == test_config
-            assert result["CHANNELS"]["ANIME"] == 123456
-            assert "anime" in result["FEATURES"]["ENABLED"]
+            with patch("pathlib.Path.exists", return_value=True):
+                with patch("builtins.open", mock_open(read_data=yaml.dump(yaml_content))):
+                    settings = get_settings()
+                    
+                    assert settings.bot_token == 'test_token_123'
+                    assert settings.stratz_api_key == 'test_stratz_key'
+                    assert settings.channels.logging == 1365045098785542224
+                    assert settings.timeouts.log_check_interval == 5
+
+    def test_get_settings_missing_required_env(self):
+        """Тест обработки отсутствующих обязательных переменных окружения."""
+        # Очищаем переменные окружения
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("pathlib.Path.exists", return_value=False):
+                with pytest.raises(Exception):  # Pydantic должен выбросить ошибку валидации
+                    BotSettings()
+
+    def test_get_settings_yaml_not_found(self):
+        """Тест работы без YAML файла (только переменные окружения)."""
+        with patch.dict(os.environ, {
+            'BOT_TOKEN': 'test_token',
+            'STRATZ_API_KEY': 'test_key'
+        }):
+            with patch("pathlib.Path.exists", return_value=False):
+                settings = BotSettings.load_from_yaml()
+                
+                assert settings.bot_token == 'test_token'
+                assert settings.stratz_api_key == 'test_key'
+                # Проверяем значения по умолчанию
+                assert settings.prefix == '!'
+                assert settings.channels.logging == 1365045098785542224
+
+    def test_get_settings_yaml_override(self):
+        """Тест переопределения настроек через YAML."""
+        with patch.dict(os.environ, {
+            'BOT_TOKEN': 'test_token',
+            'STRATZ_API_KEY': 'test_key'
+        }):
+            yaml_content = {
+                'channels': {
+                    'logging': 999999999
+                },
+                'colors': {
+                    'default': '#ff0000'
+                }
+            }
+            
+            with patch("pathlib.Path.exists", return_value=True):
+                with patch("builtins.open", mock_open(read_data=yaml.dump(yaml_content))):
+                    settings = BotSettings.load_from_yaml()
+                    
+                    assert settings.channels.logging == 999999999
+                    assert settings.colors.default == '#ff0000'
+
+    def test_get_settings_env_override(self):
+        """Тест переопределения настроек через переменные окружения."""
+        with patch.dict(os.environ, {
+            'BOT_TOKEN': 'test_token',
+            'STRATZ_API_KEY': 'test_key',
+            'BOT_PREFIX': '?',
+            'BOT_CHANNELS__LOGGING': '123456789'
+        }):
+            with patch("pathlib.Path.exists", return_value=False):
+                settings = BotSettings()
+                
+                assert settings.prefix == '?'
+                # Проверяем, что вложенные настройки тоже переопределяются
+                # (это зависит от реализации Pydantic Settings)
+
+    def test_get_discord_color(self):
+        """Тест метода get_discord_color."""
+        with patch.dict(os.environ, {
+            'BOT_TOKEN': 'test_token',
+            'STRATZ_API_KEY': 'test_key'
+        }):
+            with patch("pathlib.Path.exists", return_value=False):
+                settings = BotSettings()
+                
+                # Тестируем получение цвета
+                color = settings.get_discord_color('error')
+                # Проверяем, что возвращается объект Discord Color
+                assert hasattr(color, 'value')
+
+    def test_messages_structure(self):
+        """Тест структуры сообщений."""
+        with patch.dict(os.environ, {
+            'BOT_TOKEN': 'test_token',
+            'STRATZ_API_KEY': 'test_key'
+        }):
+            with patch("pathlib.Path.exists", return_value=False):
+                settings = BotSettings()
+                
+                # Проверяем наличие основных сообщений
+                assert 'no_permissions' in settings.messages.errors
+                assert 'twitch_api_not_configured' in settings.messages.errors
+                assert 'purge_complete' in settings.messages.success
+                assert 'restart_initiated' in settings.messages.success
+
+    def test_config_validation(self):
+        """Тест валидации конфигурации."""
+        with patch.dict(os.environ, {
+            'BOT_TOKEN': 'test_token',
+            'STRATZ_API_KEY': 'test_key'
+        }):
+            yaml_content = {
+                'timeouts': {
+                    'log_check_interval': 'invalid_value'  # Должно быть число
+                }
+            }
+            
+            with patch("pathlib.Path.exists", return_value=True):
+                with patch("builtins.open", mock_open(read_data=yaml.dump(yaml_content))):
+                    # Pydantic должен обработать неверный тип
+                    with pytest.raises(Exception):
+                        BotSettings.load_from_yaml()

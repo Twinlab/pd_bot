@@ -69,8 +69,11 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
 
         # Безопасное получение предпочтительного расширения
         preferred_ext = ".mp3"  # Расширение по умолчанию
-        if ydl_opts.get("postprocessors") and len(ydl_opts["postprocessors"]) > 0:
-            preferred_ext = "." + ydl_opts["postprocessors"][0].get("preferredcodec", "mp3")
+        postprocessors = ydl_opts.get("postprocessors")
+        if postprocessors and len(postprocessors) > 0:
+            first_processor = postprocessors[0]  # type: ignore
+            if isinstance(first_processor, dict):
+                preferred_ext = "." + first_processor.get("preferredcodec", "mp3")
 
         filepath_obj = Path(expected_base + preferred_ext)
         if not filepath_obj.exists():

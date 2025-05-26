@@ -7,36 +7,32 @@
 import logging
 from pathlib import Path
 
-import discord
+from config import get_settings
 
 # --- Логгер для конфигурационного модуля музыки ---
 logger = logging.getLogger("bot.utils.music.config")
 
+settings = get_settings()
+
 # --- Константы и конфигурация ---
-DOWNLOADS_DIR = Path("downloads")
+DOWNLOADS_DIR = Path(
+    getattr(settings, "music", {}).get("downloads_dir", "downloads")
+    if hasattr(settings, "music")
+    else "downloads"
+)
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 
 # Цвета для Embeds
 COLORS = {
-    "DEFAULT": discord.Color.blue(),
-    "ERROR": discord.Color.red(),
-    "SUCCESS": discord.Color.green(),
-    "INFO": discord.Color.gold(),
-    "WARNING": discord.Color.orange(),
+    "DEFAULT": settings.get_discord_color("default"),
+    "ERROR": settings.get_discord_color("error"),
+    "SUCCESS": settings.get_discord_color("success"),
+    "INFO": settings.get_discord_color("info"),
+    "WARNING": settings.get_discord_color("warning"),
 }
 
-# Загрузка PROXY_URL из основного конфига
-try:
-    from config import load_config as load_main_config
-
-    _config = load_main_config()
-    PROXY_URL = _config.get("PROXY_URL", None)
-except ImportError:
-    logger.warning("Не удалось импортировать основной конфиг. PROXY_URL не будет использоваться.")
-    PROXY_URL = None
-except Exception as e:
-    logger.error(f"Ошибка загрузки основного конфига: {e}", exc_info=True)
-    PROXY_URL = None
+# Загрузка PROXY_URL из новой системы настроек
+PROXY_URL = settings.proxy_url
 
 # Опции для yt-dlp
 YDL_OPTS_BASE = {
@@ -63,5 +59,9 @@ YDL_OPTS_BASE = {
 # Опции FFmpeg
 FFMPEG_OPTIONS = {
     "before_options": "",
-    "options": "-vn -loglevel info -hide_banner",
+    "options": (
+        getattr(settings, "music", {}).get("ffmpeg_options", "-vn -loglevel info -hide_banner")
+        if hasattr(settings, "music")
+        else "-vn -loglevel info -hide_banner"
+    ),
 }

@@ -19,7 +19,7 @@ from typing import Any, Dict
 from discord import Intents
 from discord.ext import commands
 
-from config import load_config
+from config import get_settings
 from utils import dota_api
 from utils.database import DB_PATH, initialize_database
 from utils.logging_utils import setup_logging
@@ -43,11 +43,26 @@ intents.members = True
 intents.presences = True
 
 # Загрузка конфигурации ДО создания экземпляра бота
-config: Dict[str, Any] = load_config()  # Указываем более точный тип для config
+settings = get_settings()
+config = {
+    "BOT_TOKEN": settings.bot_token,
+    "STRATZ_API_KEY": settings.stratz_api_key,
+    "PREFIX": settings.prefix,
+    "TWITCH_CLIENT_ID": settings.twitch_client_id,
+    "TWITCH_CLIENT_SECRET": settings.twitch_client_secret,
+    "PROXY_URL": settings.proxy_url,
+    "LOGGING_CHANNEL_ID": settings.channels.logging,
+    "ANIME_CHANNEL_ID": settings.channels.anime,
+    "REPORT_CHANNEL_ID": settings.channels.activity_reports,
+    "ROLE_REACTION_DEFAULT_CHANNEL_ID": settings.channels.role_reactions_default,
+    "ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS": settings.timeouts.activity_min_record,
+    "ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS": settings.timeouts.activity_max_record,
+    "ACTIVITY_MONTHLY_REPORT_MIN_TIME_SECONDS": settings.timeouts.activity_monthly_min_time,
+}
 
 # Проверка наличия токена ДО создания бота
-if not config.get("BOT_TOKEN"):
-    logger.critical("Токен бота (BOT_TOKEN) не найден в data/config.json! Запуск невозможен.")
+if not settings.bot_token:
+    logger.critical("Токен бота (BOT_TOKEN) не найден в .env! Запуск невозможен.")
     exit()
 
 
@@ -60,6 +75,7 @@ class MyBot(commands.Bot):
     """
 
     config: Dict[str, Any]
+    settings: Any  # BotSettings
     log_file_path: str
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -74,8 +90,9 @@ class MyBot(commands.Bot):
 
 
 # Создание экземпляра бота с префиксом из конфига
-bot: MyBot = MyBot(command_prefix=config.get("PREFIX", "!"), intents=intents)
-bot.config = config
+bot: MyBot = MyBot(command_prefix=settings.prefix, intents=intents)
+bot.config = config  # Для обратной совместимости
+bot.settings = settings  # Новый способ доступа
 bot.log_file_path = str(log_path)  # Передаём путь к текущему логу в cog
 
 
@@ -138,7 +155,7 @@ async def main() -> None:
     await dota_api.load_cache_from_disk()
     await load_cogs()
     try:
-        await bot.start(config["BOT_TOKEN"])
+        await bot.start(settings.bot_token)
     except Exception as e:
         logger.critical(f"Не удалось запустить бота: {e}")
 

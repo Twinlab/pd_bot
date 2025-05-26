@@ -14,6 +14,7 @@
 config.json
 user_links.json
 user_activities.json
+.env
 
 # Исключаем файлы кэша Python
 __pycache__/
@@ -37,6 +38,7 @@ Thumbs.db
 # Исключаем временные планы
 docs/UNIFICATION_PLAN_DETAILED.md
 docs/TEST_COVERAGE_PLAN.md
+docs/MIGRATION_GUIDE.md
 # Coverage reports
 .coverage
 coverage/

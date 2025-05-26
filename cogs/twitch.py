@@ -17,6 +17,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from config import get_settings
 from utils.twitch_api import TwitchAPI
 from utils.twitch_data_manager import TwitchDataManager
 
@@ -59,18 +60,14 @@ class TwitchCog(commands.Cog):
         self.bot = bot
         self.data_manager = TwitchDataManager()
 
-        # Получаем Twitch API ключи из конфигурации
-        # Предполагаем, что bot.config это dict или имеет метод get
-        config = getattr(self.bot, "config", {})
-        self.client_id = str(config.get("TWITCH_CLIENT_ID", ""))
-        self.client_secret = str(config.get("TWITCH_CLIENT_SECRET", ""))
+        # Получаем Twitch API ключи из новой системы настроек
+        settings = get_settings()
+        self.client_id = settings.twitch_client_id or ""
+        self.client_secret = settings.twitch_client_secret or ""
 
         # Проверяем наличие ключей и что они не пустые
         if not self.client_id.strip() or not self.client_secret.strip():
-            logger.warning(
-                "Не указаны TWITCH_CLIENT_ID и/или TWITCH_CLIENT_SECRET в конфигурации. "
-                "Функциональность отслеживания Twitch-стримов будет ограничена."
-            )
+            logger.warning(settings.messages.errors["twitch_api_not_configured"])
             self.twitch_api = None
         else:
             self.twitch_api = TwitchAPI(self.client_id, self.client_secret)
@@ -288,7 +285,8 @@ class TwitchCog(commands.Cog):
                 logger.error(f"Не найден текстовый канал с ID {channel_id} на сервере {guild.name}")
 
                 # Пробуем найти канал по умолчанию
-                default_channel_id = 1113813039083442296
+                settings = get_settings()
+                default_channel_id = settings.channels.twitch
                 default_channel = guild.get_channel(default_channel_id)
                 if isinstance(default_channel, discord.TextChannel):
                     logger.info(
@@ -444,15 +442,16 @@ class TwitchCog(commands.Cog):
         """
         # Проверяем, инициализирован ли Twitch API
         if not self.twitch_api:
+            settings = get_settings()
             await interaction.response.send_message(
-                "Не указаны TWITCH_CLIENT_ID и/или TWITCH_CLIENT_SECRET в конфигурации бота. "
-                "Обратитесь к администратору бота.",
+                settings.messages.errors["twitch_api_not_configured"],
                 ephemeral=True,
             )
             return
 
         # Определяем канал для уведомлений
-        default_channel_id = 1113813039083442296
+        settings = get_settings()
+        default_channel_id = settings.channels.twitch
         if channel:
             notification_channel = channel
         else:

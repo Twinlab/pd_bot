@@ -17,9 +17,13 @@ from datetime import datetime
 import discord
 from discord.ext import commands, tasks
 
+from config import get_settings
+
 logger = logging.getLogger("bot.cogs.logging_cog")  # Иерархическое имя логгера
-CHECK_INTERVAL_SECONDS = 5
-MAX_MESSAGE_LENGTH = 1990  # Discord limit with margin for code block
+
+settings = get_settings()
+CHECK_INTERVAL_SECONDS = settings.timeouts.log_check_interval
+MAX_MESSAGE_LENGTH = settings.limits.max_message_length
 
 
 class LoggingCog(commands.Cog):
@@ -44,19 +48,8 @@ class LoggingCog(commands.Cog):
             bot: Экземпляр бота discord.ext.commands.Bot.
         """
         self.bot = bot
-        # Получаем ID канала из конфига, используем 1365045098785542224 как значение по умолчанию
-        # Предполагаем, что bot.config это dict или имеет метод get
-        config_channel_id = getattr(self.bot, "config", {}).get(
-            "LOGGING_CHANNEL_ID", 1365045098785542224
-        )
-        if not isinstance(config_channel_id, int):
-            logger.warning(
-                f"[LogCog] LOGGING_CHANNEL_ID в конфиге не является int: {config_channel_id}. "
-                "Используется значение по умолчанию."
-            )
-            self.log_channel_id = 1365045098785542224
-        else:
-            self.log_channel_id = config_channel_id
+        # Получаем ID канала из новой системы настроек
+        self.log_channel_id = settings.channels.logging
 
         self.log_channel = None
         self.log_file_path = str(getattr(bot, "log_file_path", "bot.log"))

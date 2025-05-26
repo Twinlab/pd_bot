@@ -22,6 +22,7 @@ import pytz  # type: ignore
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from config import get_settings
 from utils.activity.helpers import format_time_short, is_application
 from utils.activity.reports import (
     MONTH_NAMES_RU,
@@ -207,12 +208,10 @@ class ActivityTracker(commands.Cog):
         for user_id, (game_name, start_time) in list(self.current_activities.items()):
             elapsed_seconds = int((now_utc - start_time).total_seconds())
 
-            # Получаем пороги из конфига, используем значения по умолчанию
-            bot_config = getattr(self.bot, "config", {})
-            min_record_threshold = bot_config.get("ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS", 10)
-            # Максимальный порог (2 дня = 172800 секунд),
-            # чтобы избежать нереальных значений при сбоях
-            max_record_threshold = bot_config.get("ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS", 172800)
+            # Получаем пороги из новой системы настроек
+            settings = get_settings()
+            min_record_threshold = settings.timeouts.activity_min_record
+            max_record_threshold = settings.timeouts.activity_max_record
 
             if elapsed_seconds >= min_record_threshold and elapsed_seconds < max_record_threshold:
                 # Добавляем задачу обновления в БД в список
@@ -333,10 +332,8 @@ class ActivityTracker(commands.Cog):
                     logger.debug(f"Сессия {user_id} - {before_game} удалена из памяти.")
 
                     # Записываем в БД, если время сессии достаточное
-                    bot_config = getattr(self.bot, "config", {})
-                    min_record_threshold = bot_config.get(
-                        "ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS", 10
-                    )
+                    settings = get_settings()
+                    min_record_threshold = settings.timeouts.activity_min_record
                     if elapsed_seconds >= min_record_threshold:
                         logger.debug(
                             (
@@ -376,7 +373,7 @@ class ActivityTracker(commands.Cog):
 
     # --- Фоновые задачи ---
 
-    @tasks.loop(minutes=5)
+    @tasks.loop(minutes=get_settings().timeouts.activity_periodic_save // 60)
     async def periodic_save(self) -> None:
         """
         Периодически обновляет время текущих активных сессий в БД.
@@ -632,7 +629,10 @@ class ActivityTracker(commands.Cog):
             # Создаем и отправляем View
             title = f"📊 Статистика {target_user.display_name} {data_period_str}"
             view = StatsView(
-                title, sorted_games, user=target_user, items_per_page=10
+                title,
+                sorted_games,
+                user=target_user,
+                items_per_page=get_settings().limits.activity_items_per_page,
             )  # type: ignore[arg-type]
             message = await ctx.send(
                 embed=view.get_current_embed(), view=view, ephemeral=True
@@ -692,7 +692,10 @@ class ActivityTracker(commands.Cog):
             # Создаем и отправляем View
             title = f"📊 Статистика {target_user.display_name} за всё время"
             view = StatsView(
-                title, sorted_games, user=target_user, items_per_page=10
+                title,
+                sorted_games,
+                user=target_user,
+                items_per_page=get_settings().limits.activity_items_per_page,
             )  # type: ignore[arg-type]
             message = await ctx.send(embed=view.get_current_embed(), view=view, ephemeral=True)
             view.message = message

@@ -18,6 +18,7 @@ from typing import Dict, Optional, Tuple
 import discord
 from discord.ext import commands
 
+from config import get_settings
 from utils.error_handler import command_error_handler, safe_send
 
 logger: logging.Logger = logging.getLogger("bot.cogs.admin")  # Используем иерархическое имя логгера
@@ -158,8 +159,13 @@ class AdminCog(commands.Cog):
             count: Количество сообщений для удаления (1-100, по умолчанию 10).
             user: Пользователь, чьи сообщения нужно удалить (опционально).
         """
-        if not (1 <= count <= 100):
-            await safe_send(ctx, "Количество сообщений должно быть от 1 до 100.", ephemeral=True)
+        settings = get_settings()
+        if not (settings.limits.purge_min_count <= count <= settings.limits.purge_max_count):
+            message = (
+                f"Количество сообщений должно быть от {settings.limits.purge_min_count} "
+                f"до {settings.limits.purge_max_count}."
+            )
+            await safe_send(ctx, message, ephemeral=True)
             return
 
         # Защита от спама командой clear
@@ -168,8 +174,12 @@ class AdminCog(commands.Cog):
 
         if channel_id in self.recent_purges:
             last_time, last_count = self.recent_purges[channel_id]
-            # Блокируем повторный вызов с count > 10, если прошло < 10 секунд
-            if last_count is not None and current_time - last_time < 10 and count > 10:
+            # Блокируем повторный вызов с count > 10, если прошло < purge_rate_limit секунд
+            if (
+                last_count is not None
+                and current_time - last_time < settings.timeouts.purge_rate_limit
+                and count > 10
+            ):
                 await safe_send(
                     ctx,
                     (
@@ -191,7 +201,7 @@ class AdminCog(commands.Cog):
         deleted_count = await self._clear_messages_helper(ctx, count=count, user=user)
 
         # Формируем и отправляем сообщение о результате
-        message = f"Удалено {deleted_count} сообщений"
+        message = settings.messages.success["purge_complete"].format(count=deleted_count)
         if user:
             message += f" пользователя {user.display_name}"
 
@@ -286,7 +296,8 @@ class AdminCog(commands.Cog):
         if is_slash:
             await ctx.defer(ephemeral=True)
 
-        message_content = "🔄 Перезапуск бота..."
+        settings = get_settings()
+        message_content = settings.messages.success["restart_initiated"]
         response_message = None
         if is_slash and ctx.interaction:
             await ctx.interaction.followup.send(
