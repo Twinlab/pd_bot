@@ -31,14 +31,14 @@ class TestMainWithNewConfig:
                     # Импортируем main после патчинга
                     import importlib
                     if 'main' in sys.modules:
-                        importlib.reload(sys.modules['main'])
+                        main_module = importlib.reload(sys.modules['main'])
                     else:
-                        import main
+                        import main as main_module
                     
                     # Проверяем, что основные объекты созданы
-                    assert hasattr(main, 'settings')
-                    assert hasattr(main, 'bot')
-                    assert main.settings.bot_token == 'test_token'
+                    assert hasattr(main_module, 'settings')
+                    assert hasattr(main_module, 'bot')
+                    assert main_module.settings.bot_token == 'test_token'
 
     @pytest.mark.asyncio
     async def test_load_cogs_with_new_config(self):
@@ -68,8 +68,8 @@ class TestMainWithNewConfig:
                     ]
                     
                     # Импортируем и вызываем функцию
-                    import main
-                    await main.load_cogs()
+                    import main as main_module
+                    await main_module.load_cogs()
                     
                     # Проверяем, что load_extension был вызван
                     assert mock_bot.load_extension.call_count >= 2
@@ -95,8 +95,8 @@ class TestMainWithNewConfig:
                      patch("main.bot", mock_bot):
                     
                     # Импортируем и вызываем функцию
-                    import main
-                    await main.main()
+                    import main as main_module
+                    await main_module.main()
                     
                     # Проверяем, что все функции были вызваны
                     mock_init_db.assert_called_once()
@@ -120,14 +120,14 @@ class TestMainWithNewConfig:
                     # Импортируем main
                     import importlib
                     if 'main' in sys.modules:
-                        importlib.reload(sys.modules['main'])
+                        main_module = importlib.reload(sys.modules['main'])
                     else:
-                        import main
+                        import main as main_module
                     
                     # Проверяем, что бот создан с правильным префиксом
-                    assert main.bot.command_prefix == '?'
-                    assert hasattr(main.bot, 'settings')
-                    assert hasattr(main.bot, 'config')  # Обратная совместимость
+                    assert main_module.bot.command_prefix == '?'
+                    assert hasattr(main_module.bot, 'settings')
+                    assert hasattr(main_module.bot, 'config')  # Обратная совместимость
 
     def test_config_compatibility_layer(self):
         """Тест слоя обратной совместимости конфигурации."""
@@ -144,19 +144,19 @@ class TestMainWithNewConfig:
                     # Импортируем main
                     import importlib
                     if 'main' in sys.modules:
-                        importlib.reload(sys.modules['main'])
+                        main_module = importlib.reload(sys.modules['main'])
                     else:
-                        import main
+                        import main as main_module
                     
                     # Проверяем, что словарь config содержит нужные ключи
-                    assert 'BOT_TOKEN' in main.config
-                    assert 'STRATZ_API_KEY' in main.config
-                    assert 'PREFIX' in main.config
-                    assert 'LOGGING_CHANNEL_ID' in main.config
+                    assert 'BOT_TOKEN' in main_module.config
+                    assert 'STRATZ_API_KEY' in main_module.config
+                    assert 'PREFIX' in main_module.config
+                    assert 'LOGGING_CHANNEL_ID' in main_module.config
                     
                     # Проверяем значения
-                    assert main.config['BOT_TOKEN'] == 'test_token'
-                    assert main.config['STRATZ_API_KEY'] == 'test_key'
+                    assert main_module.config['BOT_TOKEN'] == 'test_token'
+                    assert main_module.config['STRATZ_API_KEY'] == 'test_key'
 
     @pytest.mark.asyncio
     async def test_error_handling_in_main(self):
@@ -180,8 +180,8 @@ class TestMainWithNewConfig:
                      patch("main.logger") as mock_logger:
                     
                     # Импортируем и вызываем функцию
-                    import main
-                    await main.main()
+                    import main as main_module
+                    await main_module.main()
                     
                     # Проверяем, что ошибка была залогирована
                     mock_logger.critical.assert_called_once()

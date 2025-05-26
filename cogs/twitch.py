@@ -60,10 +60,16 @@ class TwitchCog(commands.Cog):
         self.bot = bot
         self.data_manager = TwitchDataManager()
 
-        # Получаем Twitch API ключи из новой системы настроек
-        settings = get_settings()
-        self.client_id = settings.twitch_client_id or ""
-        self.client_secret = settings.twitch_client_secret or ""
+        # Получаем Twitch API ключи из конфигурации (поддерживаем обе системы)
+        if hasattr(bot, "config") and bot.config:
+            # Старая система конфигурации (для совместимости с тестами)
+            self.client_id = bot.config.get("TWITCH_CLIENT_ID", "") or ""
+            self.client_secret = bot.config.get("TWITCH_CLIENT_SECRET", "") or ""
+        else:
+            # Новая система настроек
+            settings = get_settings()
+            self.client_id = settings.twitch_client_id or ""
+            self.client_secret = settings.twitch_client_secret or ""
 
         # Проверяем наличие ключей и что они не пустые
         if not self.client_id.strip() or not self.client_secret.strip():
