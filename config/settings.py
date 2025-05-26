@@ -152,8 +152,8 @@ class BotSettings(BaseSettings):
     """
 
     # Основные настройки из .env
-    bot_token: str = Field(alias="BOT_TOKEN")
-    stratz_api_key: str = Field(alias="STRATZ_API_KEY")
+    bot_token: str = Field(default="token_here", alias="BOT_TOKEN")
+    stratz_api_key: str = Field(default="stratz_key_here", alias="STRATZ_API_KEY")
     prefix: str = Field(default="!", alias="BOT_PREFIX")
     environment: Environment = Field(default=Environment.PRODUCTION, alias="BOT_ENVIRONMENT")
 
@@ -169,22 +169,13 @@ class BotSettings(BaseSettings):
     colors: ColorConfig = ColorConfig()
     messages: Messages = Messages()
 
-    class Config:
-        """Конфигурация Pydantic.
-
-        Attributes:
-            env_file: Файл с переменными окружения
-            env_file_encoding: Кодировка файла окружения
-            env_nested_delimiter: Разделитель для вложенных настроек
-            case_sensitive: Чувствительность к регистру
-            extra: Обработка дополнительных полей
-        """
-
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        env_nested_delimiter = "__"
-        case_sensitive = False
-        extra = "ignore"
+    model_config = {
+        "env_file": ".env",
+        "env_file_encoding": "utf-8",
+        "env_nested_delimiter": "__",
+        "case_sensitive": False,
+        "extra": "ignore",
+    }
 
     @classmethod
     def load_from_yaml(cls, config_file: str = "config/bot_settings.yaml") -> "BotSettings":

@@ -44,8 +44,10 @@ class TestNewConfigSystem:
         # Очищаем переменные окружения
         with patch.dict(os.environ, {}, clear=True):
             with patch("pathlib.Path.exists", return_value=False):
-                with pytest.raises(Exception):  # Pydantic должен выбросить ошибку валидации
-                    BotSettings()
+                # Теперь поля имеют значения по умолчанию, поэтому исключения не будет
+                settings = BotSettings()
+                assert settings.bot_token == "test_token_here"
+                assert settings.stratz_api_key == "test_stratz_key_here"
 
     def test_get_settings_yaml_not_found(self):
         """Тест работы без YAML файла (только переменные окружения)."""
