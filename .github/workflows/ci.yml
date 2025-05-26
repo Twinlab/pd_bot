@@ -28,20 +28,20 @@ jobs:
 
     - name: Lint with flake8
       run: |
-        flake8 cogs handlers utils main.py config.py --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 cogs handlers utils main.py config.py --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
+        flake8 cogs handlers utils main.py config/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 cogs handlers utils main.py config/ --count --exit-zero --max-complexity=10 --max-line-length=100 --statistics
 
     - name: Check formatting with black
       run: |
-        black --check cogs handlers utils main.py config.py
+        black --check cogs handlers utils main.py config/
 
     - name: Check import order with isort
       run: |
-        isort --check-only cogs handlers utils main.py config.py
+        isort --check-only cogs handlers utils main.py config/
 
     - name: Type check with mypy
       run: |
-        mypy cogs handlers utils main.py config.py
+        mypy cogs handlers utils main.py config/
 
     - name: Test with pytest and generate coverage report
       run: |
