@@ -18,6 +18,11 @@ def create_mock_settings(channel_id=123456789):
     mock_settings.anime.excluded_tags = ["nude", "nsfw"]
     mock_settings.anime.max_tags_per_request = 6
     mock_settings.anime.rating = "safe"
+    # Добавляем настройки расписания
+    mock_settings.anime.schedule.morning_hour = 10
+    mock_settings.anime.schedule.morning_minute = 0
+    mock_settings.anime.schedule.evening_hour = 18
+    mock_settings.anime.schedule.evening_minute = 0
     return mock_settings
 
 
@@ -26,9 +31,20 @@ class TestAnimeCogInit:
 
     def test_anime_cog_init_with_channel(self, mock_bot):
         """Тест инициализации кога с настроенным каналом."""
+        # Создаем моки для задач с методом change_interval
+        mock_morning_task = MagicMock()
+        mock_morning_task.change_interval = MagicMock()
+        mock_morning_task.start = MagicMock()
+        
+        mock_evening_task = MagicMock()
+        mock_evening_task.change_interval = MagicMock()
+        mock_evening_task.start = MagicMock()
+        
         with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
              patch('discord.ext.tasks.loop', return_value=MagicMock()), \
-             patch('asyncio.create_task', return_value=MagicMock()):
+             patch('asyncio.create_task', return_value=MagicMock()), \
+             patch.object(AnimeCog, 'morning_post', mock_morning_task), \
+             patch.object(AnimeCog, 'evening_post', mock_evening_task):
             # Создаем экземпляр AnimeCog
             anime_cog = AnimeCog(mock_bot)
             
@@ -36,9 +52,13 @@ class TestAnimeCogInit:
             assert anime_cog.bot == mock_bot
             assert anime_cog.channel_id == 123456789
             
-            # Проверяем, что у кога есть фоновые задачи
-            assert hasattr(anime_cog, 'morning_post')
-            assert hasattr(anime_cog, 'evening_post')
+            # Проверяем, что change_interval был вызван для обеих задач
+            mock_morning_task.change_interval.assert_called_once()
+            mock_evening_task.change_interval.assert_called_once()
+            
+            # Проверяем, что задачи были запущены
+            mock_morning_task.start.assert_called_once()
+            mock_evening_task.start.assert_called_once()
 
     def test_anime_cog_init_without_channel(self, mock_bot):
         """Тест инициализации кога без настроенного канала."""
