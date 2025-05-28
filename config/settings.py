@@ -100,6 +100,22 @@ class ColorConfig(BaseModel):
     twitch: str = "#6441a4"
 
 
+class AnimeScheduleConfig(BaseModel):
+    """Конфигурация расписания публикации аниме.
+
+    Attributes:
+        morning_hour: Час утренней публикации (UTC)
+        morning_minute: Минута утренней публикации (UTC)
+        evening_hour: Час вечерней публикации (UTC)
+        evening_minute: Минута вечерней публикации (UTC)
+    """
+
+    morning_hour: int = 10
+    morning_minute: int = 0
+    evening_hour: int = 18
+    evening_minute: int = 0
+
+
 class AnimeConfig(BaseModel):
     """Конфигурация аниме-модуля.
 
@@ -108,6 +124,7 @@ class AnimeConfig(BaseModel):
         excluded_tags: Список тегов для исключения из поиска (добавляются с префиксом -)
         max_tags_per_request: Максимальное количество тегов для одного запроса
         rating: Минимальный рейтинг изображений (safe, questionable, explicit)
+        schedule: Настройки расписания публикации
     """
 
     tags: list[str] = [
@@ -140,6 +157,65 @@ class AnimeConfig(BaseModel):
     ]
     max_tags_per_request: int = 6
     rating: str = "safe"
+    schedule: AnimeScheduleConfig = AnimeScheduleConfig()
+
+
+class YtDlpConfig(BaseModel):
+    """Конфигурация yt-dlp для музыкального модуля.
+
+    Attributes:
+        audio_quality: Качество аудио для постобработки
+        audio_codec: Предпочитаемый кодек
+        search_limit: Максимальное количество результатов поиска
+    """
+
+    audio_quality: str = "192"
+    audio_codec: str = "mp3"
+    search_limit: int = 100
+
+
+class MusicConfig(BaseModel):
+    """Конфигурация музыкального модуля.
+
+    Attributes:
+        downloads_dir: Директория для загрузки файлов
+        ffmpeg_options: Опции FFmpeg для воспроизведения
+        yt_dlp: Настройки yt-dlp
+    """
+
+    downloads_dir: str = "downloads"
+    ffmpeg_options: str = "-vn -loglevel info -hide_banner"
+    yt_dlp: YtDlpConfig = YtDlpConfig()
+
+
+class GiveawayConfig(BaseModel):
+    """Конфигурация модуля розыгрышей.
+
+    Attributes:
+        min_duration: Минимальная длительность розыгрыша (секунды)
+        max_duration: Максимальная длительность розыгрыша (секунды)
+        max_description_length: Максимальная длина описания розыгрыша
+        participation_emoji: Эмодзи для участия в розыгрыше
+    """
+
+    min_duration: int = 10
+    max_duration: int = 604800  # 7 дней
+    max_description_length: int = 4000
+    participation_emoji: str = "🎉"
+
+
+class TwitchConfig(BaseModel):
+    """Конфигурация Twitch модуля.
+
+    Attributes:
+        check_interval: Интервал проверки стримов (секунды)
+        startup_delay: Задержка при первом запуске (секунды)
+        embed_color: Цвет эмбедов Twitch (hex)
+    """
+
+    check_interval: int = 60
+    startup_delay: int = 30
+    embed_color: str = "#6441A4"
 
 
 class Messages(BaseModel):
@@ -211,6 +287,9 @@ class BotSettings(BaseSettings):
     colors: ColorConfig = ColorConfig()
     messages: Messages = Messages()
     anime: AnimeConfig = AnimeConfig()
+    music: MusicConfig = MusicConfig()
+    giveaway: GiveawayConfig = GiveawayConfig()
+    twitch: TwitchConfig = TwitchConfig()
 
     model_config = {
         "env_file": ".env",

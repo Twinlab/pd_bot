@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional
 
 import yt_dlp
 
+from config import get_settings
+
 from .config import DOWNLOADS_DIR, PROXY_URL, YDL_OPTS_BASE
 
 # Создаем логгер с иерархическим именем
@@ -127,18 +129,24 @@ async def download_track(url: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-async def search_youtube(query: str, max_results: int = 10) -> Optional[List[Dict[str, Any]]]:
+async def search_youtube(
+    query: str, max_results: Optional[int] = None
+) -> Optional[List[Dict[str, Any]]]:
     """
     Ищет видео на YouTube по заданному запросу без фактического скачивания.
 
     Args:
         query: Поисковый запрос.
         max_results: Максимальное количество результатов для возврата.
+                    Если None, используется значение из конфигурации.
 
     Returns:
         Список словарей, где каждый словарь содержит информацию о найденном видео,
         или None, если ничего не найдено или произошла ошибка.
     """
+    if max_results is None:
+        settings = get_settings()
+        max_results = settings.music.yt_dlp.search_limit
     logger.info(f"Поиск на YouTube: '{query}' (max_results={max_results})")
     ydl_opts = {
         # Хотя скачивание не происходит, некоторые экстракторы могут требовать формат

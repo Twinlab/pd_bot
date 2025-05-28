@@ -83,8 +83,11 @@ class TwitchCog(commands.Cog):
             {}
         )  # {username: {'user_id': str, 'is_live': bool, 'stream_data': Optional[Dict[str, Any]]}}
 
+        # Получаем настройки из конфигурации
+        settings = get_settings()
+
         # Интервал проверки стримов (в секундах)
-        self.check_interval = 60  # 1 минута
+        self.check_interval = settings.twitch.check_interval
 
         # Флаг для отслеживания первого запуска
         self.first_run = True
@@ -101,6 +104,8 @@ class TwitchCog(commands.Cog):
         # Инициализируем Twitch API
         if self.twitch_api:
             await self.twitch_api.initialize()
+            # Изменяем интервал задачи на значение из конфигурации
+            self.check_streams.change_interval(seconds=self.check_interval)
             # Запускаем фоновую задачу для проверки стримов
             self.check_streams.start()
         else:
@@ -123,15 +128,19 @@ class TwitchCog(commands.Cog):
         if self.twitch_api:
             await self.twitch_api.close()
 
-    @tasks.loop(seconds=60)
+    @tasks.loop(seconds=60)  # Будет изменено динамически
     async def check_streams(self) -> None:
         """Фоновая задача для проверки статуса стримов."""
         try:
             # При первом запуске делаем паузу, чтобы бот успел полностью загрузиться
             if self.first_run:
                 self.first_run = False
-                logger.info("Первый запуск проверки стримов, ожидаем 30 секунд...")
-                await asyncio.sleep(30)
+                settings = get_settings()
+                logger.info(
+                    f"Первый запуск проверки стримов, "
+                    f"ожидаем {settings.twitch.startup_delay} секунд..."
+                )
+                await asyncio.sleep(settings.twitch.startup_delay)
 
             logger.debug("Начало проверки статуса стримов")
 
@@ -309,10 +318,11 @@ class TwitchCog(commands.Cog):
                     return
 
             # Создаем эмбед с информацией о стриме
+            settings = get_settings()
             embed = discord.Embed(
                 title=stream_data["title"],
                 url=f"https://twitch.tv/{username}",
-                color=0x6441A4,  # Фирменный цвет Twitch
+                color=int(settings.twitch.embed_color.replace("#", ""), 16),
                 timestamp=datetime.datetime.now(),
             )
 
@@ -664,9 +674,10 @@ class TwitchCog(commands.Cog):
             return
 
         # Создаем эмбед со списком стримеров
+        settings = get_settings()
         embed = discord.Embed(
             title="Отслеживаемые Twitch-стримеры",
-            color=0x6441A4,  # Фирменный цвет Twitch
+            color=int(settings.twitch.embed_color.replace("#", ""), 16),
             timestamp=datetime.datetime.now(),
         )
 

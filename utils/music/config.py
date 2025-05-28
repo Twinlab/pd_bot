@@ -15,11 +15,7 @@ logger = logging.getLogger("bot.utils.music.config")
 settings = get_settings()
 
 # --- Константы и конфигурация ---
-DOWNLOADS_DIR = Path(
-    getattr(settings, "music", {}).get("downloads_dir", "downloads")
-    if hasattr(settings, "music")
-    else "downloads"
-)
+DOWNLOADS_DIR = Path(settings.music.downloads_dir)
 DOWNLOADS_DIR.mkdir(exist_ok=True)
 
 # Цвета для Embeds
@@ -50,8 +46,8 @@ YDL_OPTS_BASE = {
     "postprocessors": [
         {
             "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "192",
+            "preferredcodec": settings.music.yt_dlp.audio_codec,
+            "preferredquality": settings.music.yt_dlp.audio_quality,
         }
     ],
 }
@@ -59,9 +55,5 @@ YDL_OPTS_BASE = {
 # Опции FFmpeg
 FFMPEG_OPTIONS = {
     "before_options": "",
-    "options": (
-        getattr(settings, "music", {}).get("ffmpeg_options", "-vn -loglevel info -hide_banner")
-        if hasattr(settings, "music")
-        else "-vn -loglevel info -hide_banner"
-    ),
+    "options": settings.music.ffmpeg_options,
 }

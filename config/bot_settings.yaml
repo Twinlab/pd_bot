@@ -65,9 +65,58 @@ anime:
     - "text"
     - "name_tag"
     - "comic"
+    - "wings"
+    - "logo"
+    - "english_text"
+    - "official_art"
+    - "non-web_source"
+    - "title"
+    - "speech_bubble"
+    - "child"
   # Максимальное количество тегов для одного запроса (safebooru лимит)
   max_tags_per_request: 6
 
   # Минимальный рейтинг изображений (safe, questionable, explicit)
   # Для SFW контента используем только "safe"
   rating: "questionable"
+
+  # Настройки времени публикации (в UTC)
+  schedule:
+    morning_hour: 10
+    morning_minute: 0
+    evening_hour: 18
+    evening_minute: 0
+
+# Настройки музыкального модуля
+music:
+  # Директория для загрузки файлов
+  downloads_dir: "downloads"
+
+  # Опции FFmpeg для воспроизведения
+  ffmpeg_options: "-vn -loglevel info -hide_banner"
+
+  # Настройки yt-dlp
+  yt_dlp:
+    audio_quality: "192"
+    audio_codec: "mp3"
+    search_limit: 10
+
+# Настройки модуля розыгрышей
+giveaway:
+  min_duration: 10
+  max_duration: 604800  # 7 дней
+
+  # Максимальная длина описания розыгрыша
+  max_description_length: 4000
+
+  # Эмодзи для участия в розыгрыше
+  participation_emoji: "🎉"
+
+# Настройки Twitch модуля
+twitch:
+  # Интервал проверки стримов (в секундах)
+  check_interval: 180
+  # Задержка при первом запуске (в секундах)
+  startup_delay: 30
+  # Цвет эмбедов Twitch (hex)
+  embed_color: "#6441A4"

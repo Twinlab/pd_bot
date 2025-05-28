@@ -37,13 +37,25 @@ class AnimeCog(commands.Cog):
             bot: Экземпляр discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
-        # Получаем ID канала из новой системы конфигурации
+        # Получаем настройки из новой системы конфигурации
         settings = get_settings()
         self.channel_id: Optional[int] = settings.channels.anime
 
         if not self.channel_id:
             logger.error("Канал для публикации аниме не настроен или не найден.")
             return  # Не запускаем задачи, если ID не найден
+
+        # Устанавливаем время из конфигурации
+        morning_time = time(
+            hour=settings.anime.schedule.morning_hour, minute=settings.anime.schedule.morning_minute
+        )
+        evening_time = time(
+            hour=settings.anime.schedule.evening_hour, minute=settings.anime.schedule.evening_minute
+        )
+
+        # Изменяем время выполнения задач
+        self.morning_post.change_interval(time=morning_time)
+        self.evening_post.change_interval(time=evening_time)
 
         # Запускаем задачи по расписанию
         self.morning_post.start()
@@ -219,19 +231,15 @@ class AnimeCog(commands.Cog):
 
     # --- Фоновые задачи ---
 
-    @tasks.loop(
-        time=time(hour=10, minute=0)
-    )  # Указываем время запуска (по UTC, если не задан tzinfo)
+    @tasks.loop(time=time(hour=10, minute=0))  # Значение по умолчанию, будет изменено в __init__
     async def morning_post(self) -> None:
-        """Задача, выполняющаяся ежедневно в 10:00 UTC для утренней публикации."""
+        """Задача, выполняющаяся ежедневно для утренней публикации."""
         logger.info("Запуск утренней публикации аниме...")
         await self.post_anime_image()
 
-    @tasks.loop(
-        time=time(hour=18, minute=0)
-    )  # Указываем время запуска (по UTC, если не задан tzinfo)
+    @tasks.loop(time=time(hour=18, minute=0))  # Значение по умолчанию, будет изменено в __init__
     async def evening_post(self) -> None:
-        """Задача, выполняющаяся ежедневно в 18:00 UTC для вечерней публикации."""
+        """Задача, выполняющаяся ежедневно для вечерней публикации."""
         logger.info("Запуск вечерней публикации аниме...")
         await self.post_anime_image()
 

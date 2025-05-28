@@ -19,6 +19,7 @@ from typing import Dict, List, Optional  # Убираем Set, Union; добав
 import discord
 from discord.ext import commands
 
+from config import get_settings
 from utils.error_handler import command_error_handler
 
 logger = logging.getLogger("bot.cogs.giveaway")  # Иерархическое имя логгера
@@ -58,9 +59,15 @@ class GiveawayCog(commands.Cog):
             duration: Длительность розыгрыша в формате (например: 1h30m)
             description: Описание розыгрыша
         """
-        # Проверяем максимальную длину описания (ограничение Discord для эмбедов)
-        if len(description) > 4000:
-            await ctx.send("Описание розыгрыша слишком длинное (максимум 4000 символов).")
+        # Получаем настройки
+        settings = get_settings()
+
+        # Проверяем максимальную длину описания
+        if len(description) > settings.giveaway.max_description_length:
+            await ctx.send(
+                f"Описание розыгрыша слишком длинное "
+                f"(максимум {settings.giveaway.max_description_length} символов)."
+            )
             return
 
         # Преобразуем строку длительности (напр., "1h30m") в секунды
@@ -77,13 +84,16 @@ class GiveawayCog(commands.Cog):
             return
 
         # Проверка минимальной длительности
-        if duration_seconds < 10:
-            await ctx.send("Минимальная длительность розыгрыша - 10 секунд.")
+        if duration_seconds < settings.giveaway.min_duration:
+            await ctx.send(
+                f"Минимальная длительность розыгрыша - {settings.giveaway.min_duration} секунд."
+            )
             return
 
-        # Проверка максимальной длительности (7 дней)
-        if duration_seconds > 7 * 24 * 3600:
-            await ctx.send("Максимальная длительность розыгрыша - 7 дней.")
+        # Проверка максимальной длительности
+        if duration_seconds > settings.giveaway.max_duration:
+            max_days = settings.giveaway.max_duration // (24 * 3600)
+            await ctx.send(f"Максимальная длительность розыгрыша - {max_days} дней.")
             return
 
         # Рассчитываем точное время окончания розыгрыша
@@ -117,8 +127,8 @@ class GiveawayCog(commands.Cog):
         # Отправляем сообщение с эмбедом в текущий канал
         giveaway_message = await ctx.send(embed=embed)
 
-        # Добавляем реакцию "🎉", чтобы пользователи могли участвовать
-        await giveaway_message.add_reaction("🎉")
+        # Добавляем реакцию для участия, чтобы пользователи могли участвовать
+        await giveaway_message.add_reaction(settings.giveaway.participation_emoji)
 
         # Создаем фоновую задачу asyncio для ожидания окончания розыгрыша
         task = asyncio.create_task(
@@ -168,10 +178,13 @@ class GiveawayCog(commands.Cog):
                 self.active_giveaways.pop(giveaway_message.id, None)
                 return
 
-            # Собираем список пользователей (не ботов), нажавших на реакцию 🎉
+            # Получаем настройки для эмодзи участия
+            settings = get_settings()
+
+            # Собираем список пользователей (не ботов), нажавших на реакцию участия
             participants: List[discord.User] = []
             for reaction in message.reactions:
-                if str(reaction.emoji) == "🎉":
+                if str(reaction.emoji) == settings.giveaway.participation_emoji:
                     async for user in reaction.users():
                         if not user.bot:  # Исключаем ботов
                             participants.append(user)
