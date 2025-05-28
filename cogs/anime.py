@@ -9,7 +9,7 @@
 import logging
 import random
 from datetime import time
-from typing import Optional
+from typing import Any, Optional
 
 import aiohttp
 from discord.ext import commands, tasks
@@ -62,22 +62,62 @@ class AnimeCog(commands.Cog):
         Случайным образом выбирает несколько тегов из конфигурации и выполняет поиск.
         Также добавляет исключенные теги с префиксом "-".
 
+        Если основной запрос не дает результатов, делает fallback запрос только с тегом "1girl".
+
         Returns:
             URL изображения в виде строки или None в случае ошибки.
         """
         settings = get_settings()
 
-        # Выбираем случайные теги из настроек (не больше max_tags_per_request)
-        available_tags = settings.anime.tags
-        max_tags = min(settings.anime.max_tags_per_request, len(available_tags))
-        selected_tags = random.sample(available_tags, random.randint(1, max_tags))
+        # Сначала пробуем основной запрос с выбранными тегами
+        result = await self._try_get_image_with_tags(settings)
+        if result:
+            return result
+
+        # Если основной запрос не дал результатов, пробуем fallback с только "1girl"
+        logger.info("Основной запрос не дал результатов, пробуем fallback с тегом '1girl'")
+        return await self._try_get_image_fallback(settings)
+
+    async def _try_get_image_with_tags(self, settings: Any) -> Optional[str]:
+        """Пробует получить изображение с выбранными тегами."""
+        # Выбираем случайные теги из настроек
+        # (не больше max_tags_per_request - 1, т.к. добавим 1girl)
+        available_tags = [
+            tag for tag in settings.anime.tags if tag != "1girl"
+        ]  # Исключаем 1girl из выбора
+        max_tags = min(
+            settings.anime.max_tags_per_request - 1, len(available_tags)
+        )  # -1 для обязательного 1girl
+
+        if max_tags > 0 and available_tags:
+            selected_tags = random.sample(available_tags, random.randint(1, max_tags))
+        else:
+            selected_tags = []
+
+        # Добавляем обязательный тег "1girl"
+        all_selected_tags = ["1girl"] + selected_tags
 
         # Добавляем исключенные теги с префиксом "-"
         excluded_tags = [f"-{tag}" for tag in settings.anime.excluded_tags]
 
         # Объединяем все теги
+        all_tags = all_selected_tags + excluded_tags + [f"rating:{settings.anime.rating}"]
+
+        return await self._make_api_request(all_tags, all_selected_tags, settings)
+
+    async def _try_get_image_fallback(self, settings: Any) -> Optional[str]:
+        """Fallback запрос только с тегом '1girl' и исключениями."""
+        # Только обязательные теги: 1girl + исключения + рейтинг
+        selected_tags = ["1girl"]
+        excluded_tags = [f"-{tag}" for tag in settings.anime.excluded_tags]
         all_tags = selected_tags + excluded_tags + [f"rating:{settings.anime.rating}"]
 
+        return await self._make_api_request(all_tags, selected_tags, settings)
+
+    async def _make_api_request(
+        self, all_tags: list[str], selected_tags: list[str], settings: Any
+    ) -> Optional[str]:
+        """Выполняет запрос к API safebooru.org."""
         # Формируем параметры запроса для safebooru API
         params = {
             "page": "dapi",

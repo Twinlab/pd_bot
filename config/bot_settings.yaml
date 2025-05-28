@@ -62,6 +62,9 @@ anime:
     - "multiple_girls"
     - "pokemon"
     - "digimon"
+    - "text"
+    - "name_tag"
+    - "comic"
   # Максимальное количество тегов для одного запроса (safebooru лимит)
   max_tags_per_request: 6
 
