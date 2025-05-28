@@ -10,16 +10,24 @@ from discord.ext import commands
 from cogs.anime import AnimeCog
 
 
+def create_mock_settings(channel_id=123456789):
+    """Создает мок настроек для тестов."""
+    mock_settings = MagicMock()
+    mock_settings.channels.anime = channel_id
+    mock_settings.anime.tags = ["anime", "1girl", "cute"]
+    mock_settings.anime.excluded_tags = ["nude", "nsfw"]
+    mock_settings.anime.max_tags_per_request = 6
+    mock_settings.anime.rating = "safe"
+    return mock_settings
+
+
 class TestAnimeCogInit:
     """Тесты для инициализации и выгрузки AnimeCog."""
 
     def test_anime_cog_init_with_channel(self, mock_bot):
         """Тест инициализации кога с настроенным каналом."""
-        # Настраиваем mock_bot
-        mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
-        
-        # Патчим tasks.loop и asyncio.create_task
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
              patch('asyncio.create_task', return_value=MagicMock()):
             # Создаем экземпляр AnimeCog
             anime_cog = AnimeCog(mock_bot)
@@ -34,11 +42,8 @@ class TestAnimeCogInit:
 
     def test_anime_cog_init_without_channel(self, mock_bot):
         """Тест инициализации кога без настроенного канала."""
-        # Настраиваем mock_bot
-        mock_bot.config = {}
-        
-        # Патчим tasks.loop, чтобы избежать проблем с циклом событий
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()):
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings(None)), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()):
             # Создаем экземпляр AnimeCog
             anime_cog = AnimeCog(mock_bot)
             
@@ -53,11 +58,12 @@ class TestAnimeCogInit:
     @pytest.mark.asyncio
     async def test_anime_cog_cog_unload(self, mock_bot):
         """Тест выгрузки кога."""
-        # Настраиваем mock_bot
-        mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
+        # Патчим get_settings для возврата настроек с каналом
+        mock_settings = MagicMock()
+        mock_settings.channels.anime = 123456789
         
-        # Патчим tasks.loop и asyncio.create_task
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+        with patch('cogs.anime.get_settings', return_value=mock_settings), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
              patch('asyncio.create_task', return_value=MagicMock()):
             # Создаем экземпляр AnimeCog
             anime_cog = AnimeCog(mock_bot)
@@ -80,11 +86,13 @@ class TestAnimeImageFunctions:
     @pytest.mark.asyncio
     async def test_post_anime_image_success(self, mock_bot, mock_text_channel):
         """Тест метода post_anime_image (успешный случай)."""
-        # Патчим tasks.loop и asyncio.create_task
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+        # Патчим get_settings
+        mock_settings = MagicMock()
+        mock_settings.channels.anime = 123456789
+        
+        with patch('cogs.anime.get_settings', return_value=mock_settings), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
              patch('asyncio.create_task', return_value=MagicMock()):
-            # Настраиваем mock_bot
-            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
             mock_bot.get_channel = MagicMock(return_value=mock_text_channel)
             
             # Создаем экземпляр AnimeCog
@@ -106,11 +114,13 @@ class TestAnimeImageFunctions:
     @pytest.mark.asyncio
     async def test_post_anime_image_no_channel(self, mock_bot):
         """Тест метода post_anime_image (канал не существует)."""
-        # Патчим tasks.loop и asyncio.create_task
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+        # Патчим get_settings
+        mock_settings = MagicMock()
+        mock_settings.channels.anime = 123456789
+        
+        with patch('cogs.anime.get_settings', return_value=mock_settings), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
              patch('asyncio.create_task', return_value=MagicMock()):
-            # Настраиваем mock_bot
-            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
             
             # Создаем экземпляр AnimeCog
             anime_cog = AnimeCog(mock_bot)
@@ -289,28 +299,44 @@ class TestGetAnimeImage:
     @pytest.mark.asyncio
     async def test_get_anime_image_success(self, mock_bot):
         """Тест успешного получения изображения."""
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
              patch('asyncio.create_task', return_value=MagicMock()):
-            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
             anime_cog = AnimeCog(mock_bot)
             
             # Просто мокируем весь метод get_anime_image
-            with patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value="https://example.com/anime.jpg")):
+            with patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value="https://safebooru.org/images/123/test.jpg")):
                 result = await anime_cog.get_anime_image()
-                assert result == "https://example.com/anime.jpg"
+                assert result == "https://safebooru.org/images/123/test.jpg"
 
     @pytest.mark.asyncio
     async def test_get_anime_image_failure(self, mock_bot):
         """Тест неудачного получения изображения."""
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
              patch('asyncio.create_task', return_value=MagicMock()):
-            mock_bot.config = {"ANIME_CHANNEL_ID": 123456789}
             anime_cog = AnimeCog(mock_bot)
             
             # Мокируем метод get_anime_image чтобы он возвращал None
             with patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value=None)):
                 result = await anime_cog.get_anime_image()
                 assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_anime_image_uses_settings(self, mock_bot):
+        """Тест что метод использует настройки из конфигурации."""
+        mock_settings = create_mock_settings()
+        
+        with patch('cogs.anime.get_settings', return_value=mock_settings) as mock_get_settings, \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Проверяем, что get_settings вызывается при инициализации
+            mock_get_settings.assert_called()
+            
+            # Проверяем, что настройки правильно применились
+            assert anime_cog.channel_id == 123456789
 
 
 class TestPostAnimeImageEdgeCases:
@@ -353,8 +379,12 @@ class TestCheckChannelExistsEdgeCases:
     @pytest.mark.asyncio
     async def test_check_channel_exists_no_channel_id(self, mock_bot):
         """Тест _check_channel_exists когда channel_id не установлен."""
-        with patch('discord.ext.tasks.loop', return_value=MagicMock()):
-            mock_bot.config = {}
+        # Патчим get_settings для возврата настроек без канала
+        mock_settings = MagicMock()
+        mock_settings.channels.anime = None
+        
+        with patch('cogs.anime.get_settings', return_value=mock_settings), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()):
             anime_cog = AnimeCog(mock_bot)
             
             result = await anime_cog._check_channel_exists()

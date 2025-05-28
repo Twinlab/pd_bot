@@ -100,6 +100,48 @@ class ColorConfig(BaseModel):
     twitch: str = "#6441a4"
 
 
+class AnimeConfig(BaseModel):
+    """Конфигурация аниме-модуля.
+
+    Attributes:
+        tags: Список тегов для поиска изображений на safebooru.org
+        excluded_tags: Список тегов для исключения из поиска (добавляются с префиксом -)
+        max_tags_per_request: Максимальное количество тегов для одного запроса
+        rating: Минимальный рейтинг изображений (safe, questionable, explicit)
+    """
+
+    tags: list[str] = [
+        "anime",
+        "1girl",
+        "solo",
+        "cute",
+        "kawaii",
+        "moe",
+        "school_uniform",
+        "long_hair",
+        "short_hair",
+        "blue_eyes",
+        "brown_eyes",
+        "smile",
+        "blush",
+        "cat_ears",
+        "headphones",
+        "glasses",
+    ]
+    excluded_tags: list[str] = [
+        "nude",
+        "nsfw",
+        "explicit",
+        "underwear",
+        "panties",
+        "bra",
+        "swimsuit",
+        "bikini",
+    ]
+    max_tags_per_request: int = 6
+    rating: str = "safe"
+
+
 class Messages(BaseModel):
     """Конфигурация текстовых сообщений.
 
@@ -168,6 +210,7 @@ class BotSettings(BaseSettings):
     limits: LimitConfig = LimitConfig()
     colors: ColorConfig = ColorConfig()
     messages: Messages = Messages()
+    anime: AnimeConfig = AnimeConfig()
 
     model_config = {
         "env_file": ".env",

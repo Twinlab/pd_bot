@@ -3,7 +3,7 @@
 Этот модуль предоставляет функциональность для автоматической публикации
 аниме-изображений в заданный канал Discord по расписанию (утром и вечером),
 а также команду для ручной публикации изображений администраторами.
-Изображения получаются из различных публичных API с аниме-контентом.
+Изображения получаются с сайта safebooru.org через их API.
 """
 
 import logging
@@ -21,10 +21,13 @@ logger: logging.Logger = logging.getLogger("bot.cogs.anime")  # Иерархич
 
 
 class AnimeCog(commands.Cog):
-    """Ког для публикации SFW аниме-изображений.
+    """Ког для публикации SFW аниме-изображений с safebooru.org.
 
     Автоматически и вручную публикует случайные изображения
-    в заданный канал Discord.
+    в заданный канал Discord. Использует настраиваемые теги
+    для поиска изображений через API safebooru.org.
+
+    Теги настраиваются в файле config/bot_settings.yaml в секции anime.
     """
 
     def __init__(self, bot: commands.Bot) -> None:
@@ -53,51 +56,84 @@ class AnimeCog(commands.Cog):
         self.evening_post.cancel()
 
     async def get_anime_image(self) -> Optional[str]:
-        """Асинхронно получает URL случайного SFW аниме-изображения.
+        """Асинхронно получает URL случайного SFW аниме-изображения с safebooru.org.
 
-        Использует одно из нескольких публичных API.
-        Поддерживаемые API:
-        - waifu.im: Предоставляет изображения с тегом "waifu", только SFW контент
-        - waifu.pics: Предоставляет SFW изображения с тегом "waifu"
-        - nekos.life: Предоставляет SFW изображения с тегом "neko"
-
-        Метод случайным образом выбирает один из API, выполняет запрос и
-        обрабатывает ответ в соответствии со структурой данных конкретного API.
+        Использует API safebooru.org для поиска изображений по настроенным тегам.
+        Случайным образом выбирает несколько тегов из конфигурации и выполняет поиск.
+        Также добавляет исключенные теги с префиксом "-".
 
         Returns:
             URL изображения в виде строки или None в случае ошибки.
         """
-        # Список доступных API эндпоинтов
-        api_endpoints = [
-            {
-                "url": "https://api.waifu.im/search",
-                "params": {"included_tags": "waifu", "is_nsfw": "false"},
-                "key": "images",
-                "subkey": "url",
-            },
-            {"url": "https://api.waifu.pics/sfw/waifu", "params": {}, "key": "url"},
-            {"url": "https://nekos.life/api/v2/img/neko", "params": {}, "key": "url"},  # nekos.life
-        ]
+        settings = get_settings()
 
-        # Выбираем случайный эндпоинт из списка
-        api = random.choice(api_endpoints)
+        # Выбираем случайные теги из настроек (не больше max_tags_per_request)
+        available_tags = settings.anime.tags
+        max_tags = min(settings.anime.max_tags_per_request, len(available_tags))
+        selected_tags = random.sample(available_tags, random.randint(1, max_tags))
 
-        # Выполняем асинхронный GET-запрос
+        # Добавляем исключенные теги с префиксом "-"
+        excluded_tags = [f"-{tag}" for tag in settings.anime.excluded_tags]
+
+        # Объединяем все теги
+        all_tags = selected_tags + excluded_tags + [f"rating:{settings.anime.rating}"]
+
+        # Формируем параметры запроса для safebooru API
+        params = {
+            "page": "dapi",
+            "s": "post",
+            "q": "index",
+            "json": "1",
+            "limit": "100",  # Получаем больше результатов для лучшей случайности
+            "tags": " ".join(all_tags),
+        }
+
+        # URL API safebooru.org
+        api_url = "https://safebooru.org/index.php"
+
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(api["url"], params=api["params"]) as response:
+                # Выполняем запрос к API
+                async with session.get(api_url, params=params) as response:
                     if response.status == 200:
                         data = await response.json()
 
-                        # Извлекаем URL изображения из ответа в зависимости от API
-                        if api["key"] == "images":
-                            # Для API типа waifu.im
-                            return str(data[api["key"]][0][api["subkey"]])
+                        # Проверяем, что получили результаты
+                        if not data or not isinstance(data, list) or len(data) == 0:
+                            logger.warning(f"Нет изображений для тегов: {selected_tags}")
+                            return None
+
+                        # Выбираем случайное изображение из результатов
+                        random_post = random.choice(data)
+
+                        # Формируем полный URL изображения
+                        if "file_url" in random_post and random_post["file_url"]:
+                            # Если есть прямая ссылка на файл
+                            file_url = random_post["file_url"]
+                            if not file_url.startswith("http"):
+                                file_url = f"https:{file_url}"
+                            logger.info(
+                                f"Найдено изображение с тегами: {selected_tags}, "
+                                f"исключены: {settings.anime.excluded_tags}"
+                            )
+                            return str(file_url)
+                        elif "directory" in random_post and "image" in random_post:
+                            # Формируем URL из directory и image
+                            directory = random_post["directory"]
+                            image = random_post["image"]
+                            file_url = f"https://safebooru.org/images/{directory}/{image}"
+                            logger.info(
+                                f"Найдено изображение с тегами: {selected_tags}, "
+                                f"исключены: {settings.anime.excluded_tags}"
+                            )
+                            return str(file_url)
                         else:
-                            # Для API типа waifu.pics или nekos.life
-                            return str(data[api["key"]])
+                            logger.error(
+                                f"Не удалось извлечь URL изображения из ответа: {random_post}"
+                            )
+                            return None
                     else:
-                        logger.error(f"Ошибка при запросе к API: {response.status}")
+                        logger.error(f"Ошибка при запросе к safebooru API: {response.status}")
                         return None
             except Exception as e:
                 logger.error(f"Ошибка при получении аниме-изображения: {e}", exc_info=True)

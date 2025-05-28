@@ -30,3 +30,41 @@ colors:
   info: "#ffaa00"
   warning: "#ff8800"
   twitch: "#6441a4"
+
+# Настройки аниме-модуля
+anime:
+  # Теги для поиска изображений на safebooru.org
+  # Можно добавлять/удалять теги по желанию
+  tags:
+    - "1girl"
+    - "school_uniform"
+    - "long_hair"
+    - "short_hair"
+    - "blue_eyes"
+    - "brown_eyes"
+    - "smile"
+    - "blush"
+    - "cat_ears"
+    - "headphones"
+    - "glasses"
+    - "purple_hair"
+    - "green_eyes"
+    - "witch_hat"
+
+  # Теги для исключения из поиска (будут добавлены с префиксом -)
+  # Например: "-nude", "-nsfw", "-explicit"
+  excluded_tags:
+    - "tail"
+    - "chibi"
+    - "no_humans"
+    - "large_breasts"
+    - "1boy"
+    - "multiple_girls"
+    - "pokemon"
+    - "digimon"
+  # Максимальное количество тегов для одного запроса (safebooru лимит)
+  max_tags_per_request: 6
+
+  # Минимальный рейтинг изображений (safe, questionable, explicit)
+  # Для SFW контента используем только "safe"
+  rating: "questionable"
