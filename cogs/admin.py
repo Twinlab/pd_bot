@@ -73,13 +73,17 @@ class AdminCog(commands.Cog):
             """
             return user is None or msg.author == user
 
-        # Discord API позволяет массово удалять только сообщения не старше 14 дней
-        two_weeks_ago = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=14)
+        # Discord API позволяет массово удалять только сообщения не старше N дней
+        settings = get_settings()
+        days_limit = settings.limits.discord_api_days_limit
+        cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            days=days_limit
+        )
 
         messages_to_delete = []
         # Собираем историю сообщений (берем с запасом, т.к. будем фильтровать)
         if isinstance(ctx.channel, (discord.TextChannel, discord.Thread)):  # Проверка типа канала
-            async for msg in ctx.channel.history(limit=count * 2):
+            async for msg in ctx.channel.history(limit=count * settings.limits.history_multiplier):
                 if check(msg):
                     messages_to_delete.append(msg)
                     if len(messages_to_delete) >= count:
@@ -96,9 +100,8 @@ class AdminCog(commands.Cog):
             return 0
 
         # Разделяем сообщения на "новые" (можно удалить пачкой) и "старые" (удаляем по одному)
-        two_weeks_ago = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=14)
-        recent_messages = [msg for msg in messages_to_delete if msg.created_at > two_weeks_ago]
-        old_messages = [msg for msg in messages_to_delete if msg.created_at <= two_weeks_ago]
+        recent_messages = [msg for msg in messages_to_delete if msg.created_at > cutoff_date]
+        old_messages = [msg for msg in messages_to_delete if msg.created_at <= cutoff_date]
 
         deleted_count = 0
 
@@ -130,7 +133,9 @@ class AdminCog(commands.Cog):
             try:
                 await msg.delete()
                 deleted_count += 1
-                await asyncio.sleep(0.5)  # Небольшая задержка между удалениями старых сообщений
+                await asyncio.sleep(
+                    settings.timeouts.old_message_delete_delay
+                )  # Задержка между удалениями старых сообщений
             except discord.NotFound:
                 pass  # Сообщение уже удалено
             except Exception as e:
@@ -174,11 +179,11 @@ class AdminCog(commands.Cog):
 
         if channel_id in self.recent_purges:
             last_time, last_count = self.recent_purges[channel_id]
-            # Блокируем повторный вызов с count > 10, если прошло < purge_rate_limit секунд
+            # Блокируем повторный вызов с count > threshold, если прошло < purge_rate_limit секунд
             if (
                 last_count is not None
                 and current_time - last_time < settings.timeouts.purge_rate_limit
-                and count > 10
+                and count > settings.timeouts.admin_purge_threshold
             ):
                 await safe_send(
                     ctx,
@@ -210,7 +215,7 @@ class AdminCog(commands.Cog):
             ctx,
             message + ".",
             ephemeral=True if is_slash else False,
-            delete_after=5 if not is_slash else None,
+            delete_after=settings.timeouts.admin_purge_delete_after if not is_slash else None,
         )
 
         logger.info(
@@ -315,7 +320,7 @@ class AdminCog(commands.Cog):
             subprocess.Popen(restart_command, start_new_session=True)
 
             logger.info("Закрытие текущего экземпляра бота...")
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(settings.timeouts.admin_restart_delay)
             await self.bot.close()  # Завершаем работу текущего процесса бота
 
         except Exception as e:

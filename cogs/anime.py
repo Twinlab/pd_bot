@@ -102,7 +102,9 @@ class AnimeCog(commands.Cog):
         )  # -1 для обязательного 1girl
 
         if max_tags > 0 and available_tags:
-            selected_tags = random.sample(available_tags, random.randint(1, max_tags))
+            selected_tags = random.sample(
+                available_tags, random.randint(settings.anime.min_tag_selection, max_tags)
+            )
         else:
             selected_tags = []
 
@@ -136,7 +138,9 @@ class AnimeCog(commands.Cog):
             "s": "post",
             "q": "index",
             "json": "1",
-            "limit": "100",  # Получаем больше результатов для лучшей случайности
+            "limit": str(
+                settings.anime.safebooru_limit
+            ),  # Получаем больше результатов для лучшей случайности
             "tags": " ".join(all_tags),
         }
 

@@ -41,7 +41,12 @@ class ActivityView(ui.View):
             report_type: Тип отчета ("daily" для автоматического, "command" для ручного).
             date_str: Строка с датой для добавления к заголовку (например, " (01.05.2025)").
         """
-        super().__init__(timeout=86400)  # 24 часа таймаут
+        # Получаем настройки
+        from config.settings import get_settings
+
+        settings = get_settings()
+
+        super().__init__(timeout=settings.activity.view_timeout)  # Таймаут из настроек
         self.bot = bot
         self.data = data  # Все данные о активности (дневные или месячные)
         self.ctx = ctx
@@ -343,7 +348,12 @@ class StatsView(ui.View):
             user: Объект пользователя Discord (для аватарки).
             items_per_page: Количество игр на одной странице эмбеда.
         """
-        super().__init__(timeout=86400)  # 24 часа таймаут
+        # Получаем настройки
+        from config.settings import get_settings
+
+        settings = get_settings()
+
+        super().__init__(timeout=settings.activity.view_timeout)  # Таймаут из настроек
         self.title = title
         self.games_data = games_data  # Список [(game, seconds)]
         self.user = user

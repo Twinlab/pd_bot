@@ -118,8 +118,15 @@ class MusicPlayer:
                 )
                 await self.disconnect()
         try:
+            # Получаем настройки
+            from config.settings import get_settings
+
+            settings = get_settings()
+
             logger.info(f"Подключение к голосовому каналу: {channel.name} ({channel.id})")
-            self.voice_client = await channel.connect(timeout=30.0, reconnect=True)
+            self.voice_client = await channel.connect(
+                timeout=settings.music.voice.connection_timeout, reconnect=True
+            )
             logger.info(f"Успешно подключились к {channel.name}")
             return True
         except asyncio.TimeoutError:

@@ -27,9 +27,14 @@ async def measure_penis(
         target_user: Пользователь, для которого генерируется размер (опционально)
     """
     try:
+        # Получаем настройки
+        from config.settings import get_settings
+
+        settings = get_settings()
+
         # Если пользователь не указан, используем автора сообщения
         user = target_user if target_user else ctx.author
-        penis_length = random.randint(0, 25)
+        penis_length = random.randint(settings.fun.penis.min_length, settings.fun.penis.max_length)
         penis_representation = "8" + "=" * penis_length + "D"
 
         # Определяем цвет в зависимости от размера

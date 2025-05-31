@@ -245,7 +245,9 @@ class GiveawayCog(commands.Cog):
                 )
 
                 # Разбиваем список на части, если он слишком длинный
-                max_length = 1900  # Немного меньше лимита Discord в 2000 символов
+                max_length = (
+                    settings.limits.giveaway_participants_chunk
+                )  # Немного меньше лимита Discord
                 chunks = [
                     participants_list[i : i + max_length]
                     for i in range(0, len(participants_list), max_length)

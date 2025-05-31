@@ -46,27 +46,33 @@ event_group_4 = [  # Летальный урон (ваншот)
 def get_event_and_damage() -> tuple[str, int]:
     """Случайным образом выбирает текстовое событие и соответствующий ему урон для одного хода.
 
-    Основывается на вероятностях.
+    Основывается на вероятностях из конфигурации.
 
     Returns:
         Кортеж (текст_события, урон).
     """
+    # Получаем настройки
+    from config.settings import get_settings
+
+    settings = get_settings()
+    damage_config = settings.fun.deathbattle.damage
+
     # Определяем вероятность для выбора группы событий
     event_group_chance = random.random()
 
     # Выбираем группу событий и урон в зависимости от вероятности
-    if event_group_chance <= 0.01:  # 1% шанс на ваншот
+    if event_group_chance <= damage_config.oneshot_chance:  # Шанс на ваншот
         event = random.choice(event_group_4)
-        damage = 100  # Урон для ваншота
-    elif event_group_chance <= 0.41:  # 40% шанс на высокий урон
+        damage = damage_config.oneshot_damage
+    elif event_group_chance <= damage_config.high_damage_chance:  # Шанс на высокий урон
         event = random.choice(event_group_3)
-        damage = random.randint(20, 30)  # Диапазон высокого урона
-    elif event_group_chance <= 0.61:  # 20% шанс на средний урон
+        damage = random.randint(damage_config.high_damage_min, damage_config.high_damage_max)
+    elif event_group_chance <= damage_config.medium_damage_chance:  # Шанс на средний урон
         event = random.choice(event_group_2)
-        damage = random.randint(10, 20)  # Диапазон среднего урона
-    else:  # Оставшиеся ~39% шанс на низкий урон
+        damage = random.randint(damage_config.medium_damage_min, damage_config.medium_damage_max)
+    else:  # Оставшийся шанс на низкий урон
         event = random.choice(event_group_1)
-        damage = random.randint(1, 10)  # Диапазон низкого урона
+        damage = random.randint(damage_config.low_damage_min, damage_config.low_damage_max)
 
     return event, damage
 
@@ -101,8 +107,14 @@ async def create_deathbattle_image(
         # Используем aiohttp для асинхронной загрузки
         async with aiohttp.ClientSession() as session:
             # Загрузка аватара 1
+            # Получаем настройки для размера аватара
+            from config.settings import get_settings
+
+            settings = get_settings()
+            avatar_size = settings.fun.deathbattle.avatar_size
+
             member1_avatar_url = str(
-                member1.display_avatar.replace(size=128, format="png").url
+                member1.display_avatar.replace(size=avatar_size, format="png").url
             )  # Запрашиваем нужный размер и формат
             async with session.get(member1_avatar_url) as resp1:
                 resp1.raise_for_status()  # Проверка на ошибки HTTP
@@ -110,7 +122,9 @@ async def create_deathbattle_image(
                 member1_avatar = Image.open(BytesIO(avatar1_data))
 
             # Загрузка аватара 2
-            member2_avatar_url = str(member2.display_avatar.replace(size=128, format="png").url)
+            member2_avatar_url = str(
+                member2.display_avatar.replace(size=avatar_size, format="png").url
+            )
             async with session.get(member2_avatar_url) as resp2:
                 resp2.raise_for_status()
                 avatar2_data = await resp2.read()
@@ -187,16 +201,26 @@ async def run_battle(
         title=":crossed_swords: Смертельная битва!", color=discord.Color.red()
     )
 
+    # Получаем настройки
+    from config.settings import get_settings
+
+    settings = get_settings()
+    battle_config = settings.fun.deathbattle
+
     # Начальное здоровье участников
-    hp1 = 100
-    hp2 = 100
+    hp1 = battle_config.initial_hp
+    hp2 = battle_config.initial_hp
 
     # Случайно определяем, кто атакует первым
     first_attacker = random.choice([True, False])
 
     # Добавляем поля со здоровьем в начальный эмбед
-    battle_embed.add_field(name=f"**{member1.name}**", value=f"{hp1}/100 HP", inline=True)
-    battle_embed.add_field(name=f"**{member2.name}**", value=f"{hp2}/100 HP", inline=True)
+    battle_embed.add_field(
+        name=f"**{member1.name}**", value=f"{hp1}/{battle_config.initial_hp} HP", inline=True
+    )
+    battle_embed.add_field(
+        name=f"**{member2.name}**", value=f"{hp2}/{battle_config.initial_hp} HP", inline=True
+    )
 
     # Подготавливаем файл изображения для отправки
     file = discord.File(deathbattle_image, filename="deathbattle.png")
@@ -204,16 +228,16 @@ async def run_battle(
     # Отправляем начальное сообщение с изображением и эмбедом
     battle_message = await ctx.send(file=file, embed=battle_embed)
 
-    event_log: list[str] = []  # Лог последних событий битвы (максимум 3)
+    event_log: list[str] = []  # Лог последних событий битвы
 
     # Основной цикл битвы (пока оба участника живы)
     while hp1 > 0 and hp2 > 0:
-        await asyncio.sleep(2)  # Пауза между ходами
+        await asyncio.sleep(battle_config.turn_delay)  # Пауза между ходами
         # Получаем случайное событие и урон для этого хода
         event, damage = get_event_and_damage()
 
-        # Ограничиваем лог событий последними 3 записями
-        if len(event_log) >= 3:
+        # Ограничиваем лог событий последними записями согласно настройкам
+        if len(event_log) >= battle_config.max_event_log:
             event_log.pop(0)  # Удаляем самое старое событие
 
         # Определяем атакующего и защищающегося, обновляем здоровье
@@ -240,11 +264,15 @@ async def run_battle(
         hp2_display = max(0, hp2)
 
         battle_embed.add_field(
-            name=f"**{member1.name}**", value=f"{hp1_display}/100 HP", inline=True
+            name=f"**{member1.name}**",
+            value=f"{hp1_display}/{battle_config.initial_hp} HP",
+            inline=True,
         )
 
         battle_embed.add_field(
-            name=f"**{member2.name}**", value=f"{hp2_display}/100 HP", inline=True
+            name=f"**{member2.name}**",
+            value=f"{hp2_display}/{battle_config.initial_hp} HP",
+            inline=True,
         )
 
         # Редактируем сообщение, обновляя эмбед
@@ -276,13 +304,13 @@ async def run_battle(
 
         final_embed.add_field(
             name=f"**{member1.name}**",
-            value=f"{max(0, hp1)}/100 HP",  # Отображаем здоровье не ниже 0
+            value=f"{max(0, hp1)}/{battle_config.initial_hp} HP",  # Отображаем здоровье не ниже 0
             inline=True,
         )
 
         final_embed.add_field(
             name=f"**{member2.name}**",
-            value=f"{max(0, hp2)}/100 HP",  # Отображаем здоровье не ниже 0
+            value=f"{max(0, hp2)}/{battle_config.initial_hp} HP",  # Отображаем здоровье не ниже 0
             inline=True,
         )
 

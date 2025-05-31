@@ -121,7 +121,11 @@ class LoggingCog(commands.Cog):
             with open(self.log_file_path, "r", encoding="utf-8", errors="ignore") as f:
                 buffer = ""
                 for line in f:
-                    if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
+                    settings = get_settings()
+                    if (
+                        len(buffer) + len(line) + settings.limits.logging_buffer_overhead
+                        > MAX_MESSAGE_LENGTH
+                    ):
                         if buffer:  # Отправляем, только если буфер не пуст
                             await self.send_log_message(buffer)
                         buffer = line
@@ -158,7 +162,10 @@ class LoggingCog(commands.Cog):
             if new_lines:
                 buffer = ""
                 for line in new_lines:
-                    if len(buffer) + len(line) + 10 > MAX_MESSAGE_LENGTH:
+                    if (
+                        len(buffer) + len(line) + settings.limits.logging_buffer_overhead
+                        > MAX_MESSAGE_LENGTH
+                    ):
                         if buffer:  # Отправляем, только если буфер не пуст
                             await self.send_log_message(buffer)
                         buffer = line

@@ -357,8 +357,13 @@ async def handle_lastmatch(
     else:
         embed.set_author(name=player_name)  # Если аватара нет, ставим только имя
 
+    # Получаем настройки
+    from config.settings import get_settings
+
+    settings = get_settings()
+
     # Создаем View с кнопками-ссылками на внешние ресурсы
-    view = View(timeout=180)  # Кнопки будут активны 3 минуты
+    view = View(timeout=settings.dota.match_view_timeout)  # Таймаут из настроек
     view.add_item(
         Button(
             style=discord.ButtonStyle.link,

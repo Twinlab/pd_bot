@@ -211,22 +211,29 @@ class TestSendFullLogAndStartTail:
     @pytest.mark.asyncio
     @patch("builtins.open", new_callable=mock_open, read_data="Log line 1\nLog line 2\n")
     @patch("os.path.exists", return_value=True)
+    @patch("config.settings.BotSettings.load_from_yaml")
     async def test_send_full_log_success(
-        self, mock_os_exists, mock_file_open,
+        self, mock_load_yaml, mock_os_exists, mock_file_open,
         logging_cog: LoggingCog, mock_bot: commands.Bot, mock_text_channel: discord.TextChannel
     ):
         """Тест успешной отправки всего лога и запуска задачи tail."""
+        # Создаем полноценный mock для settings с нужными атрибутами
+        mock_settings = MagicMock()
+        mock_settings.limits.logging_buffer_overhead = 10
+        mock_settings.limits.max_message_length = 1990
+        mock_settings.timeouts.log_check_interval = 5
+        mock_settings.channels.logging = 123456789
+        mock_load_yaml.return_value = mock_settings
         mock_bot.get_channel.return_value = mock_text_channel
         mock_text_channel.permissions_for.return_value = MagicMock(send_messages=True)
         logging_cog.send_log_message = AsyncMock()
         logging_cog.tail_log_file = MagicMock() # Мокаем саму задачу, чтобы не запускать loop
         logging_cog.tail_log_file.start = MagicMock()
-
-
+    
         await logging_cog._send_full_log_and_start_tail()
-
-        # Проверяем, что файл был открыт для чтения
-        mock_file_open.assert_called_once_with(logging_cog.log_file_path, "r", encoding="utf-8", errors="ignore")
+    
+        # Проверяем, что файл логов был открыт для чтения
+        mock_file_open.assert_any_call(logging_cog.log_file_path, "r", encoding="utf-8", errors="ignore")
         # Проверяем, что send_log_message был вызван
         logging_cog.send_log_message.assert_called_once()
         # Проверяем, что last_read_position обновлена
@@ -241,10 +248,18 @@ class TestSendFullLogAndStartTail:
     @pytest.mark.asyncio
     @patch("builtins.open", new_callable=mock_open, read_data="L" * (MAX_MESSAGE_LENGTH + 100)) # Очень длинный лог
     @patch("os.path.exists", return_value=True)
+    @patch("config.settings.BotSettings.load_from_yaml")
     async def test_send_full_log_multiple_messages(
-        self, mock_os_exists, mock_file_open,
+        self, mock_load_yaml, mock_os_exists, mock_file_open,
         logging_cog: LoggingCog, mock_bot: commands.Bot, mock_text_channel: discord.TextChannel
     ):
+        # Создаем полноценный mock для settings с нужными атрибутами
+        mock_settings = MagicMock()
+        mock_settings.limits.logging_buffer_overhead = 10
+        mock_settings.limits.max_message_length = 1990
+        mock_settings.timeouts.log_check_interval = 5
+        mock_settings.channels.logging = 123456789
+        mock_load_yaml.return_value = mock_settings
         """Тест отправки полного лога, который разбивается на несколько сообщений."""
         mock_bot.get_channel.return_value = mock_text_channel
         mock_text_channel.permissions_for.return_value = MagicMock(send_messages=True)

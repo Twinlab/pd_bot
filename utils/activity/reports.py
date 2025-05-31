@@ -320,7 +320,13 @@ async def send_monthly_report(
                 if len(current_chunk) + len(line) + 1 > max_message_length:  # +1 для "\n"
                     await channel.send(current_chunk)
                     current_chunk = line + "\n"
-                    await asyncio.sleep(1)  # Небольшая задержка между частями
+                    # Получаем настройки задержки
+                    from config.settings import get_settings
+
+                    settings = get_settings()
+                    await asyncio.sleep(
+                        settings.activity.reports.chunk_delay
+                    )  # Задержка из настроек
                 else:
                     current_chunk += line + "\n"
 

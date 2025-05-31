@@ -14,6 +14,7 @@ import subprocess
 
 from discord.ext import commands
 
+from config import get_settings
 from utils.error_handler import command_error_handler
 
 logger = logging.getLogger("bot.cogs.update")
@@ -89,7 +90,8 @@ class UpdateCog(commands.Cog):
             logger.info("Обновление получено, инициируем перезапуск бота через systemctl --user...")
 
             # Ограничиваем длину вывода для Discord (максимум 1900 символов)
-            max_len = 1900
+            settings = get_settings()
+            max_len = settings.limits.update_output_max_length
             if len(stdout_str) > max_len:
                 display_stdout = stdout_str[:max_len] + "\n... (truncated)"
             else:
@@ -123,7 +125,7 @@ class UpdateCog(commands.Cog):
                 return
 
             # Даем немного времени на запуск команды перед закрытием
-            await asyncio.sleep(1)
+            await asyncio.sleep(settings.timeouts.update_restart_delay)
             logger.info("Бот завершает работу для перезапуска...")
             await self.bot.close()
 

@@ -60,6 +60,11 @@ class TimeoutConfig(BaseModel):
     purge_rate_limit: int = 10
     giveaway_min_duration: int = 10
     giveaway_max_duration: int = 604800
+    admin_purge_threshold: int = 10
+    admin_purge_delete_after: int = 5
+    admin_restart_delay: float = 0.5
+    old_message_delete_delay: float = 0.5
+    update_restart_delay: int = 1
 
 
 class LimitConfig(BaseModel):
@@ -78,6 +83,12 @@ class LimitConfig(BaseModel):
     purge_min_count: int = 1
     links_max_per_user: int = 5
     activity_items_per_page: int = 10
+    giveaway_participants_chunk: int = 1900
+    twitch_streamers_chunk: int = 900
+    update_output_max_length: int = 1900
+    logging_buffer_overhead: int = 10
+    discord_api_days_limit: int = 14
+    history_multiplier: int = 2
 
 
 class ColorConfig(BaseModel):
@@ -157,7 +168,19 @@ class AnimeConfig(BaseModel):
     ]
     max_tags_per_request: int = 6
     rating: str = "safe"
+    safebooru_limit: int = 100
+    min_tag_selection: int = 1
     schedule: AnimeScheduleConfig = AnimeScheduleConfig()
+
+
+class MusicVoiceConfig(BaseModel):
+    """Конфигурация голосового подключения для музыки.
+
+    Attributes:
+        connection_timeout: Таймаут подключения к голосовому каналу в секундах
+    """
+
+    connection_timeout: float = 30.0
 
 
 class YtDlpConfig(BaseModel):
@@ -167,11 +190,17 @@ class YtDlpConfig(BaseModel):
         audio_quality: Качество аудио для постобработки
         audio_codec: Предпочитаемый кодек
         search_limit: Максимальное количество результатов поиска
+        socket_timeout: Таймаут сокета в секундах
+        retries: Количество повторных попыток
+        geo_bypass_country: Страна для обхода геоблокировки
     """
 
     audio_quality: str = "192"
     audio_codec: str = "mp3"
     search_limit: int = 100
+    socket_timeout: int = 5
+    retries: int = 1
+    geo_bypass_country: str = "RU"
 
 
 class MusicConfig(BaseModel):
@@ -181,11 +210,13 @@ class MusicConfig(BaseModel):
         downloads_dir: Директория для загрузки файлов
         ffmpeg_options: Опции FFmpeg для воспроизведения
         yt_dlp: Настройки yt-dlp
+        voice: Настройки голосового подключения
     """
 
     downloads_dir: str = "downloads"
     ffmpeg_options: str = "-vn -loglevel info -hide_banner"
     yt_dlp: YtDlpConfig = YtDlpConfig()
+    voice: MusicVoiceConfig = MusicVoiceConfig()
 
 
 class GiveawayConfig(BaseModel):
@@ -216,6 +247,108 @@ class TwitchConfig(BaseModel):
     check_interval: int = 60
     startup_delay: int = 30
     embed_color: str = "#6441A4"
+
+
+class PenisConfig(BaseModel):
+    """Конфигурация команды измерения пениса.
+
+    Attributes:
+        min_length: Минимальная длина пениса
+        max_length: Максимальная длина пениса
+    """
+
+    min_length: int = 0
+    max_length: int = 25
+
+
+class DeathbattleDamageConfig(BaseModel):
+    """Конфигурация урона для deathbattle.
+
+    Attributes:
+        oneshot_chance: Шанс на ваншот (0.0-1.0)
+        high_damage_chance: Шанс на высокий урон (включая ваншот)
+        medium_damage_chance: Шанс на средний урон (включая высокий)
+        oneshot_damage: Урон ваншота
+        high_damage_min: Минимальный высокий урон
+        high_damage_max: Максимальный высокий урон
+        medium_damage_min: Минимальный средний урон
+        medium_damage_max: Максимальный средний урон
+        low_damage_min: Минимальный низкий урон
+        low_damage_max: Максимальный низкий урон
+    """
+
+    oneshot_chance: float = 0.01
+    high_damage_chance: float = 0.41
+    medium_damage_chance: float = 0.61
+    oneshot_damage: int = 100
+    high_damage_min: int = 20
+    high_damage_max: int = 30
+    medium_damage_min: int = 10
+    medium_damage_max: int = 20
+    low_damage_min: int = 1
+    low_damage_max: int = 10
+
+
+class DeathbattleConfig(BaseModel):
+    """Конфигурация deathbattle.
+
+    Attributes:
+        initial_hp: Начальное здоровье участников
+        turn_delay: Задержка между ходами в секундах
+        max_event_log: Максимальное количество событий в логе
+        avatar_size: Размер аватаров в пикселях
+        damage: Настройки урона
+    """
+
+    initial_hp: int = 100
+    turn_delay: int = 2
+    max_event_log: int = 3
+    avatar_size: int = 128
+    damage: DeathbattleDamageConfig = DeathbattleDamageConfig()
+
+
+class FunConfig(BaseModel):
+    """Конфигурация развлекательных команд.
+
+    Attributes:
+        penis: Настройки команды измерения пениса
+        deathbattle: Настройки deathbattle
+    """
+
+    penis: PenisConfig = PenisConfig()
+    deathbattle: DeathbattleConfig = DeathbattleConfig()
+
+
+class ActivityReportsConfig(BaseModel):
+    """Конфигурация отчетов активности.
+
+    Attributes:
+        chunk_delay: Задержка между частями отчета в секундах
+    """
+
+    chunk_delay: int = 1
+
+
+class ActivityConfig(BaseModel):
+    """Конфигурация модуля активности.
+
+    Attributes:
+        view_timeout: Таймаут для View в секундах
+        reports: Настройки отчетов
+    """
+
+    view_timeout: int = 86400  # 24 часа
+    reports: ActivityReportsConfig = ActivityReportsConfig()
+
+
+class DotaConfig(BaseModel):
+    """Конфигурация модуля Dota 2.
+
+    Attributes:
+        match_view_timeout: Таймаут для View кнопок матча в секундах
+    """
+
+    match_view_timeout: int = 180  # 3 минуты
 
 
 class Messages(BaseModel):
@@ -290,6 +423,9 @@ class BotSettings(BaseSettings):
     music: MusicConfig = MusicConfig()
     giveaway: GiveawayConfig = GiveawayConfig()
     twitch: TwitchConfig = TwitchConfig()
+    fun: FunConfig = FunConfig()
+    activity: ActivityConfig = ActivityConfig()
+    dota: DotaConfig = DotaConfig()
 
     model_config = {
         "env_file": ".env",
@@ -312,8 +448,19 @@ class BotSettings(BaseSettings):
         yaml_data: Dict[str, any] = {}  # type: ignore
         config_path = Path(config_file)
         if config_path.exists():
-            with open(config_path, "r", encoding="utf-8") as f:
-                yaml_data = yaml.safe_load(f) or {}
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    yaml_data = yaml.safe_load(f) or {}
+
+                # Проверяем, что yaml_data является словарем
+                if not isinstance(yaml_data, dict):
+                    raise ValueError(
+                        f"YAML файл {config_file} должен содержать словарь, "
+                        f"получен {type(yaml_data)}"
+                    )
+
+            except Exception as e:
+                raise ValueError(f"Ошибка при загрузке YAML файла {config_file}: {e}")
 
         return cls(**yaml_data)
 

@@ -144,9 +144,13 @@ async def search_youtube(
         Список словарей, где каждый словарь содержит информацию о найденном видео,
         или None, если ничего не найдено или произошла ошибка.
     """
+    # Получаем настройки
+    settings = get_settings()
     if max_results is None:
-        settings = get_settings()
         max_results = settings.music.yt_dlp.search_limit
+
+    # Используем дополнительные настройки из конфига
+    yt_dlp_config = settings.music.yt_dlp
     logger.info(f"Поиск на YouTube: '{query}' (max_results={max_results})")
     ydl_opts = {
         # Хотя скачивание не происходит, некоторые экстракторы могут требовать формат
@@ -159,12 +163,10 @@ async def search_youtube(
         "default_search": f"ytsearch{max_results}",
         "source_address": "0.0.0.0",
         "proxy": PROXY_URL,
-        "socket_timeout": 5,
-        "retries": 1,
+        "socket_timeout": yt_dlp_config.socket_timeout,
+        "retries": yt_dlp_config.retries,
         "geo_bypass": True,
-        "geo_bypass_country": YDL_OPTS_BASE.get(
-            "geo_bypass_country", "RU"
-        ),  # Используем 'RU' как значение по умолчанию
+        "geo_bypass_country": yt_dlp_config.geo_bypass_country,
         "logtostderr": False,
         "ignoreerrors": True,
         "skip_download_archive": True,

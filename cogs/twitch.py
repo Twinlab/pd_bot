@@ -708,7 +708,8 @@ class TwitchCog(commands.Cog):
             chunk: List[str] = []
             chunk_len = 0
             for entry in streamers_list:
-                if chunk_len + len(entry) + 1 > 900:
+                settings = get_settings()
+                if chunk_len + len(entry) + 1 > settings.limits.twitch_streamers_chunk:
                     embed.add_field(
                         name=f"Канал: {channel_name}", value="\n".join(chunk), inline=False
                     )

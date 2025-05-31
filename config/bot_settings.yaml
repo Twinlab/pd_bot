@@ -1,4 +1,4 @@
-# Основные настройки Discord бота
+# Core Settings
 channels:
   logging: 1365045098785542224
   anime: 298811309640646666
@@ -15,6 +15,11 @@ timeouts:
   purge_rate_limit: 10
   giveaway_min_duration: 10
   giveaway_max_duration: 604800
+  admin_purge_threshold: 10
+  admin_purge_delete_after: 5
+  admin_restart_delay: 0.5
+  old_message_delete_delay: 0.5
+  update_restart_delay: 1
 
 limits:
   max_message_length: 1990
@@ -22,6 +27,12 @@ limits:
   purge_min_count: 1
   links_max_per_user: 5
   activity_items_per_page: 10
+  giveaway_participants_chunk: 1900
+  twitch_streamers_chunk: 900
+  update_output_max_length: 1900
+  logging_buffer_overhead: 10
+  discord_api_days_limit: 14
+  history_multiplier: 2
 
 colors:
   default: "#0099ff"
@@ -31,10 +42,13 @@ colors:
   warning: "#ff8800"
   twitch: "#6441a4"
 
-# Настройки аниме-модуля
+# Modules
 anime:
-  # Теги для поиска изображений на safebooru.org
-  # Можно добавлять/удалять теги по желанию
+  max_tags_per_request: 6
+  rating: "questionable"
+  safebooru_limit: 100
+  min_tag_selection: 1
+
   tags:
     - "1girl"
     - "school_uniform"
@@ -51,8 +65,6 @@ anime:
     - "green_eyes"
     - "witch_hat"
 
-  # Теги для исключения из поиска (будут добавлены с префиксом -)
-  # Например: "-nude", "-nsfw", "-explicit"
   excluded_tags:
     - "tail"
     - "chibi"
@@ -73,50 +85,67 @@ anime:
     - "title"
     - "speech_bubble"
     - "child"
-  # Максимальное количество тегов для одного запроса (safebooru лимит)
-  max_tags_per_request: 6
 
-  # Минимальный рейтинг изображений (safe, questionable, explicit)
-  # Для SFW контента используем только "safe"
-  rating: "questionable"
-
-  # Настройки времени публикации (в UTC)
   schedule:
     morning_hour: 10
     morning_minute: 0
     evening_hour: 18
     evening_minute: 0
 
-# Настройки музыкального модуля
 music:
-  # Директория для загрузки файлов
   downloads_dir: "downloads"
-
-  # Опции FFmpeg для воспроизведения
   ffmpeg_options: "-vn -loglevel info -hide_banner"
 
-  # Настройки yt-dlp
   yt_dlp:
     audio_quality: "192"
     audio_codec: "mp3"
     search_limit: 10
+    socket_timeout: 5
+    retries: 1
+    geo_bypass_country: "RU"
 
-# Настройки модуля розыгрышей
+  voice:
+    connection_timeout: 30.0
+
 giveaway:
   min_duration: 10
-  max_duration: 604800  # 7 дней
-
-  # Максимальная длина описания розыгрыша
+  max_duration: 604800
   max_description_length: 4000
-
-  # Эмодзи для участия в розыгрыше
   participation_emoji: "🎉"
 
-# Настройки Twitch модуля
 twitch:
-  # Интервал проверки стримов (в секундах)
   check_interval: 180
-  # Задержка при первом запуске (в секундах)
   startup_delay: 30
-  # Цвет эмбедов Twitch (hex)
   embed_color: "#6441A4"
+
+# Commands
+fun:
+  penis:
+    min_length: 0
+    max_length: 25
+
+  deathbattle:
+    initial_hp: 100
+    turn_delay: 2
+    max_event_log: 3
+    avatar_size: 128
+
+    damage:
+      oneshot_chance: 0.01
+      high_damage_chance: 0.41
+      medium_damage_chance: 0.61
+      oneshot_damage: 100
+      high_damage_min: 20
+      high_damage_max: 30
+      medium_damage_min: 10
+      medium_damage_max: 20
+      low_damage_min: 1
+      low_damage_max: 10
+
+activity:
+  view_timeout: 86400
+  reports:
+    chunk_delay: 1
+
+dota:
+  match_view_timeout: 180
