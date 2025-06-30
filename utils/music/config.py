@@ -32,7 +32,7 @@ PROXY_URL = settings.proxy_url
 
 # Опции для yt-dlp
 YDL_OPTS_BASE = {
-    "format": "bestaudio/best",
+    "format": "bestaudio[ext=webm]/bestaudio/best",
     "outtmpl": str(DOWNLOADS_DIR / "%(extractor)s-%(id)s-%(title)s.%(ext)s"),
     "restrictfilenames": True,
     "noplaylist": True,
@@ -43,13 +43,6 @@ YDL_OPTS_BASE = {
     "default_search": "ytsearch",
     "source_address": "0.0.0.0",
     "proxy": PROXY_URL,
-    "postprocessors": [
-        {
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": settings.music.yt_dlp.audio_codec,
-            "preferredquality": settings.music.yt_dlp.audio_quality,
-        }
-    ],
 }
 
 # Опции FFmpeg

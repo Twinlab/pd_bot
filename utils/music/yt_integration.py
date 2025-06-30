@@ -171,6 +171,9 @@ async def search_youtube(
         "ignoreerrors": True,
         "skip_download_archive": True,
         "youtube_include_dash_manifest": False,
+        # Используем 'extract_flat', чтобы получать только базовую информацию о видео.
+        # Это значительно ускоряет поиск и снижает риск ошибок.
+        "extract_flat": "in_playlist",
         "user_agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -189,14 +192,12 @@ async def search_youtube(
         for entry in info["entries"]:
             if not isinstance(entry, dict):
                 continue
-            # yt-dlp >=2023.03.04 для ytsearch с extract_flat=True
-            # не возвращает 'url', только 'id' и 'ie_key'
-            if entry.get("url"):
-                valid_entries.append(entry)
-            elif entry.get("id") and entry.get("ie_key") == "Youtube":
+            # С опцией 'extract_flat' yt-dlp возвращает только ID,
+            # поэтому мы собираем URL вручную.
+            if entry.get("id") and entry.get("ie_key") == "Youtube":
                 entry["url"] = f"https://www.youtube.com/watch?v={entry['id']}"
                 valid_entries.append(entry)
-        logger.info(f"Найдено {len(valid_entries)} результатов для '{query}'")
+        logger.info(f"Найдено {len(valid_entries)} валидных результатов для '{query}'")
         return valid_entries
     except yt_dlp.utils.DownloadError as e:
         logger.error(f"yt-dlp DownloadError при поиске '{query}': {e}")
