@@ -282,6 +282,10 @@ class RoleReactionCog(commands.Cog):
 
             # Добавляем привязку роли к эмодзи
             channel_id, message_id = message_info
+            # Обновляем кеш, если его нет
+            if interaction.guild.id not in self.message_cache:
+                self.message_cache[interaction.guild.id] = (channel_id, message_id)
+
             success = await self.data_manager.add_role_reaction(
                 interaction.guild.id, channel_id, message_id, emoji_format, role.id, description
             )
