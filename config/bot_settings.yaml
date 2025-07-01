@@ -48,6 +48,7 @@ anime:
   rating: "questionable"
   safebooru_limit: 100
   min_tag_selection: 1
+  cache_size: 200 # Количество последних постов для кэширования
 
   tags:
     - "1girl"

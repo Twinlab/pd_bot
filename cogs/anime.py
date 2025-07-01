@@ -8,8 +8,9 @@
 
 import logging
 import random
+from collections import deque
 from datetime import time
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import aiohttp
 from discord.ext import commands, tasks
@@ -40,6 +41,8 @@ class AnimeCog(commands.Cog):
         # Получаем настройки из новой системы конфигурации
         settings = get_settings()
         self.channel_id: Optional[int] = settings.channels.anime
+        self.cache_size: int = settings.anime.cache_size
+        self.post_cache: deque[int] = deque(maxlen=self.cache_size)
 
         if not self.channel_id:
             logger.error("Канал для публикации аниме не настроен или не найден.")
@@ -67,30 +70,43 @@ class AnimeCog(commands.Cog):
         self.morning_post.cancel()
         self.evening_post.cancel()
 
-    async def get_anime_image(self) -> Optional[str]:
-        """Асинхронно получает URL случайного SFW аниме-изображения с safebooru.org.
+    async def get_anime_image(self) -> Optional[Tuple[str, int]]:
+        """Асинхронно получает URL и ID случайного SFW аниме-изображения.
 
         Использует API safebooru.org для поиска изображений по настроенным тегам.
-        Случайным образом выбирает несколько тегов из конфигурации и выполняет поиск.
-        Также добавляет исключенные теги с префиксом "-".
-
-        Если основной запрос не дает результатов, делает fallback запрос только с тегом "1girl".
+        Пытается найти изображение, которого нет в кэше, делая до 3 попыток.
 
         Returns:
-            URL изображения в виде строки или None в случае ошибки.
+            Кортеж (URL, ID) или None в случае ошибки.
         """
         settings = get_settings()
+        max_retries = 3
+        for attempt in range(max_retries):
+            logger.info(f"Попытка {attempt + 1}/{max_retries} получения нового изображения...")
+            # Сначала пробуем основной запрос с выбранными тегами
+            result = await self._try_get_image_with_tags(settings)
 
-        # Сначала пробуем основной запрос с выбранными тегами
-        result = await self._try_get_image_with_tags(settings)
-        if result:
-            return result
+            # Если основной запрос не дал результатов, пробуем fallback
+            if not result:
+                logger.info("Основной запрос не дал результатов, пробуем fallback с тегом '1girl'")
+                result = await self._try_get_image_fallback(settings)
 
-        # Если основной запрос не дал результатов, пробуем fallback с только "1girl"
-        logger.info("Основной запрос не дал результатов, пробуем fallback с тегом '1girl'")
-        return await self._try_get_image_fallback(settings)
+            if result:
+                image_url, post_id = result
+                if post_id not in self.post_cache:
+                    logger.info(f"Найдено новое изображение (ID: {post_id})")
+                    return image_url, post_id
+                else:
+                    logger.warning(
+                        f"Изображение (ID: {post_id}) уже есть в кэше. Повторная попытка..."
+                    )
+            else:
+                logger.warning("Не удалось получить изображение на этой попытке.")
 
-    async def _try_get_image_with_tags(self, settings: Any) -> Optional[str]:
+        logger.error("Не удалось найти новое изображение после нескольких попыток.")
+        return None
+
+    async def _try_get_image_with_tags(self, settings: Any) -> Optional[Tuple[str, int]]:
         """Пробует получить изображение с выбранными тегами."""
         # Выбираем случайные теги из настроек
         # (не больше max_tags_per_request - 1, т.к. добавим 1girl)
@@ -119,7 +135,7 @@ class AnimeCog(commands.Cog):
 
         return await self._make_api_request(all_tags, all_selected_tags, settings)
 
-    async def _try_get_image_fallback(self, settings: Any) -> Optional[str]:
+    async def _try_get_image_fallback(self, settings: Any) -> Optional[Tuple[str, int]]:
         """Fallback запрос только с тегом '1girl' и исключениями."""
         # Только обязательные теги: 1girl + исключения + рейтинг
         selected_tags = ["1girl"]
@@ -130,8 +146,8 @@ class AnimeCog(commands.Cog):
 
     async def _make_api_request(
         self, all_tags: list[str], selected_tags: list[str], settings: Any
-    ) -> Optional[str]:
-        """Выполняет запрос к API safebooru.org."""
+    ) -> Optional[Tuple[str, int]]:
+        """Выполняет запрос к API safebooru.org и возвращает URL и ID поста."""
         # Формируем параметры запроса для safebooru API
         params = {
             "page": "dapi",
@@ -155,34 +171,33 @@ class AnimeCog(commands.Cog):
                         data = await response.json()
 
                         # Проверяем, что получили результаты
-                        if not data or not isinstance(data, list) or len(data) == 0:
-                            logger.warning(f"Нет изображений для тегов: {selected_tags}")
+                        # Фильтруем посты, у которых нет ID
+                        valid_posts = [p for p in data if "id" in p]
+                        if not valid_posts:
+                            logger.warning(f"Нет валидных постов для тегов: {selected_tags}")
                             return None
 
-                        # Выбираем случайное изображение из результатов
-                        random_post = random.choice(data)
+                        # Выбираем случайный пост
+                        random_post = random.choice(valid_posts)
+                        post_id = random_post["id"]
 
                         # Формируем полный URL изображения
+                        file_url = None
                         if "file_url" in random_post and random_post["file_url"]:
-                            # Если есть прямая ссылка на файл
                             file_url = random_post["file_url"]
                             if not file_url.startswith("http"):
                                 file_url = f"https:{file_url}"
-                            logger.info(
-                                f"Найдено изображение с тегами: {selected_tags}, "
-                                f"исключены: {settings.anime.excluded_tags}"
-                            )
-                            return str(file_url)
                         elif "directory" in random_post and "image" in random_post:
-                            # Формируем URL из directory и image
                             directory = random_post["directory"]
                             image = random_post["image"]
                             file_url = f"https://safebooru.org/images/{directory}/{image}"
+
+                        if file_url:
                             logger.info(
-                                f"Найдено изображение с тегами: {selected_tags}, "
+                                f"Найдено изображение (ID: {post_id}) с тегами: {selected_tags}, "
                                 f"исключены: {settings.anime.excluded_tags}"
                             )
-                            return str(file_url)
+                            return str(file_url), int(post_id)
                         else:
                             logger.error(
                                 f"Не удалось извлечь URL изображения из ответа: {random_post}"
@@ -218,15 +233,21 @@ class AnimeCog(commands.Cog):
             channel = self.bot.get_channel(self.channel_id)
 
             # Получаем URL изображения
-            image_url = await self.get_anime_image()
+            image_data = await self.get_anime_image()
 
-            if image_url:
-                # Отправляем URL в канал (Discord автоматически отобразит изображение)
+            if image_data:
+                image_url, post_id = image_data
+                # Отправляем URL в канал
                 await channel.send(image_url)
-                logger.info(f"Аниме-изображение опубликовано в канале {channel.name}")
+                # Добавляем ID поста в кэш
+                self.post_cache.append(post_id)
+                logger.info(
+                    f"Аниме-изображение (ID: {post_id}) опубликовано в канале {channel.name}. "
+                    f"Размер кэша: {len(self.post_cache)}/{self.cache_size}"
+                )
                 return True
             else:
-                logger.error("Не удалось получить аниме-изображение для публикации")
+                logger.error("Не удалось получить новое аниме-изображение для публикации")
                 return False
 
         except Exception as e:
