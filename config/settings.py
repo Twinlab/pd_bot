@@ -170,6 +170,7 @@ class AnimeConfig(BaseModel):
     rating: str = "safe"
     safebooru_limit: int = 100
     min_tag_selection: int = 1
+    cache_size: int = 200
     schedule: AnimeScheduleConfig = AnimeScheduleConfig()
 
 
