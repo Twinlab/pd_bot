@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 import discord
 
-from .config import COLORS, FFMPEG_OPTIONS
+from .config import COLORS, FFMPEG_OPTIONS, PROXY_URL
 from .embeds import create_embed, format_duration
 from .yt_integration import get_stream_info
 
@@ -315,10 +315,21 @@ class MusicPlayer:
                 stream_url = track_info["url"]
                 logger.info("Создание аудио источника с новым URL.")
 
-                # Опции для FFmpeg: переподключение и стандартные опции из конфига
+                # Опции для FFmpeg: переподключение, User-Agent и стандартные опции
+                user_agent = (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/124.0.0.0 Safari/537.36"
+                )
                 ffmpeg_options = {
-                    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
-                    "options": FFMPEG_OPTIONS.get("options", "-vn"),
+                    "before_options": (
+                        f"-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
+                        f'-user_agent "{user_agent}"'
+                        f' -http_proxy "{PROXY_URL}"'
+                        if PROXY_URL
+                        else ""
+                    ),
+                    "options": f'{FFMPEG_OPTIONS.get("options", "-vn")} -report',
                 }
 
                 source = discord.FFmpegPCMAudio(
