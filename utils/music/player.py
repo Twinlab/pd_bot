@@ -316,10 +316,13 @@ class MusicPlayer:
 
             try:
                 logger.info(f"Создание аудио источника для потока: {self.current_track.stream_url}")
+                ffmpeg_options = {
+                    "before_options": ("-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"),
+                    "options": FFMPEG_OPTIONS.get("options", ""),
+                }
                 source = discord.FFmpegPCMAudio(
                     self.current_track.stream_url,
-                    options=FFMPEG_OPTIONS.get("options", ""),
-                    before_options=FFMPEG_OPTIONS.get("before_options", ""),
+                    **ffmpeg_options,
                 )
                 logger.info(f"Аудио источник успешно создан для трека: {self.current_track.title}")
             except Exception as e:

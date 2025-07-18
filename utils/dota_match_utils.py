@@ -110,6 +110,9 @@ async def get_match_data(
 
     url = "https://api.stratz.com/graphql"
     headers = {"Authorization": f"Bearer {stratz_api_key}"}
+    logger.info(
+        f"Используется ключ Stratz API: ...{stratz_api_key[-4:] if stratz_api_key else 'None'}"
+    )
 
     # 1. Находим самый последний матч среди всех привязанных Steam ID пользователя
     latest_match = {"id": None, "startDateTime": 0}  # Храним ID и время последнего найденного матча
