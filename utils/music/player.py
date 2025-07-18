@@ -318,7 +318,7 @@ class MusicPlayer:
                 logger.info(f"Создание аудио источника для потока: {self.current_track.stream_url}")
                 ffmpeg_options = {
                     "before_options": ("-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"),
-                    "options": FFMPEG_OPTIONS.get("options", ""),
+                    "options": f"{FFMPEG_OPTIONS.get('options', '')} -report",
                 }
                 source = discord.FFmpegPCMAudio(
                     self.current_track.stream_url,
