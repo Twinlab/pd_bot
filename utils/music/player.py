@@ -212,7 +212,7 @@ class MusicPlayer:
             )
         )
         if not response_method and self.text_channel:
-            response_method = self.text_channel.send
+            response_method = self.text_channel.send  # type: ignore
 
         edit_method = interaction.edit_original_response if interaction else None
         loading_msg: Optional[discord.Message] = None
@@ -224,13 +224,11 @@ class MusicPlayer:
                 edit_method = None
                 if response_method:
                     loading_msg = await response_method(
-                        embed=create_embed("🔄 Загрузка", "Получаем информацию о треке..."),
-                        wait=True if interaction else False,
+                        embed=create_embed("🔄 Загрузка", "Получаем информацию о треке...")
                     )
         elif response_method:
             loading_msg = await response_method(
-                embed=create_embed("🔄 Загрузка", "Получаем информацию о треке..."),
-                wait=True if interaction else False,
+                embed=create_embed("🔄 Загрузка", "Получаем информацию о треке...")
             )
 
         update_msg_method = loading_msg.edit if loading_msg and not edit_method else edit_method
