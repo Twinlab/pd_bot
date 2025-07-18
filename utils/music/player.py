@@ -305,33 +305,34 @@ class MusicPlayer:
                 return
             self.current_track = self.queue.popleft()
             logger.info(f"Воспроизведение следующего трека: {self.current_track.title}")
-            if not self.current_track.stream_url:
-                logger.error(f"URL потока отсутствует для трека: {self.current_track.title}")
-                await self.send_error_message(
-                    f"Ошибка: Не удалось найти источник для трека '{self.current_track.title}'."
-                )
-                self.current_track = None
-                self.start_playback_loop()
-                return
-
             try:
-                logger.info(f"Создание аудио источника для потока: {self.current_track.stream_url}")
+                # Получаем свежую информацию о потоке прямо перед воспроизведением
+                logger.info(f"Получение свежего URL потока для: {self.current_track.title}")
+                track_info = await get_stream_info(self.current_track.url)
+                if not track_info or not track_info.get("url"):
+                    raise ValueError("Не удалось получить свежий URL потока.")
+
+                stream_url = track_info["url"]
+                logger.info("Создание аудио источника с новым URL.")
+
+                # Опции для FFmpeg: переподключение и стандартные опции из конфига
                 ffmpeg_options = {
-                    "before_options": ("-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"),
-                    "options": f"{FFMPEG_OPTIONS.get('options', '')} -report",
+                    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                    "options": FFMPEG_OPTIONS.get("options", "-vn"),
                 }
+
                 source = discord.FFmpegPCMAudio(
-                    self.current_track.stream_url,
+                    stream_url,
                     **ffmpeg_options,
                 )
                 logger.info(f"Аудио источник успешно создан для трека: {self.current_track.title}")
             except Exception as e:
                 logger.error(
-                    f"Ошибка создания FFmpegPCMAudio для потока: {e}",
+                    f"Ошибка создания источника для трека '{self.current_track.title}': {e}",
                     exc_info=True,
                 )
                 await self.send_error_message(
-                    f"Ошибка при обработке трека '{self.current_track.title}'."
+                    f"Не удалось создать источник для трека '{self.current_track.title}'."
                 )
                 self.current_track = None
                 self.start_playback_loop()
