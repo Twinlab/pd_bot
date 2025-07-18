@@ -2,12 +2,13 @@
 
 import asyncio
 import logging
+import subprocess
 from collections import deque
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 import discord
 
-from .config import COLORS, FFMPEG_OPTIONS, PROXY_URL
+from .config import COLORS, PROXY_URL
 from .embeds import create_embed, format_duration
 from .yt_integration import get_stream_info
 
@@ -89,6 +90,8 @@ class MusicPlayer:
         self.player_view: discord.ui.View | None = None
         self._play_next_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
+        self.yt_process: Optional[subprocess.Popen] = None
+        self.ffmpeg_process: Optional[subprocess.Popen] = None
 
     async def connect(self, channel: discord.VoiceChannel) -> bool:
         """Подключает или перемещает бота в указанный голосовой канал.
@@ -285,12 +288,7 @@ class MusicPlayer:
         self._play_next_task = self.loop.create_task(self.play_next())
 
     async def play_next(self) -> None:
-        """Основная логика воспроизведения следующего трека из очереди.
-
-        Вызывается задачей, созданной в start_playback_loop.
-        Обрабатывает получение трека из очереди, создание источника FFmpeg,
-        воспроизведение и вызов _after_playback по завершении.
-        """
+        """Основная логика воспроизведения следующего трека из очереди."""
         try:
             if not self.voice_client or not self.voice_client.is_connected():
                 logger.warning("play_next: Голосовой клиент не подключен. Очистка и выход.")
@@ -303,40 +301,64 @@ class MusicPlayer:
                 logger.info("Очередь пуста. Воспроизведение завершено.")
                 await self.cleanup(clear_queue=False)
                 return
+
             self.current_track = self.queue.popleft()
             logger.info(f"Воспроизведение следующего трека: {self.current_track.title}")
+
             try:
-                # Получаем свежую информацию о потоке прямо перед воспроизведением
-                logger.info(f"Получение свежего URL потока для: {self.current_track.title}")
-                track_info = await get_stream_info(self.current_track.url)
-                if not track_info or not track_info.get("url"):
-                    raise ValueError("Не удалось получить свежий URL потока.")
+                logger.info(f"Запуск конвейера yt-dlp | ffmpeg для: {self.current_track.title}")
 
-                stream_url = track_info["url"]
-                logger.info("Создание аудио источника с новым URL.")
+                yt_dlp_args = [
+                    "yt-dlp",
+                    self.current_track.url,
+                    "-f",
+                    "bestaudio/best",
+                    "-o",
+                    "-",
+                    "--quiet",
+                    "--no-warnings",
+                ]
+                if PROXY_URL:
+                    yt_dlp_args.extend(["--proxy", PROXY_URL])
 
-                # Опции для FFmpeg: переподключение, User-Agent и стандартные опции
-                user_agent = (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
+                self.yt_process = subprocess.Popen(yt_dlp_args, stdout=subprocess.PIPE)
+
+                ffmpeg_args = [
+                    "ffmpeg",
+                    "-i",
+                    "-",
+                    "-f",
+                    "s16le",
+                    "-ar",
+                    "48000",
+                    "-ac",
+                    "2",
+                    "-loglevel",
+                    "error",
+                    "-vn",
+                    "pipe:1",
+                ]
+
+                if self.yt_process.stdout is None:
+                    raise IOError("Не удалось получить stdout от yt-dlp.")
+
+                self.ffmpeg_process = subprocess.Popen(
+                    ffmpeg_args, stdin=self.yt_process.stdout, stdout=subprocess.PIPE
                 )
-                ffmpeg_options = {
-                    "before_options": (
-                        f"-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 "
-                        f'-user_agent "{user_agent}"'
-                        f' -http_proxy "{PROXY_URL}"'
-                        if PROXY_URL
-                        else ""
-                    ),
-                    "options": f'{FFMPEG_OPTIONS.get("options", "-vn")} -report',
-                }
 
-                source = discord.FFmpegPCMAudio(
-                    stream_url,
-                    **ffmpeg_options,
+                if self.ffmpeg_process.stdout is None:
+                    raise IOError("Не удалось получить stdout от ffmpeg.")
+
+                source = discord.PCMAudio(self.ffmpeg_process.stdout)
+                self.voice_client.play(
+                    source, after=lambda e: self.loop.create_task(self._after_playback(e))
                 )
-                logger.info(f"Аудио источник успешно создан для трека: {self.current_track.title}")
+
+                self.is_playing = True
+                self.is_paused = False
+                logger.info(f"Воспроизведение начато для: {self.current_track.title}")
+                await self._update_now_playing_message()
+
             except Exception as e:
                 logger.error(
                     f"Ошибка создания источника для трека '{self.current_track.title}': {e}",
@@ -347,14 +369,7 @@ class MusicPlayer:
                 )
                 self.current_track = None
                 self.start_playback_loop()
-                return
-            self.voice_client.play(
-                source, after=lambda e: self.loop.create_task(self._after_playback(e))
-            )
-            self.is_playing = True
-            self.is_paused = False
-            logger.info(f"Воспроизведение начато для: {self.current_track.title}")
-            await self._update_now_playing_message()
+
         except Exception as e:
             logger.error(f"Ошибка в цикле play_next: {e}", exc_info=True)
             await self.send_error_message("Произошла критическая ошибка в цикле воспроизведения.")
@@ -375,7 +390,24 @@ class MusicPlayer:
             self.current_track.title if self.current_track else "Неизвестный трек"
         )
         self.is_playing = False
-        self.current_track = None  # Очищаем текущий трек
+        self.current_track = None
+
+        # Завершаем процессы
+        if self.yt_process:
+            try:
+                self.yt_process.kill()
+                self.yt_process.wait()
+            except Exception as e:
+                logger.warning(f"Не удалось завершить процесс yt-dlp: {e}")
+            self.yt_process = None
+        if self.ffmpeg_process:
+            try:
+                self.ffmpeg_process.kill()
+                self.ffmpeg_process.wait()
+            except Exception as e:
+                logger.warning(f"Не удалось завершить процесс ffmpeg: {e}")
+            self.ffmpeg_process = None
+
         if error:
             logger.error(
                 f"Ошибка воспроизведения трека '{finished_track_title}': {error}", exc_info=error
