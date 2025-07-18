@@ -17,14 +17,6 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.fixture
-def mock_bot(mock_settings):
-    """Фикстура для мока бота."""
-    bot = MagicMock(spec=commands.Bot)
-    bot.settings = mock_settings
-    bot.user = MagicMock(id=12345) # ID бота
-    return bot
-
-@pytest.fixture
 def mock_guild():
     """Фикстура для мока гильдии."""
     guild = MagicMock(spec=discord.Guild)

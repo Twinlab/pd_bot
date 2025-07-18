@@ -215,7 +215,7 @@ class MusicPlayer:
             response_method = self.text_channel.send  # type: ignore
 
         edit_method = interaction.edit_original_response if interaction else None
-        loading_msg: Optional[discord.Message] = None
+        loading_msg: Any = None
 
         if edit_method:
             try:

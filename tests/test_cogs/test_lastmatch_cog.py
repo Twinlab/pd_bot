@@ -9,12 +9,6 @@ from discord.ext import commands
 from cogs.lastmatch import LastMatchCog
 
 
-@pytest.fixture
-def mock_bot(mock_settings):
-    """Создает мок бота Discord."""
-    bot = MagicMock(spec=commands.Bot)
-    bot.settings = mock_settings
-    return bot
 
 
 @pytest.fixture

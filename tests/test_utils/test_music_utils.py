@@ -6,7 +6,7 @@ import pytest
 import yt_dlp
 
 from utils.music.embeds import create_embed, format_duration
-from utils.music.yt_integration import download_track, search_youtube
+from utils.music.yt_integration import get_stream_info, search_youtube
 
 # --- Тесты для функций из embeds.py ---
 
@@ -169,8 +169,8 @@ def test_create_embed_with_unknown_kwargs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_download_track_success():
-    """Тестирует успешное скачивание трека."""
+async def test_get_stream_info_success():
+    """Тестирует успешное получение информации о потоке."""
     url = "https://www.youtube.com/watch?v=test_id"
 
     # Мокаем YoutubeDL
@@ -184,26 +184,23 @@ async def test_download_track_success():
         "uploader": "Test Uploader",
         "uploader_url": "https://www.youtube.com/channel/test_channel",
         "extractor_key": "Youtube",
+        "url": "https://example.com/stream.mp3",
     }
     mock_ytdl.extract_info.return_value = mock_info
-    mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
 
-    # Мокаем pathlib.Path.exists и os.path.getsize
     with patch("yt_dlp.YoutubeDL", return_value=mock_ytdl):
-        with patch("pathlib.Path.exists", return_value=True):
-            with patch("os.path.getsize", return_value=1024):
-                result = await download_track(url)
+        result = await get_stream_info(url)
 
-                # Проверяем результат
-                assert result is not None
-                assert result["id"] == mock_info["id"]
-                assert result["title"] == mock_info["title"]
-                assert result["filepath"] == "downloads/Youtube-test_id-Test_Track.mp3"
+        # Проверяем результат
+        assert result is not None
+        assert result["id"] == mock_info["id"]
+        assert result["title"] == mock_info["title"]
+        assert result["url"] == "https://example.com/stream.mp3"
 
 
 @pytest.mark.asyncio
-async def test_download_track_with_entries():
-    """Тестирует скачивание трека с entries."""
+async def test_get_stream_info_with_entries():
+    """Тестирует получение информации о потоке из плейлиста."""
     url = "https://www.youtube.com/playlist?list=test_playlist"
 
     # Мокаем YoutubeDL
@@ -217,27 +214,24 @@ async def test_download_track_with_entries():
         "uploader": "Test Uploader",
         "uploader_url": "https://www.youtube.com/channel/test_channel",
         "extractor_key": "Youtube",
+        "url": "https://example.com/stream.mp3",
     }
     mock_info: dict = {"entries": [mock_entry]}
     mock_ytdl.extract_info.return_value = mock_info
-    mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
 
-    # Мокаем pathlib.Path.exists и os.path.getsize
     with patch("yt_dlp.YoutubeDL", return_value=mock_ytdl):
-        with patch("pathlib.Path.exists", return_value=True):
-            with patch("os.path.getsize", return_value=1024):
-                result = await download_track(url)
+        result = await get_stream_info(url)
 
-                # Проверяем результат
-                assert result is not None
-                assert result["id"] == mock_entry["id"]
-                assert result["title"] == mock_entry["title"]
-                assert result["filepath"] == "downloads/Youtube-test_id-Test_Track.mp3"
+        # Проверяем результат
+        assert result is not None
+        assert result["id"] == mock_entry["id"]
+        assert result["title"] == mock_entry["title"]
+        assert result["url"] == "https://example.com/stream.mp3"
 
 
 @pytest.mark.asyncio
-async def test_download_track_file_not_found():
-    """Тестирует скачивание трека, когда файл не найден."""
+async def test_get_stream_info_no_stream_url():
+    """Тестирует случай, когда не удалось извлечь URL потока."""
     url = "https://www.youtube.com/watch?v=test_id"
 
     # Мокаем YoutubeDL
@@ -251,66 +245,19 @@ async def test_download_track_file_not_found():
         "uploader": "Test Uploader",
         "uploader_url": "https://www.youtube.com/channel/test_channel",
         "extractor_key": "Youtube",
+        "url": None,  # Нет URL потока
     }
     mock_ytdl.extract_info.return_value = mock_info
-    mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
 
-    # Мокаем pathlib.Path.exists и pathlib.Path.glob
     with patch("yt_dlp.YoutubeDL", return_value=mock_ytdl):
-        with patch("pathlib.Path.exists", return_value=False):
-            with patch(
-                "pathlib.Path.glob", return_value=[]
-            ):  # glob должен возвращать итератор/список Path объектов
-                result = await download_track(url)
+        result = await get_stream_info(url)
 
-                # Проверяем результат
-                assert result is None
+        # Проверяем результат
+        assert result is None
 
 
 @pytest.mark.asyncio
-async def test_download_track_file_found_with_glob():
-    """Тестирует скачивание трека, когда файл найден с помощью glob."""
-    url = "https://www.youtube.com/watch?v=test_id"
-
-    # Мокаем YoutubeDL
-    mock_ytdl = MagicMock()
-    mock_info: dict = {
-        "id": "test_id",
-        "title": "Test Track",
-        "webpage_url": url,
-        "duration": 180,
-        "thumbnail": "https://example.com/thumbnail.jpg",
-        "uploader": "Test Uploader",
-        "uploader_url": "https://www.youtube.com/channel/test_channel",
-        "extractor_key": "Youtube",
-    }
-    mock_ytdl.extract_info.return_value = mock_info
-    mock_ytdl.prepare_filename.return_value = "downloads/Youtube-test_id-Test_Track.mp3"
-
-    # Мокаем pathlib.Path.exists, pathlib.Path.glob и os.path.getsize
-    with patch("yt_dlp.YoutubeDL", return_value=mock_ytdl):
-        with patch("pathlib.Path.exists", return_value=False):
-            # .glob() вызывается на DOWNLOADS_DIR, который является Path объектом.
-            # Мокаем метод glob самого Path объекта.
-            # Он должен вернуть список объектов Path.
-            with patch(
-                "pathlib.Path.glob",
-                return_value=[Path("downloads/Youtube-test_id-Test_Track.opus")],
-            ):
-                with patch(
-                    "os.path.getsize", return_value=1024
-                ):  # Предполагаем, что getsize все еще нужен для найденного файла
-                    result = await download_track(url)
-
-                    # Проверяем результат
-                    assert result is not None
-                    assert result["id"] == mock_info["id"]
-                    assert result["title"] == mock_info["title"]
-                    assert result["filepath"] == "downloads/Youtube-test_id-Test_Track.opus"
-
-
-@pytest.mark.asyncio
-async def test_download_track_download_error():
+async def test_get_stream_info_download_error():
     """Тестирует обработку ошибки скачивания."""
     url = "https://www.youtube.com/watch?v=test_id"
 
@@ -321,7 +268,10 @@ async def test_download_track_download_error():
     # Мокаем yt_dlp.YoutubeDL
     with patch("yt_dlp.YoutubeDL", return_value=mock_ytdl):
         with pytest.raises(yt_dlp.utils.DownloadError):
-            await download_track(url)
+            await get_stream_info(url)
+
+
+@pytest.mark.asyncio
 
 
 @pytest.mark.asyncio

@@ -12,22 +12,13 @@ import pytest
 from discord.ext import commands
 
 # Предполагаем, что LoggingCog находится в cogs.logging_cog
-from cogs.logging_cog import CHECK_INTERVAL_SECONDS, MAX_MESSAGE_LENGTH, LoggingCog
+from cogs.logging_cog import LoggingCog
 
 # Устанавливаем уровень логгирования для тестов, чтобы видеть отладочные сообщения
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture
-def mock_bot(mock_settings):
-    """Фикстура для мока бота."""
-    bot = MagicMock(spec=commands.Bot)
-    bot.settings = mock_settings
-    bot.log_file_path = "test_bot.log"
-    bot.wait_until_ready = AsyncMock()
-    bot.get_channel = MagicMock()
-    return bot
 
 
 @pytest.fixture
@@ -54,10 +45,11 @@ class TestLoggingCogInit:
 
     def test_init_default_channel_id(self, mock_bot: commands.Bot):
         """Тест инициализации с ID канала по умолчанию."""
+        # Используем глобальный mock_bot из conftest
         cog = LoggingCog(mock_bot)
         assert cog.bot == mock_bot
-        assert cog.log_channel_id == 1365045098785542224  # Значение по умолчанию
-        assert cog.log_file_path == "test_bot.log"
+        assert cog.log_channel_id == mock_bot.settings.channels.logging
+        assert cog.log_file_path == "bot.log" # Проверяем значение по умолчанию
         assert cog.last_read_position == 0
         assert not cog._tail_task_started
         assert not cog._log_init_done
@@ -81,10 +73,15 @@ class TestLoggingCogInit:
         cog = LoggingCog(mock_bot)
         assert cog.log_file_path == "custom_path.log"
 
-    def test_init_log_file_path_default(self):
+    def test_init_log_file_path_default(self, mock_bot: commands.Bot):
         """Тест, что log_file_path по умолчанию 'bot.log', если не задан у бота."""
+        # Создаем мок бота без атрибута log_file_path
         bot_without_log_path = MagicMock(spec=commands.Bot)
-        delattr(bot_without_log_path, "log_file_path") # Убедимся, что атрибута нет
+        bot_without_log_path.settings = mock_bot.settings
+        # Убеждаемся, что атрибут отсутствует
+        if hasattr(bot_without_log_path, 'log_file_path'):
+            delattr(bot_without_log_path, 'log_file_path')
+
         cog = LoggingCog(bot_without_log_path)
         assert cog.log_file_path == "bot.log"
 
@@ -208,33 +205,25 @@ class TestSendFullLogAndStartTail:
     @pytest.mark.asyncio
     @patch("builtins.open", new_callable=mock_open, read_data="Log line 1\nLog line 2\n")
     @patch("os.path.exists", return_value=True)
-    @patch("config.settings.BotSettings.load_from_yaml")
     async def test_send_full_log_success(
-        self, mock_load_yaml, mock_os_exists, mock_file_open,
+        self, mock_os_exists, mock_file_open,
         logging_cog: LoggingCog, mock_bot: commands.Bot, mock_text_channel: discord.TextChannel
     ):
         """Тест успешной отправки всего лога и запуска задачи tail."""
-        # Создаем полноценный mock для settings с нужными атрибутами
-        mock_settings = MagicMock()
-        mock_settings.limits.logging_buffer_overhead = 10
-        mock_settings.limits.max_message_length = 1990
-        mock_settings.timeouts.log_check_interval = 5
-        mock_settings.channels.logging = 123456789
-        mock_load_yaml.return_value = mock_settings
         mock_bot.get_channel.return_value = mock_text_channel
         mock_text_channel.permissions_for.return_value = MagicMock(send_messages=True)
         logging_cog.send_log_message = AsyncMock()
-        logging_cog.tail_log_file = MagicMock() # Мокаем саму задачу, чтобы не запускать loop
+        logging_cog.tail_log_file = MagicMock() # Мокаем саму задачу
         logging_cog.tail_log_file.start = MagicMock()
-    
+        logging_cog._tail_task_started = False # Сбрасываем состояние
+
         await logging_cog._send_full_log_and_start_tail()
-    
+
         # Проверяем, что файл логов был открыт для чтения
         mock_file_open.assert_any_call(logging_cog.log_file_path, "r", encoding="utf-8", errors="ignore")
         # Проверяем, что send_log_message был вызван
         logging_cog.send_log_message.assert_called_once()
         # Проверяем, что last_read_position обновлена
-        # mock_file_open().tell() должен быть вызван
         mock_file_open().tell.assert_called()
         assert logging_cog.last_read_position == mock_file_open().tell()
 
@@ -243,41 +232,30 @@ class TestSendFullLogAndStartTail:
         assert logging_cog._tail_task_started is True
 
     @pytest.mark.asyncio
-    @patch("builtins.open", new_callable=mock_open, read_data="L" * (MAX_MESSAGE_LENGTH + 100)) # Очень длинный лог
     @patch("os.path.exists", return_value=True)
-    @patch("config.settings.BotSettings.load_from_yaml")
     async def test_send_full_log_multiple_messages(
-        self, mock_load_yaml, mock_os_exists, mock_file_open,
+        self, mock_os_exists,
         logging_cog: LoggingCog, mock_bot: commands.Bot, mock_text_channel: discord.TextChannel
     ):
-        # Создаем полноценный mock для settings с нужными атрибутами
-        mock_settings = MagicMock()
-        mock_settings.limits.logging_buffer_overhead = 10
-        mock_settings.limits.max_message_length = 1990
-        mock_settings.timeouts.log_check_interval = 5
-        mock_settings.channels.logging = 123456789
-        mock_load_yaml.return_value = mock_settings
         """Тест отправки полного лога, который разбивается на несколько сообщений."""
         mock_bot.get_channel.return_value = mock_text_channel
         mock_text_channel.permissions_for.return_value = MagicMock(send_messages=True)
         logging_cog.send_log_message = AsyncMock()
         logging_cog.tail_log_file = MagicMock()
         logging_cog.tail_log_file.start = MagicMock()
+        logging_cog._tail_task_started = False
 
-        # Создаем содержимое файла, которое точно потребует несколько сообщений
-        # MAX_MESSAGE_LENGTH это лимит для одного сообщения
-        # Пусть одна строка будет чуть меньше лимита
-        line_content = "a" * (MAX_MESSAGE_LENGTH - 20)
+        line_content = "a" * (logging_cog.bot.settings.limits.max_message_length - 20)
         file_content = f"{line_content}\n{line_content}\n{line_content}\n"
-        mock_file_open.read_data = file_content
-        # Пересоздаем мок open с новым read_data
-        with patch("builtins.open", new_callable=mock_open, read_data=file_content):
+        
+        with patch("builtins.open", mock_open(read_data=file_content)):
             await logging_cog._send_full_log_and_start_tail()
 
         # Ожидаем, что send_log_message будет вызван несколько раз
         assert logging_cog.send_log_message.call_count > 1
         # Проверяем, что задача tail запущена
         logging_cog.tail_log_file.start.assert_called_once()
+        assert logging_cog._tail_task_started is True
 
     @pytest.mark.asyncio
     @patch("builtins.open", side_effect=IOError("Test IO Error"))
@@ -361,7 +339,7 @@ class TestTailLogFileTask:
         logging_cog.send_log_message = AsyncMock()
         logging_cog.last_read_position = 0
 
-        line_content = "b" * (MAX_MESSAGE_LENGTH - 10)
+        line_content = "b" * (logging_cog.bot.settings.limits.max_message_length - 10)
         new_lines_data = [f"{line_content}\n", f"{line_content}\n"]
         mock_file_open().readlines.return_value = new_lines_data
         mock_file_open().tell.return_value = len("".join(new_lines_data))

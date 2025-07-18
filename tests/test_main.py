@@ -127,36 +127,6 @@ class TestMainWithNewConfig:
                     # Проверяем, что бот создан с правильным префиксом
                     assert main_module.bot.command_prefix == '?'
                     assert hasattr(main_module.bot, 'settings')
-                    assert hasattr(main_module.bot, 'config')  # Обратная совместимость
-
-    def test_config_compatibility_layer(self):
-        """Тест слоя обратной совместимости конфигурации."""
-        # Патчим переменные окружения
-        with patch.dict(os.environ, {
-            'BOT_TOKEN': 'test_token',
-            'STRATZ_API_KEY': 'test_key'
-        }):
-            with patch("pathlib.Path.exists", return_value=False):
-                with patch("main.setup_logging"), \
-                     patch("main.initialize_database"), \
-                     patch("main.dota_api"):
-                    
-                    # Импортируем main
-                    import importlib
-                    if 'main' in sys.modules:
-                        main_module = importlib.reload(sys.modules['main'])
-                    else:
-                        import main as main_module
-                    
-                    # Проверяем, что словарь config содержит нужные ключи
-                    assert 'BOT_TOKEN' in main_module.config
-                    assert 'STRATZ_API_KEY' in main_module.config
-                    assert 'PREFIX' in main_module.config
-                    assert 'LOGGING_CHANNEL_ID' in main_module.config
-                    
-                    # Проверяем значения
-                    assert main_module.config['BOT_TOKEN'] == 'test_token'
-                    assert main_module.config['STRATZ_API_KEY'] == 'test_key'
 
     @pytest.mark.asyncio
     async def test_error_handling_in_main(self):

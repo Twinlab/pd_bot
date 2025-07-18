@@ -32,18 +32,6 @@ def event_loop():
 # --- Фикстуры ---
 
 
-@pytest.fixture
-def mock_bot(mock_settings):
-    """Создает мок для бота Discord."""
-    bot = MagicMock(spec=commands.Bot)
-    bot.settings = mock_settings
-    bot.guilds = []
-    bot.wait_until_ready = AsyncMock()
-    bot.add_cog = AsyncMock()
-    bot.get_channel = MagicMock(return_value=None)
-    # Мокаем loop для create_task
-    bot.loop = asyncio.get_event_loop()
-    return bot
 
 
 @pytest.fixture

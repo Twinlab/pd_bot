@@ -17,13 +17,7 @@ from datetime import datetime
 import discord
 from discord.ext import commands, tasks
 
-from config import get_settings
-
 logger = logging.getLogger("bot.cogs.logging_cog")  # Иерархическое имя логгера
-
-settings = get_settings()
-CHECK_INTERVAL_SECONDS = settings.timeouts.log_check_interval
-MAX_MESSAGE_LENGTH = settings.limits.max_message_length
 
 
 class LoggingCog(commands.Cog):
@@ -57,6 +51,7 @@ class LoggingCog(commands.Cog):
         self.last_read_position = 0
         self._tail_task_started = False
         self._log_init_done = False
+        self.tail_log_file.change_interval(seconds=self.bot.settings.timeouts.log_check_interval)
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -109,10 +104,9 @@ class LoggingCog(commands.Cog):
             with open(self.log_file_path, "r", encoding="utf-8", errors="ignore") as f:
                 buffer = ""
                 for line in f:
-                    settings = get_settings()
                     if (
-                        len(buffer) + len(line) + settings.limits.logging_buffer_overhead
-                        > MAX_MESSAGE_LENGTH
+                        len(buffer) + len(line) + self.bot.settings.limits.logging_buffer_overhead
+                        > self.bot.settings.limits.max_message_length
                     ):
                         if buffer:  # Отправляем, только если буфер не пуст
                             await self.send_log_message(buffer)
@@ -135,7 +129,7 @@ class LoggingCog(commands.Cog):
             logger.error(f"[LogCog] Ошибка при отправке лога: {e}", exc_info=True)
             # Не запускаем tail, если была ошибка с основным логом
 
-    @tasks.loop(seconds=CHECK_INTERVAL_SECONDS)
+    @tasks.loop(seconds=5)  # Default value, will be changed in __init__
     async def tail_log_file(self) -> None:
         """Периодически проверяет файл логов на новые записи и отправляет их в Discord."""
         if self.log_channel is None:
@@ -151,8 +145,8 @@ class LoggingCog(commands.Cog):
                 buffer = ""
                 for line in new_lines:
                     if (
-                        len(buffer) + len(line) + settings.limits.logging_buffer_overhead
-                        > MAX_MESSAGE_LENGTH
+                        len(buffer) + len(line) + self.bot.settings.limits.logging_buffer_overhead
+                        > self.bot.settings.limits.max_message_length
                     ):
                         if buffer:  # Отправляем, только если буфер не пуст
                             await self.send_log_message(buffer)

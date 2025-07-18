@@ -148,15 +148,17 @@ class TestUpdateCommand:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("subprocess.Popen") as mock_popen, \
+             patch("asyncio.create_subprocess_shell") as mock_shell, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             await update_cog.update(update_cog, mock_context)
         
         # Проверки
         mock_context.defer.assert_called_once_with(ephemeral=True)
-        mock_popen.assert_called_once_with(
-            ["systemctl", "--user", "restart", "discord-bot.service"]
+        mock_shell.assert_called_once_with(
+            update_cog.bot.settings.update.restart_command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
         update_cog.bot.close.assert_called_once()
 
@@ -179,7 +181,7 @@ class TestUpdateCommand:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("subprocess.Popen"), \
+             patch("asyncio.create_subprocess_shell"), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             await update_cog.update(update_cog, mock_context)
@@ -210,7 +212,7 @@ class TestUpdateCommand:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("subprocess.Popen", side_effect=OSError("Permission denied")):
+             patch("asyncio.create_subprocess_shell", side_effect=OSError("Permission denied")):
             
             await update_cog.update(update_cog, mock_context)
         
@@ -241,7 +243,7 @@ class TestUpdateCommand:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("subprocess.Popen", side_effect=OSError("Permission denied")):
+             patch("asyncio.create_subprocess_shell", side_effect=OSError("Permission denied")):
             
             # Не должно выбрасывать исключение даже если оба действия не удались
             await update_cog.update(update_cog, mock_context)
@@ -266,7 +268,7 @@ class TestUpdateCommand:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("subprocess.Popen"), \
+             patch("asyncio.create_subprocess_shell"), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             # Не должно выбрасывать исключение
@@ -406,7 +408,7 @@ class TestUpdateCogIntegration:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("subprocess.Popen") as mock_popen, \
+             patch("asyncio.create_subprocess_shell") as mock_shell, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             await update_cog.update(update_cog, mock_context)
@@ -417,8 +419,8 @@ class TestUpdateCogIntegration:
         assert "✅ Обновление получено!" in edit_sequence[1]
         assert "🔄 Перезапуск бота..." in edit_sequence[1]
         
-        # Проверяем что systemctl был вызван
-        mock_popen.assert_called_once()
+        # Проверяем что команда перезапуска была вызвана
+        mock_shell.assert_called_once()
         
         # Проверяем что бот закрылся
         update_cog.bot.close.assert_called_once()
@@ -439,12 +441,12 @@ class TestUpdateCogIntegration:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("subprocess.Popen") as mock_popen:
+             patch("asyncio.create_subprocess_shell") as mock_shell:
             
             await update_cog.update(update_cog, mock_context)
         
-        # Проверяем что systemctl НЕ был вызван
-        mock_popen.assert_not_called()
+        # Проверяем что команда перезапуска НЕ была вызвана
+        mock_shell.assert_not_called()
         
         # Проверяем что бот НЕ закрылся
         update_cog.bot.close.assert_not_called()

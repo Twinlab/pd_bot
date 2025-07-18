@@ -15,17 +15,6 @@ from utils.twitch_data_manager import TwitchDataManager
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
-@pytest.fixture
-def mock_bot(mock_settings):
-    bot = MagicMock(spec=commands.Bot)
-    bot.settings = mock_settings
-    bot.user = MagicMock(id=12345)
-    bot.guilds = []
-    bot.get_guild = MagicMock()
-    bot.get_channel = MagicMock()
-    bot.wait_until_ready = AsyncMock() 
-    bot.is_ready = MagicMock(return_value=True) # Для send_stream_notification
-    return bot
 
 @pytest.fixture
 def mock_guild():

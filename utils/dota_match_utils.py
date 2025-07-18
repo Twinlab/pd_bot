@@ -6,7 +6,7 @@
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple
 
 import discord
@@ -235,7 +235,7 @@ async def handle_lastmatch(
 
     # Извлекаем основную информацию о матче
     match_info = match_data.get("match", {})
-    datetime_obj = datetime.utcfromtimestamp(match_info.get("startDateTime", 0))
+    datetime_obj = datetime.fromtimestamp(match_info.get("startDateTime", 0), tz=timezone.utc)
     duration = match_info.get("durationSeconds", 0)
     is_victory = player_data.get("isVictory", False)
 
@@ -262,15 +262,7 @@ async def handle_lastmatch(
         )
 
     # Определяем цвет эмбеда в зависимости от результата и KDA
-    embed_color = (
-        discord.Color.green()
-        if is_victory and kda_value >= 3
-        else (
-            discord.Color.teal()
-            if is_victory
-            else discord.Color.red() if kda_value < 1.5 else discord.Color.gold()
-        )
-    )
+    embed_color = discord.Color.green() if is_victory else discord.Color.red()
 
     # Создаем основной эмбед для ответа
     embed = discord.Embed(title=f"**{kda_comment}**", color=embed_color)

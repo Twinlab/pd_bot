@@ -32,5 +32,8 @@ async def handle_message(message: discord.Message) -> None:
         reactions = user_reactions[user_id]
         for reaction in reactions:
             if random.random() < reaction.chance:
-                await message.channel.send(reaction.response)
+                try:
+                    await message.channel.send(reaction.response)
+                except discord.HTTPException as e:
+                    logger.error(f"Не удалось отправить реакцию для пользователя {user_id}: {e}")
                 break  # Отправляем только одну реакцию за раз

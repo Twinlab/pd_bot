@@ -25,15 +25,39 @@ def mock_bot():
     bot.user.name = "Test Bot"
     bot.user.display_name = "Test Bot"
 
-    # Создаем мок настроек, имитируя структуру BotSettings
-    settings = BotSettings.load_from_yaml()  # Загружаем дефолтные значения
+    # Создаем полностью мокнутый объект настроек, чтобы избежать чтения файла
+    settings = MagicMock(spec=BotSettings)
     settings.bot_token = "fake_token"
     settings.stratz_api_key = "fake_api_key"
     settings.prefix = "!"
+    settings.channels = MagicMock()
     settings.channels.activity_reports = 573665353327181824
     settings.channels.anime = 298811309640646666
+    settings.channels.logging = 1365045098785542224 # Добавим ID для логгирования
     settings.twitch_client_id = "fake_twitch_id"
     settings.twitch_client_secret = "fake_twitch_secret"
+    settings.limits = MagicMock()
+    settings.limits.logging_buffer_overhead = 10
+    settings.limits.max_message_length = 1990
+    settings.timeouts = MagicMock()
+    settings.timeouts.log_check_interval = 5
+
+    settings.messages = MagicMock()
+    settings.messages.errors = {
+        "twitch_api_not_configured": "Не указаны TWITCH_CLIENT_ID и/или TWITCH_CLIENT_SECRET в конфиге. Функционал Twitch будет отключен."
+    }
+
+    settings.twitch = MagicMock()
+    settings.twitch.check_interval = 60
+    settings.twitch.notification_timeout = 3600
+    settings.twitch.startup_delay = 1
+    settings.twitch.embed_color = "#9146FF"
+    settings.limits.twitch_streamers_chunk = 900
+
+    settings.update = MagicMock()
+    settings.update.restart_command = "systemctl --user restart discord-bot.service"
+    settings.timeouts.update_restart_delay = 3
+    settings.limits.update_output_max_length = 1900
 
     bot.settings = settings
     return bot
