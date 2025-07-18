@@ -14,7 +14,6 @@ graph TD
     F --> F2[activity.py]
     F --> F3[anime.py]
     F --> F4[fun.py]
-    F --> F5[giveaway.py]
     F --> F6[lastmatch.py]
     F --> F7[links.py]
     F --> F8[logging_cog.py]
@@ -46,8 +45,8 @@ sequenceDiagram
     MusicCog->>User: Показать результаты поиска
     User->>MusicCog: Выбрать трек
     MusicCog->>MusicPlayer: queue_track(url, user)
-    MusicPlayer->>YTIntegration: download_track(url)
-    YTIntegration-->>MusicPlayer: track_info
+    MusicPlayer->>YTIntegration: get_stream_info(url)
+    YTIntegration-->>MusicPlayer: track_info (with stream_url)
     MusicPlayer->>MusicPlayer: play_next()
     MusicPlayer->>User: Отправить "Сейчас играет"
 ```
@@ -164,7 +163,6 @@ graph TD
     B --> B2[activity.py]
     B --> B3[anime.py]
     B --> B4[fun.py]
-    B --> B5[giveaway.py]
     B --> B6[lastmatch.py]
     B --> B7[links.py]
     B --> B8[logging_cog.py]
@@ -196,7 +194,6 @@ graph TD
     B2 --> D2
     B3 --> D2
     B4 --> D2
-    B5 --> D2
     B6 --> D2
     B7 --> D2
     B9 --> D2

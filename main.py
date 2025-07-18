@@ -15,7 +15,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from discord import Intents
 from discord.ext import commands
@@ -48,11 +48,10 @@ intents.presences = True
 class MyBot(commands.Bot):
     """Кастомный класс бота, наследуемый от commands.Bot.
 
-    Добавляет атрибуты config и log_file_path для доступа к конфигурации
+    Добавляет атрибуты settings и log_file_path для доступа к конфигурации
     и пути к файлу логов соответственно.
     """
 
-    config: Dict[str, Any]
     settings: Any  # BotSettings
     log_file_path: str
 
@@ -71,21 +70,6 @@ def initialize_bot() -> MyBot:
     """Инициализирует бота с настройками."""
     # Загрузка конфигурации ДО создания экземпляра бота
     settings = get_settings()
-    config = {
-        "BOT_TOKEN": settings.bot_token,
-        "STRATZ_API_KEY": settings.stratz_api_key,
-        "PREFIX": settings.prefix,
-        "TWITCH_CLIENT_ID": settings.twitch_client_id,
-        "TWITCH_CLIENT_SECRET": settings.twitch_client_secret,
-        "PROXY_URL": settings.proxy_url,
-        "LOGGING_CHANNEL_ID": settings.channels.logging,
-        "ANIME_CHANNEL_ID": settings.channels.anime,
-        "REPORT_CHANNEL_ID": settings.channels.activity_reports,
-        "ROLE_REACTION_DEFAULT_CHANNEL_ID": settings.channels.role_reactions_default,
-        "ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS": settings.timeouts.activity_min_record,
-        "ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS": settings.timeouts.activity_max_record,
-        "ACTIVITY_MONTHLY_REPORT_MIN_TIME_SECONDS": settings.timeouts.activity_monthly_min_time,
-    }
 
     # Проверка наличия токена ДО создания бота (только если не в тестах)
     if not settings.bot_token or (
@@ -96,7 +80,6 @@ def initialize_bot() -> MyBot:
 
     # Создание экземпляра бота с префиксом из конфига
     bot_instance: MyBot = MyBot(command_prefix=settings.prefix, intents=intents)
-    bot_instance.config = config  # Для обратной совместимости
     bot_instance.settings = settings  # Новый способ доступа
     bot_instance.log_file_path = str(log_path)  # Передаём путь к текущему логу в cog
 
@@ -105,21 +88,6 @@ def initialize_bot() -> MyBot:
 
 # Глобальные переменные для совместимости с тестами
 settings = get_settings()
-config = {
-    "BOT_TOKEN": settings.bot_token,
-    "STRATZ_API_KEY": settings.stratz_api_key,
-    "PREFIX": settings.prefix,
-    "TWITCH_CLIENT_ID": settings.twitch_client_id,
-    "TWITCH_CLIENT_SECRET": settings.twitch_client_secret,
-    "PROXY_URL": settings.proxy_url,
-    "LOGGING_CHANNEL_ID": settings.channels.logging,
-    "ANIME_CHANNEL_ID": settings.channels.anime,
-    "REPORT_CHANNEL_ID": settings.channels.activity_reports,
-    "ROLE_REACTION_DEFAULT_CHANNEL_ID": settings.channels.role_reactions_default,
-    "ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS": settings.timeouts.activity_min_record,
-    "ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS": settings.timeouts.activity_max_record,
-    "ACTIVITY_MONTHLY_REPORT_MIN_TIME_SECONDS": settings.timeouts.activity_monthly_min_time,
-}
 
 # Создание экземпляра бота
 if "pytest" not in sys.modules:
@@ -128,7 +96,6 @@ if "pytest" not in sys.modules:
 else:
     # В тестах создаем бота без проверок токена
     bot_instance: MyBot = MyBot(command_prefix=settings.prefix, intents=intents)
-    bot_instance.config = config
     bot_instance.settings = settings
     bot_instance.log_file_path = str(log_path)
     bot = bot_instance

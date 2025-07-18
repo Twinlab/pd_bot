@@ -53,12 +53,10 @@ class UpdateCog(commands.Cog):
         Перезапуск выполняется через пользовательский сервис systemd.
 
         ТРЕБОВАНИЯ:
-        - Бот должен быть настроен как пользовательский сервис systemd
-          (например, `discord-bot.service`).
-        - Пользователь, от имени которого запущен бот, должен иметь права на перезапуск
-          этого сервиса (`systemctl --user restart discord-bot.service`).
-        - Имя сервиса `discord-bot.service` жестко задано в коде.
-          Измените его при необходимости.
+        - Для автоматического перезапуска в `config/bot_settings.yaml` должна быть
+          указана команда в `update.restart_command`.
+        - Например: `restart_command: "systemctl --user restart discord-bot.service"`
+        - Если команда не указана, бот просто завершит работу.
         """
         await ctx.defer(ephemeral=True)  # Делаем ответ эфемерным
         logger.info(f"Команда /update вызвана пользователем {ctx.author} (ID: {ctx.author.id})")
@@ -105,17 +103,35 @@ class UpdateCog(commands.Cog):
                 logger.error(f"Ошибка при отправке сообщения об обновлении: {e}", exc_info=True)
                 # Не блокируем рестарт
 
-            # Команда перезапуска пользовательского сервиса
-            restart_command = ["systemctl", "--user", "restart", "discord-bot.service"]
-            try:
-                # Запускаем без ожидания завершения, т.к. бот должен закрыться
-                subprocess.Popen(restart_command)
-                logger.info(f"Команда перезапуска '{' '.join(restart_command)}' отправлена.")
-            except Exception as e:
-                logger.error(
-                    f"Ошибка при попытке перезапуска через systemctl --user: {e}", exc_info=True
+            # Получаем команду перезапуска из настроек
+            restart_command = self.bot.settings.update.restart_command
+
+            if not restart_command:
+                logger.warning(
+                    "Команда для перезапуска не задана в конфигурации. Бот будет остановлен."
                 )
-                # Не закрываем бота, чтобы владелец видел ошибку
+                await message.edit(
+                    content=(
+                        f"✅ Обновление получено!\n```{display_stdout}```\n"
+                        "⚠️ Команда для перезапуска не настроена. Бот будет остановлен."
+                    )
+                )
+                await asyncio.sleep(settings.timeouts.update_restart_delay)
+                await self.bot.close()
+                return
+
+            try:
+                logger.info(f"Выполнение команды перезапуска: {restart_command}")
+                # Используем shell=True, так как команда может быть сложной
+                process = await asyncio.create_subprocess_shell(
+                    restart_command,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                # Не ждем завершения, так как бот должен умереть
+                logger.info(f"Команда перезапуска '{restart_command}' отправлена.")
+            except Exception as e:
+                logger.error(f"Ошибка при выполнении команды перезапуска: {e}", exc_info=True)
                 try:
                     await message.edit(
                         content=f"✅ Обновление получено, но не удалось инициировать перезапуск: {e}"

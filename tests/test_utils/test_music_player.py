@@ -101,7 +101,7 @@ def mock_track_info():
         "uploader": "Test Uploader",
         "uploader_url": "https://www.youtube.com/channel/test_channel",
         "extractor_key": "Youtube",
-        "filepath": "downloads/Youtube-test_id-Test_Track.mp3",
+        "url": "https://example.com/stream.mp3",
     }
 
 
@@ -132,7 +132,7 @@ def test_track_initialization(mock_track, mock_member, mock_track_info) -> None:
     assert mock_track.requester == mock_member
     assert mock_track.id == mock_track_info["id"]
     assert mock_track.extractor == mock_track_info["extractor_key"].lower()
-    # filepath не всегда устанавливается в конструкторе Track, поэтому не проверяем
+    assert mock_track.stream_url == mock_track_info["url"]
 
 
 def test_track_str_representation(mock_track) -> None:
@@ -286,44 +286,37 @@ async def test_queue_track(music_player, mock_track_info, mock_member, mock_inte
     """Тестирует добавление трека в очередь."""
     url = "https://www.youtube.com/watch?v=test_id"
 
-    # Мокаем download_track
-    with patch("utils.music.player.download_track", new_callable=AsyncMock) as mock_download:
-        mock_download.return_value = mock_track_info
-
-        # Мокаем pathlib.Path.exists и pathlib.Path.stat,
-        # чтобы файл считался существующим и имел размер
-        with patch("pathlib.Path.exists", return_value=True):
-            mock_stat_result = MagicMock()
-            mock_stat_result.st_size = 1024
-            with patch("pathlib.Path.stat", return_value=mock_stat_result):
-                # Вызываем queue_track
-                await music_player.queue_track(url, mock_member, mock_interaction)
-
-                # Проверяем вызовы
-                mock_download.assert_awaited_once_with(url)
-                assert len(music_player.queue) == 1
-            assert isinstance(music_player.queue[0], Track)
-            assert music_player.queue[0].title == mock_track_info["title"]
-            assert music_player.queue[0].requester == mock_member
-            # edit_original_response может быть вызван несколько раз
-            # (например, "Добавляем..." и "Трек добавлен!")
-            assert mock_interaction.edit_original_response.await_count >= 1
-
-
-@pytest.mark.asyncio
-async def test_queue_track_download_error(music_player, mock_member, mock_interaction) -> None:
-    """Тестирует обработку ошибки при скачивании трека."""
-    url = "https://www.youtube.com/watch?v=test_id"
-
-    # Мокаем download_track с ошибкой
-    with patch("utils.music.player.download_track", new_callable=AsyncMock) as mock_download:
-        mock_download.return_value = None
+    # Мокаем get_stream_info
+    with patch("utils.music.player.get_stream_info", new_callable=AsyncMock) as mock_get_stream:
+        mock_get_stream.return_value = mock_track_info
 
         # Вызываем queue_track
         await music_player.queue_track(url, mock_member, mock_interaction)
 
         # Проверяем вызовы
-        mock_download.assert_awaited_once_with(url)
+        mock_get_stream.assert_awaited_once_with(url)
+        assert len(music_player.queue) == 1
+        assert isinstance(music_player.queue[0], Track)
+        assert music_player.queue[0].title == mock_track_info["title"]
+        assert music_player.queue[0].requester == mock_member
+        # edit_original_response может быть вызван несколько раз
+        assert mock_interaction.edit_original_response.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_queue_track_stream_error(music_player, mock_member, mock_interaction) -> None:
+    """Тестирует обработку ошибки при получении информации о потоке."""
+    url = "https://www.youtube.com/watch?v=test_id"
+
+    # Мокаем get_stream_info с ошибкой
+    with patch("utils.music.player.get_stream_info", new_callable=AsyncMock) as mock_get_stream:
+        mock_get_stream.return_value = None
+
+        # Вызываем queue_track
+        await music_player.queue_track(url, mock_member, mock_interaction)
+
+        # Проверяем вызовы
+        mock_get_stream.assert_awaited_once_with(url)
         assert len(music_player.queue) == 0
         # Проверяем, что edit_original_response был вызван хотя бы раз с нужным текстом
         found = False
@@ -386,42 +379,30 @@ async def test_play_next(music_player, mock_voice_client, mock_track) -> None:
     # Устанавливаем voice_client
     music_player.voice_client = mock_voice_client
 
-    # Устанавливаем filepath для трека (иначе play_next не вызовет FFmpegPCMAudio)
-    mock_track.filepath = "downloads/Youtube-test_id-Test_Track.mp3"
     # Добавляем трек в очередь
     music_player.queue.append(mock_track)
 
     # Мокаем _update_now_playing_message
     music_player._update_now_playing_message = AsyncMock()
 
-    # Мокаем pathlib.Path.exists и pathlib.Path.stat
-    with patch("pathlib.Path.exists", return_value=True):
-        mock_stat_result = MagicMock()
-        mock_stat_result.st_size = 1024
-        with patch("pathlib.Path.stat", return_value=mock_stat_result):
-            # Мокаем discord.FFmpegPCMAudio
-            with patch("discord.FFmpegPCMAudio") as mock_ffmpeg:
-                mock_source = MagicMock()
-                mock_ffmpeg.return_value = mock_source
+    # Мокаем discord.FFmpegPCMAudio
+    with patch("discord.FFmpegPCMAudio") as mock_ffmpeg:
+        mock_source = MagicMock()
+        mock_ffmpeg.return_value = mock_source
 
-                # Вызываем play_next
-                await music_player.play_next()
+        # Вызываем play_next
+        await music_player.play_next()
 
-                # Проверяем вызовы
-                # Проверяем filepath трека
-                logger.debug("mock_track.filepath: %s", mock_track.filepath)
-                # Проверяем, что play был вызван и _update_now_playing_message был вызван
-                mock_ffmpeg.assert_called_once_with(mock_track.filepath, **FFMPEG_OPTIONS)
-                mock_voice_client.play.assert_called_once()
-                music_player._update_now_playing_message.assert_awaited_once()
-                assert (
-                    music_player.is_playing is True
-                )  # is_playing должно быть True после начала воспроизведения
-                assert music_player.is_paused is False
-                # После проигрывания трека очередь пуста,
-                # _after_playback вызовет cleanup(clear_queue=False)
-                # или start_playback_loop, если очередь не пуста.
-                # Прямая проверка cleanup здесь может быть ненадежной без мока _after_playback.
+        # Проверяем вызовы
+        mock_ffmpeg.assert_called_once_with(
+            mock_track.stream_url,
+            options=FFMPEG_OPTIONS.get("options", ""),
+            before_options=FFMPEG_OPTIONS.get("before_options", ""),
+        )
+        mock_voice_client.play.assert_called_once()
+        music_player._update_now_playing_message.assert_awaited_once()
+        assert music_player.is_playing is True
+        assert music_player.is_paused is False
 
 
 @pytest.mark.asyncio
@@ -819,27 +800,25 @@ async def test_disconnect_send_message_error(music_player, mock_text_channel) ->
 
 
 @pytest.mark.asyncio
-async def test_queue_track_file_not_found_error(music_player, mock_member, mock_interaction) -> None:
-    """Тестирует обработку ошибки когда скачанный файл не найден."""
+async def test_queue_track_stream_url_missing(music_player, mock_member, mock_interaction) -> None:
+    """Тестирует обработку ошибки когда у трека нет stream_url."""
     url = "https://www.youtube.com/watch?v=test_id"
     mock_track_info = {
         "id": "test_id",
         "title": "Test Track",
         "webpage_url": url,
         "duration": 180,
-        "filepath": "downloads/nonexistent.mp3",
+        "url": None,  # Нет stream_url
     }
 
-    with patch("utils.music.player.download_track", new_callable=AsyncMock) as mock_download:
-        mock_download.return_value = mock_track_info
-        
-        # Мокаем Path.exists чтобы вернуть False
-        with patch("pathlib.Path.exists", return_value=False):
-            await music_player.queue_track(url, mock_member, mock_interaction)
+    with patch("utils.music.player.get_stream_info", new_callable=AsyncMock) as mock_get_stream:
+        mock_get_stream.return_value = mock_track_info
 
-            assert len(music_player.queue) == 0
-            # Проверяем, что было отправлено сообщение об ошибке
-            assert mock_interaction.edit_original_response.await_count >= 1
+        await music_player.queue_track(url, mock_member, mock_interaction)
+
+        assert len(music_player.queue) == 0
+        # Проверяем, что было отправлено сообщение об ошибке
+        assert mock_interaction.edit_original_response.await_count >= 1
 
 
 @pytest.mark.asyncio

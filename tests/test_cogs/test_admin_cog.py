@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.fixture
-def mock_bot():
+def mock_bot(mock_settings):
     """Фикстура для мока бота."""
     bot = MagicMock(spec=commands.Bot)
-    bot.config = {}
+    bot.settings = mock_settings
     bot.user = MagicMock(id=12345) # ID бота
     return bot
 

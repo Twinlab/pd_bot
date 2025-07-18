@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 @pytest.fixture
-def mock_bot():
+def mock_bot(mock_settings):
     bot = MagicMock(spec=commands.Bot)
-    bot.config = {}
+    bot.settings = mock_settings
     bot.user = MagicMock(id=12345)
     bot.guilds = []
     bot.get_guild = MagicMock()
@@ -193,7 +193,7 @@ class TestSetupRoleMessageCommand:
         mock_guild: discord.Guild, mock_message: discord.Message, mock_member: discord.Member, mock_ctx: commands.Context
     ):
         config_channel_id = 999
-        mock_bot.config = {"ROLE_REACTION_DEFAULT_CHANNEL_ID": config_channel_id}
+        mock_bot.settings.channels.role_reactions_default = config_channel_id
         
         config_channel_mock = MagicMock(spec=discord.TextChannel, id=config_channel_id)
         config_channel_mock.send = AsyncMock(return_value=mock_message) 
@@ -252,8 +252,8 @@ class TestSetupRoleMessageCommand:
         mock_data_manager: RoleReactionDataManager, mock_text_channel: discord.TextChannel, mock_message: discord.Message, mock_member: discord.Member, mock_ctx: commands.Context
     ):
         config_channel_id = 999
-        mock_bot.config = {"ROLE_REACTION_DEFAULT_CHANNEL_ID": config_channel_id}
-        mock_bot.get_channel.return_value = None 
+        mock_bot.settings.channels.role_reactions_default = config_channel_id
+        mock_bot.get_channel.return_value = None
         
         mock_text_channel.send = AsyncMock(return_value=mock_message) 
         mock_data_manager.get_message_info.return_value = None
@@ -280,7 +280,7 @@ class TestSetupRoleMessageCommand:
         mock_data_manager: RoleReactionDataManager, mock_text_channel: discord.TextChannel, mock_message: discord.Message, mock_member: discord.Member, mock_ctx: commands.Context
     ):
         invalid_config_id = "not_an_int"
-        mock_bot.config = {"ROLE_REACTION_DEFAULT_CHANNEL_ID": invalid_config_id}
+        mock_bot.settings.channels.role_reactions_default = invalid_config_id
         
         mock_text_channel.send = AsyncMock(return_value=mock_message)
         mock_data_manager.get_message_info.return_value = None

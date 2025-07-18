@@ -137,3 +137,25 @@ activity:
 
 dota:
   match_view_timeout: 180
+
+
+update:
+  restart_command: "systemctl --user restart discord-bot.service"
+
+reactions:
+  user_reactions:
+    154601435990982656:
+      - chance: 0.05
+        response: "иди нахуй абасранер"
+    305650048904200202:
+      - chance: 0.0001
+        response: "деус, не клоуничай"
+    138053844167950347:
+      - chance: 0.0001
+        response: "🎤🐀"
+    159347749991481344:
+      - chance: 0.0001
+        response: "админ хуесос"
+    245874719855738880:
+      - chance: 0.0001
+        response: "мин яратам өчпочмак"

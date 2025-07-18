@@ -79,7 +79,7 @@ def mock_track_info():
         "uploader": "Test Uploader",
         "uploader_url": "https://www.youtube.com/channel/test_channel",
         "extractor_key": "Youtube",
-        "filepath": "downloads/Youtube-test_id-Test_Track.mp3",
+        "url": "https://example.com/stream.mp3",
     }
 
 
@@ -96,7 +96,7 @@ def mock_track(mock_track_info, mock_member):
     track.requester = mock_member
     track.id = mock_track_info["id"]
     track.extractor = mock_track_info["extractor_key"].lower()
-    track.filepath = mock_track_info["filepath"]
+    track.stream_url = mock_track_info["url"]
     return track
 
 

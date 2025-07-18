@@ -33,12 +33,10 @@ def event_loop():
 
 
 @pytest.fixture
-def mock_bot():
+def mock_bot(mock_settings):
     """Создает мок для бота Discord."""
     bot = MagicMock(spec=commands.Bot)
-    bot.config = {
-        "PROXY_URL": None,
-    }
+    bot.settings = mock_settings
     bot.guilds = []
     bot.wait_until_ready = AsyncMock()
     bot.add_cog = AsyncMock()
@@ -124,7 +122,7 @@ def mock_track_info():
         "uploader": "Test Uploader",
         "uploader_url": "https://www.youtube.com/channel/test_channel",
         "extractor_key": "Youtube",
-        "filepath": "downloads/Youtube-test_id-Test_Track.mp3",
+        "url": "https://example.com/stream.mp3",  # URL для потока
     }
 
 
@@ -276,15 +274,8 @@ async def test_cog_initialization(music_cog, mock_bot):
 @pytest.mark.asyncio
 async def test_cog_unload(music_cog):
     """Тестирует выгрузку кога."""
-    # Мокаем player._cleanup_task
-    music_cog.player._cleanup_task = MagicMock()
-    music_cog.player._cleanup_task.cancel = MagicMock()
-
-    # Вызываем cog_unload
     await music_cog.cog_unload()
-
-    # Проверяем, что задача очистки отменена
-    music_cog.player._cleanup_task.cancel.assert_called_once()
+    music_cog.player.disconnect.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -434,7 +425,7 @@ async def test_play_command_with_search(music_cog, mock_interaction):
     music_cog._connect_or_move = AsyncMock(return_value=True)
 
     # Мокаем search_youtube
-    search_results = [{"title": "Test Result", "uploader": "Test Uploader", "duration": 180}]
+    search_results = [{"title": "Test Result", "uploader": "Test Uploader", "duration": 180, "url": "http://example.com/vid"}]
     with patch("cogs.music.search_youtube", new_callable=AsyncMock) as mock_search:
         mock_search.return_value = search_results
 
@@ -459,9 +450,9 @@ async def test_play_command_with_search(music_cog, mock_interaction):
             last_call = mock_interaction.edit_original_response.call_args
             # Проверяем наличие контента (не используется в тесте)
             if last_call.args:
-                pass  # content = last_call.args[0]
+                pass
             elif "content" in last_call.kwargs:
-                pass  # content = last_call.kwargs["content"]
+                pass
             # Проверяем, что хотя бы один вызов был с embed/view
             found_embed = any(
                 "embed" in call.kwargs or "view" in call.kwargs

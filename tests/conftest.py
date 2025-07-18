@@ -12,21 +12,30 @@ from discord.ext import commands
 sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
 
 
+# Импортируем BotSettings для мока
+from config.settings import BotSettings
+
+
 @pytest.fixture
 def mock_bot():
-    """Создает мок бота Discord."""
+    """Создает мок бота Discord с моком настроек."""
     bot = MagicMock(spec=commands.Bot)
     bot.user = MagicMock(spec=discord.User)
     bot.user.id = 123456789
     bot.user.name = "Test Bot"
     bot.user.display_name = "Test Bot"
-    bot.config = {
-        "BOT_TOKEN": "fake_token",
-        "STRATZ_API_KEY": "fake_api_key",
-        "PREFIX": "!",
-        "REPORT_CHANNEL_ID": 573665353327181824,
-        "ANIME_CHANNEL_ID": 298811309640646666,
-    }
+
+    # Создаем мок настроек, имитируя структуру BotSettings
+    settings = BotSettings.load_from_yaml()  # Загружаем дефолтные значения
+    settings.bot_token = "fake_token"
+    settings.stratz_api_key = "fake_api_key"
+    settings.prefix = "!"
+    settings.channels.activity_reports = 573665353327181824
+    settings.channels.anime = 298811309640646666
+    settings.twitch_client_id = "fake_twitch_id"
+    settings.twitch_client_secret = "fake_twitch_secret"
+
+    bot.settings = settings
     return bot
 
 

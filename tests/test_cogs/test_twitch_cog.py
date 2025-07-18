@@ -16,12 +16,9 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 @pytest.fixture
-def mock_bot():
+def mock_bot(mock_settings):
     bot = MagicMock(spec=commands.Bot)
-    bot.config = {
-        "TWITCH_CLIENT_ID": "test_client_id",
-        "TWITCH_CLIENT_SECRET": "test_client_secret"
-    }
+    bot.settings = mock_settings
     bot.user = MagicMock(id=12345)
     bot.guilds = []
     bot.get_guild = MagicMock()
@@ -89,28 +86,31 @@ def mock_twitch_api_class(MockTwitchAPI):
 @pytest.fixture
 def twitch_cog(mock_bot: commands.Bot, mock_data_manager: TwitchDataManager, mock_twitch_api_class: MagicMock):
     with patch("cogs.twitch.TwitchDataManager", return_value=mock_data_manager), \
-         patch("cogs.twitch.TwitchAPI", mock_twitch_api_class):
+         patch("cogs.twitch.TwitchAPI", mock_twitch_api_class), \
+         patch("cogs.twitch.get_settings", return_value=mock_bot.settings):
         cog = TwitchCog(mock_bot)
         assert cog.data_manager is mock_data_manager
-        if cog.twitch_api: 
-            assert cog.twitch_api is mock_twitch_api_class.return_value 
+        if cog.twitch_api:
+            assert cog.twitch_api is mock_twitch_api_class.return_value
         return cog
 
 
 class TestTwitchCogInitAndLoad:
     def test_init_with_api_keys(self, mock_bot: commands.Bot):
-        with patch("cogs.twitch.TwitchDataManager"), patch("cogs.twitch.TwitchAPI") as MockTwitchAPIConstructor:
+        with patch("cogs.twitch.TwitchDataManager"), patch("cogs.twitch.TwitchAPI") as MockTwitchAPIConstructor, patch("cogs.twitch.get_settings", return_value=mock_bot.settings):
             cog = TwitchCog(mock_bot)
-            assert cog.client_id == "test_client_id"
-            assert cog.client_secret == "test_client_secret"
+            assert cog.client_id == "fake_twitch_id"
+            assert cog.client_secret == "fake_twitch_secret"
             assert cog.twitch_api is not None
-            MockTwitchAPIConstructor.assert_called_once_with("test_client_id", "test_client_secret")
+            MockTwitchAPIConstructor.assert_called_once_with("fake_twitch_id", "fake_twitch_secret")
 
     def test_init_without_api_keys(self, mock_bot: commands.Bot):
-        mock_bot.config = {} 
+        mock_bot.settings.twitch_client_id = None
+        mock_bot.settings.twitch_client_secret = None
         with patch("cogs.twitch.TwitchDataManager"), \
              patch("cogs.twitch.TwitchAPI") as MockTwitchAPIConstructor, \
-             patch("cogs.twitch.logger.warning") as mock_logger_warning:
+             patch("cogs.twitch.logger.warning") as mock_logger_warning, \
+             patch("cogs.twitch.get_settings", return_value=mock_bot.settings):
             cog = TwitchCog(mock_bot)
             assert cog.client_id == ""
             assert cog.client_secret == ""
@@ -131,13 +131,14 @@ class TestTwitchCogInitAndLoad:
 
     @pytest.mark.asyncio
     async def test_cog_load_without_api(self, mock_bot: commands.Bot, mock_data_manager: TwitchDataManager):
-        mock_bot.config = {} 
+        mock_bot.settings.twitch_client_id = None
         with patch("cogs.twitch.TwitchDataManager", return_value=mock_data_manager), \
              patch("cogs.twitch.TwitchAPI") as MockTwitchAPIConstructor, \
-             patch("cogs.twitch.logger.warning") as mock_logger_warning:
-            
-            MockTwitchAPIConstructor.return_value = None 
-            
+             patch("cogs.twitch.logger.warning") as mock_logger_warning, \
+             patch("cogs.twitch.get_settings", return_value=mock_bot.settings):
+
+            MockTwitchAPIConstructor.return_value = None
+
             cog = TwitchCog(mock_bot)
             cog.twitch_api = None 
             
@@ -210,9 +211,9 @@ class TestTwitchCommands:
 
     @pytest.mark.asyncio
     async def test_twitch_add_no_api_keys(self, mock_bot: commands.Bot, mock_interaction: discord.Interaction):
-        mock_bot.config = {} 
-        with patch("cogs.twitch.TwitchDataManager"), patch("cogs.twitch.TwitchAPI"):
-            cog_no_api = TwitchCog(mock_bot) 
+        mock_bot.settings.twitch_client_id = None
+        with patch("cogs.twitch.TwitchDataManager"), patch("cogs.twitch.TwitchAPI"), patch("cogs.twitch.get_settings", return_value=mock_bot.settings):
+            cog_no_api = TwitchCog(mock_bot)
             await cog_no_api.twitch_add.callback(cog_no_api, mock_interaction, twitch_username="test", channel=None)
             mock_interaction.response.send_message.assert_called_once()
             assert "Не указаны TWITCH_CLIENT_ID" in mock_interaction.response.send_message.call_args[0][0]

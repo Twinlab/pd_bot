@@ -49,20 +49,8 @@ class LoggingCog(commands.Cog):
         """
         self.bot = bot
 
-        # Получаем ID канала (поддерживаем обе системы конфигурации)
-        if hasattr(bot, "config") and bot.config and "LOGGING_CHANNEL_ID" in bot.config:
-            # Старая система конфигурации (для совместимости с тестами)
-            try:
-                self.log_channel_id = int(bot.config["LOGGING_CHANNEL_ID"])
-            except (ValueError, TypeError):
-                logger.warning(
-                    "LOGGING_CHANNEL_ID в конфиге не является int, "
-                    "используется значение по умолчанию"
-                )
-                self.log_channel_id = settings.channels.logging
-        else:
-            # Новая система настроек
-            self.log_channel_id = settings.channels.logging
+        # Получаем ID канала из настроек
+        self.log_channel_id = bot.settings.channels.logging
 
         self.log_channel = None
         self.log_file_path = str(getattr(bot, "log_file_path", "bot.log"))

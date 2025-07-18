@@ -352,6 +352,29 @@ class DotaConfig(BaseModel):
     match_view_timeout: int = 180  # 3 минуты
 
 
+class UserReaction(BaseModel):
+    """Конфигурация одной реакции на сообщение пользователя."""
+
+    chance: float = Field(..., ge=0.0, le=1.0)  # Вероятность от 0.0 до 1.0
+    response: str
+
+
+class ReactionsConfig(BaseModel):
+    """Конфигурация реакций на сообщения."""
+
+    user_reactions: Dict[int, list[UserReaction]] = {}
+
+
+class UpdateSettings(BaseModel):
+    """Конфигурация модуля обновления.
+
+    Attributes:
+        restart_command: Команда для перезапуска бота (опционально)
+    """
+
+    restart_command: Optional[str] = None
+
+
 class Messages(BaseModel):
     """Конфигурация текстовых сообщений.
 
@@ -427,6 +450,8 @@ class BotSettings(BaseSettings):
     fun: FunConfig = FunConfig()
     activity: ActivityConfig = ActivityConfig()
     dota: DotaConfig = DotaConfig()
+    update: UpdateSettings = UpdateSettings()
+    reactions: ReactionsConfig = ReactionsConfig()
 
     model_config = {
         "env_file": ".env",

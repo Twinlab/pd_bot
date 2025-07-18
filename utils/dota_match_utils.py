@@ -188,7 +188,7 @@ async def handle_lastmatch(
     target_user_mention = target_user.mention
 
     # Получаем ключ API Stratz из конфигурации бота
-    stratz_key = ctx.bot.config.get("STRATZ_API_KEY")
+    stratz_key = ctx.bot.settings.stratz_api_key
 
     if not stratz_key:
         await ctx.send("Ошибка: STRATZ_API_KEY не найден в конфигурации бота.")

@@ -31,12 +31,9 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.
 
-        Отменяет задачу очистки файлов и отключает плеер.
+        Отключает плеер.
         """
         logger.info("Выгрузка музыкального модуля...")
-        if self.player and hasattr(self.player, "_cleanup_task") and self.player._cleanup_task:
-            self.player._cleanup_task.cancel()
-            logger.info("Задача очистки файлов отменена")
         if self.player:
             await self.player.disconnect()
         logger.info("Музыкальный модуль выгружен.")

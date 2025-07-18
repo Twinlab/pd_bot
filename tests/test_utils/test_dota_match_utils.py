@@ -132,12 +132,13 @@ class TestHandleLastmatch:
         self.mock_ctx.author.id = 123456
         self.mock_ctx.author.mention = "<@123456>"
         self.mock_ctx.bot = MagicMock()
-        self.mock_ctx.bot.config = {"STRATZ_API_KEY": "fake_key"}
+        self.mock_ctx.bot.settings = MagicMock()
+        self.mock_ctx.bot.settings.stratz_api_key = "fake_key"
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_no_api_key(self):
         """Тест когда нет API ключа в конфигурации."""
-        self.mock_ctx.bot.config = {}
+        self.mock_ctx.bot.settings.stratz_api_key = None
         user_links_list = [12345]
         
         await handle_lastmatch(self.mock_ctx, user_links_list)

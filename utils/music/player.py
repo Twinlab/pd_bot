@@ -2,16 +2,14 @@
 
 import asyncio
 import logging
-import time
 from collections import deque
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
 import discord
 
-from .config import COLORS, DOWNLOADS_DIR, FFMPEG_OPTIONS
+from .config import COLORS, FFMPEG_OPTIONS
 from .embeds import create_embed, format_duration
-from .yt_integration import download_track
+from .yt_integration import get_stream_info
 
 # Создаем логгер с иерархическим именем
 logger = logging.getLogger("bot.utils.music.player")
@@ -41,7 +39,7 @@ class Track:
         self.extractor: str = info.get(
             "extractor_key", "youtube"
         ).lower()  # Ключ экстрактора (youtube, soundcloud и т.д.)
-        self.filepath: str | None = None  # Путь к скачанному файлу
+        self.stream_url: str = info.get("url", "")  # URL для потокового воспроизведения
 
     def __str__(self) -> str:
         """Возвращает строковое представление трека (название и длительность)."""
@@ -195,7 +193,7 @@ class MusicPlayer:
     async def queue_track(
         self, url: str, requester: discord.Member, interaction: discord.Interaction | None = None
     ) -> None:
-        """Скачивает трек, добавляет в очередь и запускает воспроизведение.
+        """Получает информацию о треке, добавляет в очередь и запускает воспроизведение.
 
         Если очередь была пуста, начинает воспроизведение.
 
@@ -213,51 +211,40 @@ class MusicPlayer:
                 else None
             )
         )
-        if not response_method and self.text_channel:  # Если нет interaction, но есть text_channel
-            response_method = self.text_channel.send  # type: ignore
+        if not response_method and self.text_channel:
+            response_method = self.text_channel.send
 
         edit_method = interaction.edit_original_response if interaction else None
         loading_msg: Optional[discord.Message] = None
+
         if edit_method:
             try:
-                await edit_method(content="🔄 Скачивание трека...")
+                await edit_method(content="🔄 Получение информации о треке...")
             except discord.NotFound:
                 edit_method = None
                 if response_method:
-                    if response_method:
-                        loading_msg = await response_method(
-                            embed=create_embed("🔄 Загрузка", "Скачиваем трек..."),
-                            wait=True if interaction else False,  # type: ignore
-                        )
-            except Exception as e:
-                logger.warning(f"Не удалось отредактировать сообщение о загрузке: {e}")
-                edit_method = None
-                if response_method:
-                    if response_method:
-                        loading_msg = await response_method(
-                            embed=create_embed("🔄 Загрузка", "Скачиваем трек..."),
-                            wait=True if interaction else False,  # type: ignore
-                        )
+                    loading_msg = await response_method(
+                        embed=create_embed("🔄 Загрузка", "Получаем информацию о треке..."),
+                        wait=True if interaction else False,
+                    )
         elif response_method:
-            if response_method:
-                loading_msg = await response_method(
-                    embed=create_embed("🔄 Загрузка", "Скачиваем трек..."),
-                    wait=True if interaction else False,  # type: ignore
-                )
+            loading_msg = await response_method(
+                embed=create_embed("🔄 Загрузка", "Получаем информацию о треке..."),
+                wait=True if interaction else False,
+            )
+
         update_msg_method = loading_msg.edit if loading_msg and not edit_method else edit_method
+
         try:
-            logger.info(f"Скачивание трека: {url}")
-            track_info = await download_track(url)
+            logger.info(f"Получение информации о потоке для: {url}")
+            track_info = await get_stream_info(url)
             if not track_info:
                 raise ValueError("Не удалось получить информацию о треке.")
+
             track = Track(track_info, requester)
-            track.filepath = track_info.get("filepath")
-            if not track.filepath or not Path(track.filepath).exists():
-                raise FileNotFoundError(f"Скачанный файл не найден: {track.filepath}")
-            if Path(track.filepath).stat().st_size == 0:
-                raise ValueError(f"Скачанный файл имеет нулевой размер: {track.filepath}")
             self.queue.append(track)
             logger.info(f"Трек добавлен в очередь: {track.title}")
+
             embed = create_embed(
                 "✅ Трек добавлен",
                 f"[{track.title}]({track.url})",
@@ -269,12 +256,15 @@ class MusicPlayer:
                     ("Позиция", str(len(self.queue)), True),
                 ],
             )
+
             if update_msg_method:
                 await update_msg_method(content=None, embed=embed, view=None)
             elif response_method:
                 await response_method(embed=embed)
+
             if not self.is_playing and self.voice_client and self.voice_client.is_connected():
                 self.start_playback_loop()
+
         except Exception as e:
             logger.error(f"Ошибка при добавлении трека {url}: {e}", exc_info=True)
             error_embed = create_embed(
@@ -317,46 +307,26 @@ class MusicPlayer:
                 return
             self.current_track = self.queue.popleft()
             logger.info(f"Воспроизведение следующего трека: {self.current_track.title}")
-            current_track_path = (
-                Path(self.current_track.filepath) if self.current_track.filepath else None
-            )
-            if not current_track_path or not current_track_path.exists():
-                logger.error(
-                    (
-                        f"Путь к файлу отсутствует или файл не найден для трека: "
-                        f"{self.current_track.title} ({self.current_track.filepath})"
-                    )
-                )
+            if not self.current_track.stream_url:
+                logger.error(f"URL потока отсутствует для трека: {self.current_track.title}")
                 await self.send_error_message(
-                    f"Ошибка: Файл для трека '{self.current_track.title}' не найден."
+                    f"Ошибка: Не удалось найти источник для трека '{self.current_track.title}'."
                 )
                 self.current_track = None
                 self.start_playback_loop()
                 return
+
             try:
-                if (
-                    not current_track_path.exists()
-                ):  # Повторная проверка на случай если current_track_path был None
-                    raise FileNotFoundError(f"Файл не найден: {self.current_track.filepath}")
-                file_size = current_track_path.stat().st_size
-                if file_size == 0:
-                    raise ValueError(f"Файл имеет нулевой размер: {self.current_track.filepath}")
-                logger.info(
-                    (
-                        f"Создание аудио источника для файла: {self.current_track.filepath} "
-                        f"(размер: {file_size} байт)"
-                    )
-                )
-                # mypy: self.current_track.filepath гарантированно не None после всех проверок выше
+                logger.info(f"Создание аудио источника для потока: {self.current_track.stream_url}")
                 source = discord.FFmpegPCMAudio(
-                    str(self.current_track.filepath),
-                    options=FFMPEG_OPTIONS.get("options", None),
-                    before_options=FFMPEG_OPTIONS.get("before_options", None),
+                    self.current_track.stream_url,
+                    options=FFMPEG_OPTIONS.get("options", ""),
+                    before_options=FFMPEG_OPTIONS.get("before_options", ""),
                 )
                 logger.info(f"Аудио источник успешно создан для трека: {self.current_track.title}")
             except Exception as e:
                 logger.error(
-                    f"Ошибка создания FFmpegPCMAudio для {self.current_track.filepath}: {e}",
+                    f"Ошибка создания FFmpegPCMAudio для потока: {e}",
                     exc_info=True,
                 )
                 await self.send_error_message(
@@ -707,88 +677,3 @@ class MusicPlayer:
             logger.debug(f"Очистка очереди (содержит {len(self.queue)} элементов).")
             self.queue.clear()
         logger.debug("Очистка завершена.")
-
-    async def start_cleanup_task(self) -> None:
-        """Запускает фоновую задачу для периодической очистки старых скачанных файлов.
-
-        Гарантирует, что одновременно выполняется не более одной такой задачи.
-        """
-        if (
-            not hasattr(self, "_cleanup_task")
-            or self._cleanup_task is None
-            or self._cleanup_task.done()
-        ):
-            self._cleanup_task = self.loop.create_task(self._scheduled_cleanup())
-            logger.info("Запущена фоновая задача по очистке старых загруженных файлов.")
-
-    async def _scheduled_cleanup(self) -> None:
-        """Периодически (раз в 24 часа) вызывает метод _cleanup_old_files.
-
-        Эта функция выполняется в фоновой задаче.
-        """
-        try:
-            while True:
-                await asyncio.sleep(24 * 60 * 60)  # Ожидание 24 часа
-                logger.info("Плановая очистка старых файлов...")
-                await self._cleanup_old_files()
-        except asyncio.CancelledError:
-            logger.info("Задача очистки старых файлов отменена.")
-        except Exception as e:
-            logger.error(
-                f"Критическая ошибка в задаче периодической очистки файлов: {e}", exc_info=True
-            )
-
-    async def _cleanup_old_files(self) -> None:
-        """Удаляет старые файлы из директории загрузок (старше 24 часов)."""
-        try:
-            now = time.time()
-            # Удаляем файлы старше 24 часов
-            # Для тестирования можно временно уменьшить это значение
-            # (например, до 1 часа: 1 * 60 * 60)
-            older_than_seconds = 24 * 60 * 60
-            cutoff_time = now - older_than_seconds
-
-            count = 0
-            deleted_files_log = []
-
-            for file_path_obj in DOWNLOADS_DIR.glob("*"):
-                try:
-                    if (
-                        not file_path_obj.is_file()
-                    ):  # Пропускаем поддиректории, если таковые имеются
-                        continue
-
-                    file_modification_time = (
-                        file_path_obj.stat().st_mtime
-                    )  # Используем st_mtime как более надежный показатель "старости"
-
-                    if file_modification_time < cutoff_time:
-                        file_path_obj.unlink(
-                            missing_ok=True
-                        )  # missing_ok=True на случай, если файл уже удален
-                        count += 1
-                        deleted_files_log.append(str(file_path_obj.name))
-                        logger.debug(f"Удален старый файл: {file_path_obj}")
-                except OSError as e:  # Ловим OSError для проблем с доступом/удалением
-                    logger.error(f"Ошибка при попытке удалить старый файл {file_path_obj}: {e}")
-                except (
-                    Exception
-                ) as e_inner:  # Ловим другие возможные ошибки при обработке одного файла
-                    logger.error(
-                        (
-                            f"Неожиданная ошибка при обработке файла {file_path_obj} "
-                            f"для очистки: {e_inner}"
-                        )
-                    )
-
-            if count > 0:
-                logger.info(
-                    (
-                        f"Очистка старых файлов завершена: удалено {count} файл(ов). "
-                        f"Список: {', '.join(deleted_files_log) if deleted_files_log else 'нет'}"
-                    )
-                )
-            else:
-                logger.info("Очистка старых файлов: не найдено файлов для удаления.")
-        except Exception as e:  # Общая ошибка для всей операции очистки
-            logger.error(f"Ошибка в процессе очистки старых файлов: {e}", exc_info=True)

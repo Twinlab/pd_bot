@@ -770,7 +770,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
         activity_tracker.current_activities[user_id] = (game_name, old_time)
         
         # Настраиваем конфиг бота
-        mock_bot.config = {"ACTIVITY_MAX_RECORD_THRESHOLD_SECONDS": 172800}  # 2 дня
+        mock_bot.settings.timeouts.activity_max_record = 172800  # 2 дня
         
         # Вызываем метод update_current_activities
         await activity_tracker.update_current_activities()
@@ -791,7 +791,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
         activity_tracker.current_activities[user_id] = (game_name, recent_time)
         
         # Настраиваем конфиг бота
-        mock_bot.config = {"ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS": 10}  # 10 секунд
+        mock_bot.settings.timeouts.activity_min_record = 10  # 10 секунд
         
         # Патчим data_manager.update_activity
         with patch.object(activity_tracker.data_manager, 'update_activity') as mock_update:
@@ -1596,7 +1596,7 @@ class TestOnPresenceUpdateComplexScenarios:
         activity_tracker.current_activities[user_id] = (game_name, start_time)
         
         # Настраиваем конфиг бота
-        mock_bot.config = {"ACTIVITY_MIN_RECORD_THRESHOLD_SECONDS": 10}  # 10 секунд
+        mock_bot.settings.timeouts.activity_min_record = 10  # 10 секунд
         
         # Создаем моки для before и after
         before = MagicMock(spec=discord.Member)

@@ -2,130 +2,80 @@
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yt_dlp
 
 from config import get_settings
 
-from .config import DOWNLOADS_DIR, PROXY_URL, YDL_OPTS_BASE
+from .config import PROXY_URL
 
 # Создаем логгер с иерархическим именем
 logger = logging.getLogger("bot.utils.music.yt_integration")
 
 
-async def download_track(url: str) -> Optional[Dict[str, Any]]:
+async def get_stream_info(url: str) -> Optional[Dict[str, Any]]:
     """
-    Скачивает трек с помощью yt-dlp и возвращает информацию о нем.
+    Получает информацию о треке и URL аудиопотока с помощью yt-dlp без скачивания.
 
     Args:
-        url: URL-адрес трека для скачивания.
+        url: URL-адрес трека.
 
     Returns:
-        Словарь с информацией о треке (включая 'filepath' к скачанному файлу)
+        Словарь с информацией о треке (включая 'url' для потока)
         в случае успеха, иначе None.
 
     Raises:
-        yt_dlp.utils.DownloadError: Если происходит ошибка непосредственно при скачивании yt-dlp.
-                                   Другие ошибки логируются и возвращается None.
+        yt_dlp.utils.DownloadError: Если происходит ошибка непосредственно при получении информации.
     """
-    ydl_opts = YDL_OPTS_BASE.copy()
-    if "youtube.com" in url or "youtu.be" in url:
-        logger.info("Обнаружена ссылка YouTube, применяем оптимизированные настройки")
-        ydl_opts.update(
-            {
-                "format": "bestaudio[ext=webm]/bestaudio/best",
-                "youtube_include_dash_manifest": False,
-            }
-        )
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "default_search": "auto",
+        "source_address": "0.0.0.0",  # Обязательно для IPv4
+        "proxy": PROXY_URL,
+        "youtube_include_dash_manifest": False,
+    }
+
     start_time = asyncio.get_event_loop().time()
     try:
         ytdl = yt_dlp.YoutubeDL(ydl_opts)
         info = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: ytdl.extract_info(url, download=True)
+            None, lambda: ytdl.extract_info(url, download=False)
         )
-        download_time = asyncio.get_event_loop().time() - start_time
-        logger.info(f"Скачивание завершено за {download_time:.2f} секунд")
+        extract_time = asyncio.get_event_loop().time() - start_time
+        logger.info(f"Информация о потоке получена за {extract_time:.2f} секунд")
+
         if not info:
             logger.warning(f"yt-dlp вернул пустую информацию для {url}")
             return None
+
+        # Если это плейлист, берем первый элемент
         if "entries" in info:
             if not info["entries"]:
                 logger.warning(f"yt-dlp вернул пустой список 'entries' для {url}")
                 return None
             info = info["entries"][0]
-            if not info:
-                logger.warning(f"yt-dlp вернул None в 'entries' для {url}")
-                return None
-        try:
-            expected_base = ytdl.prepare_filename(info).rsplit(".", 1)[0]
-        except Exception:
-            extractor = info.get("extractor_key", "unknown").lower()
-            track_id = info.get("id", "unknown_id")
-            title = info.get("title", "unknown_title")
-            safe_title = "".join(c if c.isalnum() or c in (" ", "_", "-") else "_" for c in title)[
-                :100
-            ]
-            expected_base = str(DOWNLOADS_DIR / f"{extractor}-{track_id}-{safe_title}")
 
-        # Безопасное получение предпочтительного расширения
-        preferred_ext = ".mp3"  # Расширение по умолчанию
-        postprocessors = ydl_opts.get("postprocessors")
-        if postprocessors and len(postprocessors) > 0:
-            first_processor = postprocessors[0]  # type: ignore
-            if isinstance(first_processor, dict):
-                preferred_ext = "." + first_processor.get("preferredcodec", "mp3")
+        # Проверяем, есть ли URL для потока
+        if not info.get("url"):
+            logger.error(f"Не удалось извлечь URL потока для {info.get('webpage_url')}")
+            return None
 
-        filepath_obj = Path(expected_base + preferred_ext)
-        if not filepath_obj.exists():
-            logger.warning(
-                f"Файл {filepath_obj} не найден. Ищем с помощью glob: {Path(expected_base).name}.*"
-            )
-            # DOWNLOADS_DIR это Path объект из config
-            # expected_base может быть полным путем, извлекаем только имя файла для glob
-            search_pattern = f"{Path(expected_base).name}.*"
-            found_files = list(DOWNLOADS_DIR.glob(search_pattern))
-
-            if found_files:
-                # Преобразуем Path объекты в строки для endswith и для filepath
-                audio_files = [
-                    str(f)
-                    for f in found_files
-                    if str(f)
-                    .lower()
-                    .endswith((".opus", ".mp3", ".ogg", ".m4a", ".aac", ".wav", ".flac"))
-                ]
-                if audio_files:
-                    filepath_obj = Path(audio_files[0])
-                    logger.info(f"Найден аудио файл через glob: {filepath_obj}")
-                else:
-                    filepath_obj = Path(
-                        str(found_files[0])
-                    )  # Берем первый найденный, если аудио нет
-                    logger.warning(
-                        (
-                            "Не удалось найти аудио расширение, "
-                            f"используем первое совпадение: {filepath_obj}"
-                        )
-                    )
-            else:
-                logger.error(
-                    (
-                        f"Не удалось найти скачанный файл по шаблону: {search_pattern} "
-                        f"в {DOWNLOADS_DIR}"
-                    )
-                )
-                return None
-
-        info["filepath"] = str(filepath_obj)  # Сохраняем как строку, если так ожидается дальше
+        # Добавляем оригинальный URL для справки
+        info["original_url"] = url
         result: Dict[str, Any] = info
         return result
+
     except yt_dlp.utils.DownloadError as e:
-        logger.warning(f"yt-dlp DownloadError при скачивании: {e}")
+        logger.warning(f"yt-dlp DownloadError при получении информации о потоке: {e}")
         raise
     except Exception as e:
-        logger.error(f"Неожиданная ошибка при скачивании трека ({url}): {e}", exc_info=True)
+        logger.error(
+            f"Неожиданная ошибка при получении информации о потоке ({url}): {e}", exc_info=True
+        )
         return None
 
 

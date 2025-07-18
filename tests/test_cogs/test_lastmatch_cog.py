@@ -10,10 +10,10 @@ from cogs.lastmatch import LastMatchCog
 
 
 @pytest.fixture
-def mock_bot():
+def mock_bot(mock_settings):
     """Создает мок бота Discord."""
     bot = MagicMock(spec=commands.Bot)
-    bot.config = {"STRATZ_API_KEY": "fake_api_key"}
+    bot.settings = mock_settings
     return bot
 
 

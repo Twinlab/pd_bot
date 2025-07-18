@@ -158,9 +158,7 @@ class RoleReactionCog(commands.Cog):
         Это сообщение будет обновляться при добавлении новых ролей.
         """
         # Получаем ID канала из конфига или используем текущий
-        default_channel_id_str = str(
-            self.bot.config.get("ROLE_REACTION_DEFAULT_CHANNEL_ID", ctx.channel.id)
-        )
+        default_channel_id_str = str(self.bot.settings.channels.role_reactions_default)
         target_channel = ctx.channel  # По умолчанию текущий
 
         try:
