@@ -30,7 +30,8 @@ class MusicV2Cog(commands.Cog, name="MusicV2"):  # type: ignore
     def _get_player(self, guild: discord.Guild) -> MusicPlayer:
         """Получает или создает экземпляр плеера для сервера."""
         if not self.player:
-            self.player = MusicPlayer(self.bot, guild)
+            proxy_url = self.bot.settings.proxy_url
+            self.player = MusicPlayer(self.bot, guild, proxy=proxy_url)
         return self.player
 
     async def cog_app_command_error(
@@ -83,7 +84,7 @@ class MusicV2Cog(commands.Cog, name="MusicV2"):  # type: ignore
             )
             return
 
-        track_info = await get_track_info(url, self.bot.loop)
+        track_info = await get_track_info(url, self.bot.loop, proxy=player.proxy)
         track = Track(track_info, interaction.user)
 
         await player.play(track)

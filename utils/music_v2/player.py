@@ -20,15 +20,17 @@ FFMPEG_OPTIONS = {
 class MusicPlayer:
     """Управляет воспроизведением музыки для одного сервера."""
 
-    def __init__(self, bot: discord.Client, guild: discord.Guild) -> None:
+    def __init__(self, bot: discord.Client, guild: discord.Guild, proxy: str | None = None) -> None:
         """Инициализирует музыкальный плеер.
 
         Args:
             bot: Экземпляр бота.
             guild: Сервер, к которому привязан плеер.
+            proxy: URL прокси-сервера для использования.
         """
         self.bot = bot
         self.guild = guild
+        self.proxy = proxy
         self.voice_client: discord.VoiceClient | None = None
         self.current_track: Track | None = None
         self.play_next_task: asyncio.Task | None = None
@@ -103,7 +105,7 @@ class MusicPlayer:
 
     async def _get_stream_url(self, url: str) -> dict:
         """Получает URL аудиопотока с помощью yt-dlp."""
-        YDL_OPTS = {
+        ydl_opts = {
             "format": "bestaudio/best",
             "noplaylist": True,
             "quiet": True,
@@ -111,7 +113,10 @@ class MusicPlayer:
             "default_search": "auto",
             "source_address": "0.0.0.0",
         }
-        ytdl = yt_dlp.YoutubeDL(YDL_OPTS)
+        if self.proxy:
+            ydl_opts["proxy"] = self.proxy
+
+        ytdl = yt_dlp.YoutubeDL(ydl_opts)
         return await self.loop.run_in_executor(None, lambda: ytdl.extract_info(url, download=False))
 
     def _after_playback(self, error: Exception | None) -> None:

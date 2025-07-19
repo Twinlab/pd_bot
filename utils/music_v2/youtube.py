@@ -20,7 +20,9 @@ YDL_OPTS_BASE = {
 }
 
 
-async def get_track_info(url: str, loop: asyncio.AbstractEventLoop) -> dict[str, Any]:
+async def get_track_info(
+    url: str, loop: asyncio.AbstractEventLoop, proxy: str | None = None
+) -> dict[str, Any]:
     """Получает информацию о треке с помощью yt-dlp, не скачивая его.
 
     Использует 'extract_flat' для быстрого получения метаданных.
@@ -28,6 +30,7 @@ async def get_track_info(url: str, loop: asyncio.AbstractEventLoop) -> dict[str,
     Args:
         url: URL-адрес трека.
         loop: Цикл событий asyncio для запуска в executor.
+        proxy: URL прокси-сервера для использования.
 
     Returns:
         Словарь с информацией о треке.
@@ -37,6 +40,8 @@ async def get_track_info(url: str, loop: asyncio.AbstractEventLoop) -> dict[str,
     """
     opts = YDL_OPTS_BASE.copy()
     opts["extract_flat"] = "in_playlist"  # Получаем только метаданные
+    if proxy:
+        opts["proxy"] = proxy
 
     try:
         ytdl = yt_dlp.YoutubeDL(opts)
