@@ -592,6 +592,6 @@ class TestAnimeApiRandomization:
                 assert len(pid_values) > 1, f"Получены одинаковые pid: {pid_values}"
                 
                 # Проверяем что все значения в допустимом диапазоне
-                # random.randint(0, 999) может генерировать значения от 0 до 999 включительно
+                # random.randint(0, 30) может генерировать значения от 0 до 30 включительно
                 for pid in pid_values:
-                    assert 0 <= pid <= 999, f"pid {pid} вне диапазона 0-999"
+                    assert 0 <= pid <= 30, f"pid {pid} вне диапазона 0-30"
