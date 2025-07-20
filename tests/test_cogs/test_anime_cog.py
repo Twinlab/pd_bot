@@ -20,6 +20,7 @@ def create_mock_settings(channel_id=123456789):
     mock_settings.anime.rating = "safe"
     mock_settings.anime.safebooru_limit = 100
     mock_settings.anime.cache_size = 10
+    mock_settings.anime.min_tag_selection = 1
     mock_settings.anime.schedule.morning_hour = 10
     mock_settings.anime.schedule.morning_minute = 0
     mock_settings.anime.schedule.evening_hour = 18
@@ -499,3 +500,96 @@ class TestSetupFunction:
             # Проверяем, что передан экземпляр AnimeCog
             args = mock_bot.add_cog.call_args[0]
             assert isinstance(args[0], AnimeCog)
+
+
+class TestAnimeApiRandomization:
+    """Тесты для проверки рандомизации API запросов."""
+
+    @pytest.mark.asyncio
+    async def test_api_request_includes_pid_parameter(self, mock_bot):
+        """Тест что API запрос включает параметр pid для рандомизации."""
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем aiohttp.ClientSession
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.json = AsyncMock(return_value=[
+                {"id": 12345, "file_url": "https://example.com/test.jpg"}
+            ])
+            
+            mock_session = MagicMock()
+            mock_session.get = MagicMock()
+            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_session.get.return_value.__aexit__ = AsyncMock(return_value=None)
+            
+            with patch('aiohttp.ClientSession') as mock_client_session:
+                mock_client_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_client_session.return_value.__aexit__ = AsyncMock(return_value=None)
+                
+                # Вызываем метод
+                result = await anime_cog.get_anime_image()
+                
+                # Проверяем что запрос был сделан
+                mock_session.get.assert_called()
+                
+                # Получаем параметры запроса
+                call_args = mock_session.get.call_args
+                params = call_args[1]['params']  # kwargs['params']
+                
+                # Проверяем что параметр pid присутствует
+                assert 'pid' in params
+                assert params['pid'].isdigit()  # pid должен быть числом в виде строки
+                
+                # Проверяем что результат корректный
+                assert result is not None
+                assert result[0] == "https://example.com/test.jpg"
+                assert result[1] == 12345
+
+    @pytest.mark.asyncio
+    async def test_pid_parameter_is_random(self, mock_bot):
+        """Тест что параметр pid действительно случайный."""
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем aiohttp.ClientSession
+            mock_response = MagicMock()
+            mock_response.status = 200
+            mock_response.json = AsyncMock(return_value=[
+                {"id": 12345, "file_url": "https://example.com/test.jpg"}
+            ])
+            
+            mock_session = MagicMock()
+            mock_session.get = MagicMock()
+            mock_session.get.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+            mock_session.get.return_value.__aexit__ = AsyncMock(return_value=None)
+            
+            pid_values = set()
+            
+            with patch('aiohttp.ClientSession') as mock_client_session:
+                mock_client_session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_client_session.return_value.__aexit__ = AsyncMock(return_value=None)
+                
+                # Делаем несколько запросов
+                for _ in range(10):
+                    await anime_cog.get_anime_image()
+                    
+                    # Получаем последний вызов
+                    call_args = mock_session.get.call_args
+                    params = call_args[1]['params']
+                    pid_values.add(int(params['pid']))
+                
+                # Проверяем что получили разные значения pid
+                # (с вероятностью 99.9% получим хотя бы 2 разных значения из 1000 возможных)
+                assert len(pid_values) > 1, f"Получены одинаковые pid: {pid_values}"
+                
+                # Проверяем что все значения в допустимом диапазоне
+                # random.randint(0, 3999) может генерировать значения от 0 до 3999 включительно
+                for pid in pid_values:
+                    assert 0 <= pid <= 3999, f"pid {pid} вне диапазона 0-3999"

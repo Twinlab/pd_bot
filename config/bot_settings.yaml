@@ -52,6 +52,8 @@ anime:
 
   tags:
     - "1girl"
+    - "2girls"
+    - "genshin_impact"
 
   excluded_tags:
     - "tail"
@@ -73,6 +75,8 @@ anime:
     - "title"
     - "speech_bubble"
     - "child"
+    - "english_commentary"
+    - "white_background"
 
   schedule:
     morning_hour: 10

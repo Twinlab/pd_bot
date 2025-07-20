@@ -108,32 +108,19 @@ class AnimeCog(commands.Cog):
 
     async def _try_get_image_with_tags(self, settings: Any) -> Optional[Tuple[str, int]]:
         """Пробует получить изображение с выбранными тегами."""
-        # Выбираем случайные теги из настроек
-        # (не больше max_tags_per_request - 1, т.к. добавим 1girl)
-        available_tags = [
-            tag for tag in settings.anime.tags if tag != "1girl"
-        ]  # Исключаем 1girl из выбора
-        max_tags = min(
-            settings.anime.max_tags_per_request - 1, len(available_tags)
-        )  # -1 для обязательного 1girl
+        available_tags = settings.anime.tags
 
-        if max_tags > 0 and available_tags:
-            selected_tags = random.sample(
-                available_tags, random.randint(settings.anime.min_tag_selection, max_tags)
-            )
+        if available_tags:
+            selected_tag = random.choice(available_tags)
+            selected_tags = [selected_tag]
         else:
-            selected_tags = []
+            selected_tags = ["1girl"]
 
-        # Добавляем обязательный тег "1girl"
-        all_selected_tags = ["1girl"] + selected_tags
-
-        # Добавляем исключенные теги с префиксом "-"
         excluded_tags = [f"-{tag}" for tag in settings.anime.excluded_tags]
 
-        # Объединяем все теги
-        all_tags = all_selected_tags + excluded_tags + [f"rating:{settings.anime.rating}"]
+        all_tags = selected_tags + excluded_tags + [f"rating:{settings.anime.rating}"]
 
-        return await self._make_api_request(all_tags, all_selected_tags, settings)
+        return await self._make_api_request(all_tags, selected_tags, settings)
 
     async def _try_get_image_fallback(self, settings: Any) -> Optional[Tuple[str, int]]:
         """Fallback запрос только с тегом '1girl' и исключениями."""
@@ -148,19 +135,19 @@ class AnimeCog(commands.Cog):
         self, all_tags: list[str], selected_tags: list[str], settings: Any
     ) -> Optional[Tuple[str, int]]:
         """Выполняет запрос к API safebooru.org и возвращает URL и ID поста."""
+        random_page = random.randint(0, 3999)
+
         # Формируем параметры запроса для safebooru API
         params = {
             "page": "dapi",
             "s": "post",
             "q": "index",
             "json": "1",
-            "limit": str(
-                settings.anime.safebooru_limit
-            ),  # Получаем больше результатов для лучшей случайности
+            "limit": str(settings.anime.safebooru_limit),
             "tags": " ".join(all_tags),
+            "pid": str(random_page),
         }
 
-        # URL API safebooru.org
         api_url = "https://safebooru.org/index.php"
 
         async with aiohttp.ClientSession() as session:
