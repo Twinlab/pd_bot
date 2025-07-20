@@ -135,7 +135,8 @@ class AnimeCog(commands.Cog):
         self, all_tags: list[str], selected_tags: list[str], settings: Any
     ) -> Optional[Tuple[str, int]]:
         """Выполняет запрос к API safebooru.org и возвращает URL и ID поста."""
-        random_page = random.randint(0, 3999)
+        # Уменьшаем диапазон страниц для более стабильной работы
+        random_page = random.randint(0, 999)
 
         # Формируем параметры запроса для safebooru API
         params = {
@@ -155,13 +156,32 @@ class AnimeCog(commands.Cog):
                 # Выполняем запрос к API
                 async with session.get(api_url, params=params) as response:
                     if response.status == 200:
-                        data = await response.json()
+                        # Проверяем content-type перед парсингом JSON
+                        content_type = response.headers.get("content-type", "")
+                        if "application/json" not in content_type:
+                            logger.warning(f"API вернул неожиданный content-type: {content_type}")
+                            return None
 
-                        # Проверяем, что получили результаты
+                        try:
+                            data = await response.json()
+                        except Exception as json_error:
+                            logger.error(f"Ошибка парсинга JSON: {json_error}")
+                            # Попробуем получить текст ответа для отладки
+                            text_response = await response.text()
+                            logger.debug(f"Ответ сервера: {text_response[:200]}...")
+                            return None
+
+                        # Проверяем, что получили список
+                        if not isinstance(data, list):
+                            logger.warning(f"API вернул не список: {type(data)}")
+                            return None
+
                         # Фильтруем посты, у которых нет ID
-                        valid_posts = [p for p in data if "id" in p]
+                        valid_posts = [p for p in data if isinstance(p, dict) and "id" in p]
                         if not valid_posts:
-                            logger.warning(f"Нет валидных постов для тегов: {selected_tags}")
+                            logger.warning(
+                                f"Нет постов для тегов: {selected_tags}, стр. {random_page}"
+                            )
                             return None
 
                         # Выбираем случайный пост
@@ -182,7 +202,7 @@ class AnimeCog(commands.Cog):
                         if file_url:
                             logger.info(
                                 f"Найдено изображение (ID: {post_id}) с тегами: {selected_tags}, "
-                                f"исключены: {settings.anime.excluded_tags}"
+                                f"страница: {random_page}"
                             )
                             return str(file_url), int(post_id)
                         else:

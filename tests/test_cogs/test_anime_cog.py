@@ -517,6 +517,7 @@ class TestAnimeApiRandomization:
             # Мокируем aiohttp.ClientSession
             mock_response = MagicMock()
             mock_response.status = 200
+            mock_response.headers = {"content-type": "application/json"}
             mock_response.json = AsyncMock(return_value=[
                 {"id": 12345, "file_url": "https://example.com/test.jpg"}
             ])
@@ -561,6 +562,7 @@ class TestAnimeApiRandomization:
             # Мокируем aiohttp.ClientSession
             mock_response = MagicMock()
             mock_response.status = 200
+            mock_response.headers = {"content-type": "application/json"}
             mock_response.json = AsyncMock(return_value=[
                 {"id": 12345, "file_url": "https://example.com/test.jpg"}
             ])
@@ -590,6 +592,6 @@ class TestAnimeApiRandomization:
                 assert len(pid_values) > 1, f"Получены одинаковые pid: {pid_values}"
                 
                 # Проверяем что все значения в допустимом диапазоне
-                # random.randint(0, 3999) может генерировать значения от 0 до 3999 включительно
+                # random.randint(0, 999) может генерировать значения от 0 до 999 включительно
                 for pid in pid_values:
-                    assert 0 <= pid <= 3999, f"pid {pid} вне диапазона 0-3999"
+                    assert 0 <= pid <= 999, f"pid {pid} вне диапазона 0-999"
