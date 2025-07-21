@@ -595,3 +595,135 @@ class TestAnimeApiRandomization:
                 # random.randint(0, 30) может генерировать значения от 0 до 30 включительно
                 for pid in pid_values:
                     assert 0 <= pid <= 30, f"pid {pid} вне диапазона 0-30"
+
+
+class TestAnimeCacheDatabase:
+    """Тесты для интеграции кеша аниме с базой данных."""
+
+    @pytest.mark.asyncio
+    async def test_load_cache_from_db_on_first_use(self, mock_bot):
+        """Тест загрузки кеша из БД при первом использовании."""
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем функции БД
+            with patch('cogs.anime.load_anime_cache', AsyncMock(return_value=[111, 222, 333])) as mock_load, \
+                 patch.object(anime_cog, '_try_get_image_with_tags', AsyncMock(return_value=("https://example.com/test.jpg", 444))):
+                
+                # Первый вызов должен загрузить кеш из БД
+                result = await anime_cog.get_anime_image()
+                
+                # Проверяем что load_anime_cache был вызван
+                mock_load.assert_called_once()
+                
+                # Проверяем что кеш загружен
+                assert anime_cog._cache_loaded is True
+                assert list(anime_cog.post_cache) == [111, 222, 333]
+                
+                # Проверяем что метод вернул результат
+                assert result == ("https://example.com/test.jpg", 444)
+
+    @pytest.mark.asyncio
+    async def test_cache_not_loaded_twice(self, mock_bot):
+        """Тест что кеш не загружается повторно."""
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем функции БД
+            with patch('cogs.anime.load_anime_cache', AsyncMock(return_value=[111, 222])) as mock_load, \
+                 patch.object(anime_cog, '_try_get_image_with_tags', AsyncMock(return_value=("https://example.com/test.jpg", 333))):
+                
+                # Первый вызов
+                await anime_cog.get_anime_image()
+                # Второй вызов
+                await anime_cog.get_anime_image()
+                
+                # Проверяем что load_anime_cache был вызван только один раз
+                mock_load.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_save_cache_item_on_post(self, mock_bot, mock_text_channel):
+        """Тест сохранения элемента кеша в БД при публикации."""
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            
+            mock_bot.get_channel = MagicMock(return_value=mock_text_channel)
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем функции БД и методы
+            with patch('cogs.anime.save_anime_cache_item', AsyncMock()) as mock_save, \
+                 patch.object(anime_cog, '_check_channel_exists', AsyncMock(return_value=True)), \
+                 patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value=("https://example.com/test.jpg", 555))):
+                
+                # Публикуем изображение
+                result = await anime_cog.post_anime_image()
+                
+                # Проверяем что изображение опубликовано
+                assert result is True
+                mock_text_channel.send.assert_called_once_with("https://example.com/test.jpg")
+                
+                # Проверяем что save_anime_cache_item был вызван
+                mock_save.assert_called_once_with(555)
+                
+                # Проверяем что ID добавлен в кеш в памяти
+                assert 555 in anime_cog.post_cache
+
+    @pytest.mark.asyncio
+    async def test_save_cache_item_error_handling(self, mock_bot, mock_text_channel):
+        """Тест обработки ошибки при сохранении в БД."""
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            
+            mock_bot.get_channel = MagicMock(return_value=mock_text_channel)
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем функции БД и методы
+            with patch('cogs.anime.save_anime_cache_item', AsyncMock(side_effect=Exception("DB Error"))) as mock_save, \
+                 patch.object(anime_cog, '_check_channel_exists', AsyncMock(return_value=True)), \
+                 patch.object(anime_cog, 'get_anime_image', AsyncMock(return_value=("https://example.com/test.jpg", 666))):
+                
+                # Публикуем изображение (должно работать несмотря на ошибку БД)
+                result = await anime_cog.post_anime_image()
+                
+                # Проверяем что изображение все равно опубликовано
+                assert result is True
+                mock_text_channel.send.assert_called_once_with("https://example.com/test.jpg")
+                
+                # Проверяем что save_anime_cache_item был вызван
+                mock_save.assert_called_once_with(666)
+                
+                # Проверяем что ID все равно добавлен в кеш в памяти
+                assert 666 in anime_cog.post_cache
+
+    @pytest.mark.asyncio
+    async def test_load_cache_error_handling(self, mock_bot):
+        """Тест обработки ошибки при загрузке кеша из БД."""
+        with patch('cogs.anime.get_settings', return_value=create_mock_settings()), \
+             patch('discord.ext.tasks.loop', return_value=MagicMock()), \
+             patch('asyncio.create_task', return_value=MagicMock()):
+            
+            anime_cog = AnimeCog(mock_bot)
+            
+            # Мокируем функции БД с ошибкой
+            with patch('cogs.anime.load_anime_cache', AsyncMock(side_effect=Exception("DB Error"))) as mock_load, \
+                 patch.object(anime_cog, '_try_get_image_with_tags', AsyncMock(return_value=("https://example.com/test.jpg", 777))):
+                
+                # Вызываем метод (должен работать несмотря на ошибку БД)
+                result = await anime_cog.get_anime_image()
+                
+                # Проверяем что load_anime_cache был вызван
+                mock_load.assert_called_once()
+                
+                # Проверяем что кеш помечен как загруженный (чтобы не пытаться снова)
+                assert anime_cog._cache_loaded is True
+                
+                # Проверяем что метод все равно работает
+                assert result == ("https://example.com/test.jpg", 777)

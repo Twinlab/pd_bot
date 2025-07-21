@@ -385,20 +385,29 @@ async def test_play_next(music_player, mock_voice_client, mock_track) -> None:
     # Мокаем _update_now_playing_message
     music_player._update_now_playing_message = AsyncMock()
 
-    # Мокаем discord.FFmpegPCMAudio
-    with patch("discord.FFmpegPCMAudio") as mock_ffmpeg:
+    # Мокаем subprocess.Popen для yt-dlp и ffmpeg
+    with patch("subprocess.Popen") as mock_popen, \
+         patch("discord.PCMAudio") as mock_pcm_audio:
+        
+        # Настраиваем моки для subprocess.Popen
+        mock_yt_process = MagicMock()
+        mock_yt_process.stdout = MagicMock()
+        
+        mock_ffmpeg_process = MagicMock()
+        mock_ffmpeg_process.stdout = MagicMock()
+        
+        # Возвращаем разные процессы для разных вызовов
+        mock_popen.side_effect = [mock_yt_process, mock_ffmpeg_process]
+        
         mock_source = MagicMock()
-        mock_ffmpeg.return_value = mock_source
+        mock_pcm_audio.return_value = mock_source
 
         # Вызываем play_next
         await music_player.play_next()
 
         # Проверяем вызовы
-        mock_ffmpeg.assert_called_once_with(
-            mock_track.stream_url,
-            options=FFMPEG_OPTIONS.get("options", ""),
-            before_options=FFMPEG_OPTIONS.get("before_options", ""),
-        )
+        assert mock_popen.call_count == 2  # yt-dlp и ffmpeg
+        mock_pcm_audio.assert_called_once_with(mock_ffmpeg_process.stdout)
         mock_voice_client.play.assert_called_once()
         music_player._update_now_playing_message.assert_awaited_once()
         assert music_player.is_playing is True

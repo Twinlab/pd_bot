@@ -83,6 +83,35 @@ sequenceDiagram
     ActivityDataManager->>Discord: Отправить отчет
 ```
 
+## Поток данных в аниме-модуле
+
+```mermaid
+sequenceDiagram
+    participant Scheduler
+    participant AnimeCog
+    participant SafebooruAPI
+    participant Database
+    participant Discord
+
+    Note over Scheduler: Утренняя/вечерняя публикация
+    Scheduler->>AnimeCog: morning_post() / evening_post()
+    AnimeCog->>AnimeCog: _load_cache_from_db()
+    AnimeCog->>Database: load_anime_cache(cache_size)
+    Database-->>AnimeCog: Список ID постов
+
+    AnimeCog->>SafebooruAPI: get_anime_image()
+    SafebooruAPI-->>AnimeCog: URL изображения + post_id
+
+    AnimeCog->>AnimeCog: Проверка post_id в кеше
+    alt ID не в кеше
+        AnimeCog->>Discord: Отправить изображение
+        AnimeCog->>Database: save_anime_cache_item(post_id)
+        AnimeCog->>AnimeCog: Добавить в кеш памяти
+    else ID в кеше
+        AnimeCog->>SafebooruAPI: Повторный запрос
+    end
+```
+
 ## Поток данных в модуле Dota 2
 
 ```mermaid
@@ -145,6 +174,11 @@ erDiagram
         bool is_live
         string last_stream_id
         int last_notification_time
+    }
+
+    anime_cache {
+        int post_id PK
+        int added_at
     }
 
     links ||--o{ daily_activity : "tracks"

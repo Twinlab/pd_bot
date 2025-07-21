@@ -137,6 +137,24 @@ async def initialize_database() -> None:
             )
             logger.info("Таблица 'twitch_streamers' и индекс проверены/созданы.")
 
+            # Таблица для кеша аниме-изображений
+            await db.execute(
+                """
+                CREATE TABLE IF NOT EXISTS anime_cache (
+                    post_id INTEGER PRIMARY KEY,
+                    added_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                )
+            """
+            )
+            # Индекс для быстрого поиска по времени добавления
+            await db.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_anime_cache_added_at
+                ON anime_cache (added_at);
+            """
+            )
+            logger.info("Таблица 'anime_cache' и индекс проверены/созданы.")
+
             await db.commit()
             logger.info(f"База данных инициализирована: {DB_PATH}")
 
@@ -190,3 +208,47 @@ async def execute_update(query: str, params: tuple | None = None) -> int:
     except Exception as e:
         logger.error(f"Ошибка при выполнении обновления: {e}", exc_info=True)
         raise
+
+
+async def load_anime_cache() -> list[int]:
+    """Загружает кеш аниме-изображений из БД.
+
+    Returns:
+        Список ID постов, отсортированный по времени добавления.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute("SELECT post_id FROM anime_cache ORDER BY added_at ASC")
+            result = await cursor.fetchall()
+            post_ids = [row[0] for row in result]
+            logger.info(f"Загружено {len(post_ids)} записей из кеша аниме")
+            return post_ids
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке кеша аниме: {e}", exc_info=True)
+        return []
+
+
+async def save_anime_cache_item(post_id: int) -> None:
+    """Сохраняет новый элемент в кеш аниме.
+
+    Args:
+        post_id: ID поста для добавления в кеш.
+    """
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("INSERT OR IGNORE INTO anime_cache (post_id) VALUES (?)", (post_id,))
+            await db.commit()
+            logger.debug(f"Добавлен пост {post_id} в кеш аниме")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении в кеш аниме: {e}", exc_info=True)
+
+
+async def clear_anime_cache() -> None:
+    """Очищает весь кеш аниме-изображений."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("DELETE FROM anime_cache")
+            await db.commit()
+            logger.info("Кеш аниме очищен")
+    except Exception as e:
+        logger.error(f"Ошибка при очистке кеша аниме: {e}", exc_info=True)

@@ -4,6 +4,13 @@
 аниме-изображений в заданный канал Discord по расписанию (утром и вечером),
 а также команду для ручной публикации изображений администраторами.
 Изображения получаются с сайта safebooru.org через их API.
+
+Кеширование:
+- Модуль ведет кеш опубликованных изображений для предотвращения повторов
+- Кеш хранится как в памяти (deque), так и в базе данных (таблица anime_cache)
+- При запуске бота кеш автоматически загружается из БД
+- Новые изображения автоматически добавляются в кеш и сохраняются в БД
+- Размер кеша в памяти ограничен настройкой cache_size в конфигурации
 """
 
 import logging
@@ -16,6 +23,7 @@ import aiohttp
 from discord.ext import commands, tasks
 
 from config import get_settings
+from utils.database import load_anime_cache, save_anime_cache_item
 from utils.error_handler import command_error_handler
 
 logger: logging.Logger = logging.getLogger("bot.cogs.anime")  # Иерархическое имя логгера
@@ -43,6 +51,7 @@ class AnimeCog(commands.Cog):
         self.channel_id: Optional[int] = settings.channels.anime
         self.cache_size: int = settings.anime.cache_size
         self.post_cache: deque[int] = deque(maxlen=self.cache_size)
+        self._cache_loaded: bool = False  # Флаг для отслеживания загрузки кеша
 
         if not self.channel_id:
             logger.error("Канал для публикации аниме не настроен или не найден.")
@@ -64,6 +73,20 @@ class AnimeCog(commands.Cog):
         self.morning_post.start()
         self.evening_post.start()
 
+    async def _load_cache_from_db(self) -> None:
+        """Загружает кеш из базы данных при первом использовании."""
+        if self._cache_loaded:
+            return
+
+        try:
+            cached_ids = await load_anime_cache()
+            self.post_cache.extend(cached_ids)
+            self._cache_loaded = True
+            logger.info(f"Кеш аниме загружен из БД: {len(cached_ids)} элементов")
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке кеша из БД: {e}", exc_info=True)
+            self._cache_loaded = True
+
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога, останавливает фоновые задачи."""
         logger.info("Остановка задач публикации аниме...")
@@ -79,6 +102,9 @@ class AnimeCog(commands.Cog):
         Returns:
             Кортеж (URL, ID) или None в случае ошибки.
         """
+        # Загружаем кеш из БД при первом использовании
+        await self._load_cache_from_db()
+
         settings = get_settings()
         max_retries = 3
         for attempt in range(max_retries):
@@ -245,10 +271,13 @@ class AnimeCog(commands.Cog):
 
             if image_data:
                 image_url, post_id = image_data
-                # Отправляем URL в канал
                 await channel.send(image_url)
-                # Добавляем ID поста в кэш
                 self.post_cache.append(post_id)
+                try:
+                    await save_anime_cache_item(post_id)
+                except Exception as e:
+                    logger.error(f"Ошибка при сохранении поста {post_id} в БД: {e}", exc_info=True)
+
                 logger.info(
                     f"Аниме-изображение (ID: {post_id}) опубликовано в канале {channel.name}. "
                     f"Размер кэша: {len(self.post_cache)}/{self.cache_size}"
