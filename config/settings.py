@@ -204,6 +204,24 @@ class YtDlpConfig(BaseModel):
     geo_bypass_country: str = "RU"
 
 
+class LavalinkConfig(BaseModel):
+    """Конфигурация Lavalink сервера.
+
+    Attributes:
+        host: Хост Lavalink сервера
+        port: Порт Lavalink сервера
+        password: Пароль для подключения к Lavalink
+        identifier: Идентификатор узла
+        region: Регион сервера
+    """
+
+    host: str = "127.0.0.1"
+    port: int = 2333
+    password: str = "youshallnotpass"
+    identifier: str = "MAIN"
+    region: str = "russia"
+
+
 class MusicConfig(BaseModel):
     """Конфигурация музыкального модуля.
 
@@ -212,12 +230,14 @@ class MusicConfig(BaseModel):
         ffmpeg_options: Опции FFmpeg для воспроизведения
         yt_dlp: Настройки yt-dlp
         voice: Настройки голосового подключения
+        lavalink: Настройки Lavalink сервера
     """
 
     downloads_dir: str = "downloads"
     ffmpeg_options: str = "-vn -loglevel info -hide_banner"
     yt_dlp: YtDlpConfig = YtDlpConfig()
     voice: MusicVoiceConfig = MusicVoiceConfig()
+    lavalink: LavalinkConfig = LavalinkConfig()
 
 
 class GiveawayConfig(BaseModel):
