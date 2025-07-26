@@ -39,7 +39,6 @@ class MusicV2Cog(commands.Cog, name="MusicV2"):
                 uri=f"http://{lavalink_config.host}:{lavalink_config.port}",
                 password=lavalink_config.password,
                 identifier=lavalink_config.identifier,
-                region=lavalink_config.region,
             )
 
             await wavelink.Pool.connect(client=self.bot, nodes=[node])
