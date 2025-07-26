@@ -26,7 +26,6 @@ dependencies = [
     "PyYAML>=6.0.1",
     "typing-extensions",
     "ujson",
-    "wavelink>=3.4.1",
     "yt-dlp",
 ]
 
@@ -113,10 +112,6 @@ disable_error_code = ["arg-type", "union-attr", "attr-defined", "override"]
 module = "utils.music.*"
 # Игнорируем ошибки в музыкальных утилитах
 disable_error_code = ["arg-type", "union-attr", "attr-defined", "override"]
-
-[[tool.mypy.overrides]]
-module = "wavelink.*"
-ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

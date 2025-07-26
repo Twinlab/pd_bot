@@ -99,13 +99,6 @@ music:
   voice:
     connection_timeout: 30.0
 
-  lavalink:
-    host: "127.0.0.1"
-    port: 2333
-    password: "youshallnotpass"
-    identifier: "MAIN"
-    region: "russia"
-
 giveaway:
   min_duration: 10
   max_duration: 604800
