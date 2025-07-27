@@ -86,7 +86,7 @@ anime:
 
 music:
   downloads_dir: "downloads"
-  ffmpeg_options: "-vn -loglevel error -hide_banner -b:a 192k -bufsize 1024k -thread_queue_size 1024"
+  ffmpeg_options: "-vn -loglevel warning -hide_banner"
 
   yt_dlp:
     audio_quality: "192"

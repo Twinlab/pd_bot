@@ -337,13 +337,12 @@ class MusicPlayer:
                         "48000",
                         "-ac",
                         "2",
-                        "-loglevel",
-                        "error",
-                        "-vn",
                     ]
                     + FFMPEG_OPTIONS["options"].split()
                     + ["pipe:1"]
                 )
+
+                logger.info(f"FFmpeg команда: {' '.join(ffmpeg_args)}")
 
                 if self.yt_process.stdout is None:
                     raise IOError("Не удалось получить stdout от yt-dlp.")
