@@ -312,11 +312,12 @@ class MusicPlayer:
                     "yt-dlp",
                     self.current_track.url,
                     "-f",
-                    "bestaudio/best",
+                    "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
                     "-o",
                     "-",
                     "--quiet",
                     "--no-warnings",
+                    "--no-check-certificate",
                 ]
                 if PROXY_URL:
                     yt_dlp_args.extend(["--proxy", PROXY_URL])

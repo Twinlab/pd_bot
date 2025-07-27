@@ -86,7 +86,7 @@ anime:
 
 music:
   downloads_dir: "downloads"
-  ffmpeg_options: "-vn -loglevel warning -hide_banner -bufsize 512k -thread_queue_size 512"
+  ffmpeg_options: "-vn -loglevel warning -hide_banner -filter:a volume=0.5"
 
   yt_dlp:
     audio_quality: "192"
