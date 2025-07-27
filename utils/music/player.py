@@ -323,37 +323,27 @@ class MusicPlayer:
 
                 self.yt_process = subprocess.Popen(yt_dlp_args, stdout=subprocess.PIPE)
 
-                ffmpeg_args = [
-                    "ffmpeg",
-                    "-i",
-                    "-",
-                    "-f",
-                    "s16le",
-                    "-ar",
-                    "48000",
-                    "-ac",
-                    "2",
-                    "-b:a",
-                    "192k",
-                    "-bufsize",
-                    "2048k",
-                    "-thread_queue_size",
-                    "4096",
-                    "-fflags",
-                    "+genpts",
-                    "-avoid_negative_ts",
-                    "make_zero",
-                    "-reconnect",
-                    "1",
-                    "-reconnect_streamed",
-                    "1",
-                    "-reconnect_delay_max",
-                    "5",
-                    "-loglevel",
-                    "error",
-                    "-vn",
-                    "pipe:1",
-                ]
+                # Используем настройки FFmpeg из конфигурации
+                from .config import FFMPEG_OPTIONS
+
+                ffmpeg_args = (
+                    [
+                        "ffmpeg",
+                        "-i",
+                        "-",
+                        "-f",
+                        "s16le",
+                        "-ar",
+                        "48000",
+                        "-ac",
+                        "2",
+                        "-loglevel",
+                        "error",
+                        "-vn",
+                    ]
+                    + FFMPEG_OPTIONS["options"].split()
+                    + ["pipe:1"]
+                )
 
                 if self.yt_process.stdout is None:
                     raise IOError("Не удалось получить stdout от yt-dlp.")
