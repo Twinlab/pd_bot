@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import subprocess
 from collections import deque
 from typing import TYPE_CHECKING, Any, Dict, Optional, cast
 
@@ -89,6 +90,8 @@ class MusicPlayer:
         self.player_view: discord.ui.View | None = None
         self._play_next_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
+        self.yt_process: Optional[subprocess.Popen] = None
+        self.ffmpeg_process: Optional[subprocess.Popen] = None
 
     async def connect(self, channel: discord.VoiceChannel) -> bool:
         """Подключает или перемещает бота в указанный голосовой канал.
@@ -305,26 +308,58 @@ class MusicPlayer:
             try:
                 logger.info(f"Запуск воспроизведения для: {self.current_track.title}")
 
-                # Используем discord.FFmpegPCMAudio вместо pipe
                 from .config import FFMPEG_OPTIONS, PROXY_URL
 
-                # Формируем опции FFmpeg для Discord с поддержкой прокси
-                before_options = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+                yt_dlp_args = [
+                    "yt-dlp",
+                    self.current_track.url,
+                    "-f",
+                    "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+                    "-o",
+                    "-",
+                    "--quiet",
+                    "--no-warnings",
+                    "--socket-timeout",
+                    "10",
+                    "--retries",
+                    "3",
+                ]
                 if PROXY_URL:
-                    before_options += f" -http_proxy {PROXY_URL}"
+                    yt_dlp_args.extend(["--proxy", PROXY_URL])
 
-                ffmpeg_options = {
-                    "before_options": before_options,
-                    "options": f'-vn {FFMPEG_OPTIONS["options"]}',
-                }
+                self.yt_process = subprocess.Popen(yt_dlp_args, stdout=subprocess.PIPE)
 
-                logger.info(f"FFmpeg опции: {ffmpeg_options}")
-                logger.info(f"Используем stream_url: {self.current_track.stream_url}")
-
-                source = discord.FFmpegPCMAudio(
-                    self.current_track.stream_url, **ffmpeg_options, executable="ffmpeg"
+                ffmpeg_args = (
+                    [
+                        "ffmpeg",
+                        "-probesize",
+                        "32",
+                        "-analyzeduration",
+                        "0",
+                        "-i",
+                        "-",
+                        "-f",
+                        "s16le",
+                        "-ar",
+                        "48000",
+                        "-ac",
+                        "2",
+                    ]
+                    + FFMPEG_OPTIONS["options"].split()
+                    + ["pipe:1"]
                 )
 
+                if self.yt_process.stdout is None:
+                    raise IOError("Не удалось получить stdout от yt-dlp.")
+
+                self.ffmpeg_process = subprocess.Popen(
+                    ffmpeg_args, stdin=self.yt_process.stdout, stdout=subprocess.PIPE
+                )
+
+                if self.ffmpeg_process.stdout is None:
+                    raise IOError("Не удалось получить stdout от ffmpeg.")
+
+                source = discord.PCMAudio(self.ffmpeg_process.stdout)
                 self.voice_client.play(
                     source, after=lambda e: self.loop.create_task(self._after_playback(e))
                 )
@@ -367,8 +402,21 @@ class MusicPlayer:
         self.is_playing = False
         self.current_track = None
 
-        # FFmpegPCMAudio автоматически управляет процессами
-        # Очистка процессов больше не нужна
+        # Завершаем процессы
+        if self.yt_process:
+            try:
+                self.yt_process.kill()
+                self.yt_process.wait()
+            except Exception as e:
+                logger.warning(f"Не удалось завершить процесс yt-dlp: {e}")
+            self.yt_process = None
+        if self.ffmpeg_process:
+            try:
+                self.ffmpeg_process.kill()
+                self.ffmpeg_process.wait()
+            except Exception as e:
+                logger.warning(f"Не удалось завершить процесс ffmpeg: {e}")
+            self.ffmpeg_process = None
 
         if error:
             logger.error(
