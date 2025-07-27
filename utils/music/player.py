@@ -319,10 +319,9 @@ class MusicPlayer:
                     "-",
                     "--quiet",
                     "--no-warnings",
-                    "--socket-timeout",
-                    "10",
-                    "--retries",
-                    "3",
+                    "--no-check-certificate",
+                    "--buffer-size",
+                    "16K",
                 ]
                 if PROXY_URL:
                     yt_dlp_args.extend(["--proxy", PROXY_URL])
@@ -332,10 +331,8 @@ class MusicPlayer:
                 ffmpeg_args = (
                     [
                         "ffmpeg",
-                        "-probesize",
-                        "32",
-                        "-analyzeduration",
-                        "0",
+                        "-thread_queue_size",
+                        "512",
                         "-i",
                         "-",
                         "-f",
