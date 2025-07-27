@@ -306,18 +306,23 @@ class MusicPlayer:
                 logger.info(f"Запуск воспроизведения для: {self.current_track.title}")
 
                 # Используем discord.FFmpegPCMAudio вместо pipe
-                from .config import FFMPEG_OPTIONS
+                from .config import FFMPEG_OPTIONS, PROXY_URL
 
-                # Формируем опции FFmpeg для Discord
+                # Формируем опции FFmpeg для Discord с поддержкой прокси
+                before_options = "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5"
+                if PROXY_URL:
+                    before_options += f" -http_proxy {PROXY_URL}"
+
                 ffmpeg_options = {
-                    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                    "before_options": before_options,
                     "options": f'-vn {FFMPEG_OPTIONS["options"]}',
                 }
 
                 logger.info(f"FFmpeg опции: {ffmpeg_options}")
+                logger.info(f"Используем stream_url: {self.current_track.stream_url}")
 
                 source = discord.FFmpegPCMAudio(
-                    self.current_track.url, **ffmpeg_options, executable="ffmpeg"
+                    self.current_track.stream_url, **ffmpeg_options, executable="ffmpeg"
                 )
 
                 self.voice_client.play(
