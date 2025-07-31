@@ -13,7 +13,7 @@ graph TD
     F --> F1[admin.py]
     F --> F2[activity.py]
     F --> F3[anime.py]
-    F --> F4[fun.py]
+    F --> F4[fun.py - quote, deathbattle, snipe, etc.]
     F --> F6[lastmatch.py]
     F --> F7[links.py]
     F --> F8[logging_cog.py]
@@ -109,6 +109,55 @@ sequenceDiagram
         AnimeCog->>AnimeCog: Добавить в кеш памяти
     else ID в кеше
         AnimeCog->>SafebooruAPI: Повторный запрос
+    end
+```
+
+## Поток данных в модуле Quote
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant FunCog
+    participant QuotesUtils
+    participant FileSystem
+    participant QuotesSelectView
+    participant Discord
+
+    Note over User: Команда /quote без параметра
+    User->>FunCog: /quote
+    FunCog->>QuotesUtils: scan_quotes_folders()
+    QuotesUtils->>FileSystem: Сканирование assets/quotes/
+    FileSystem-->>QuotesUtils: Список папок с изображениями
+    QuotesUtils-->>FunCog: Доступные папки
+    FunCog->>QuotesSelectView: Создание UI с выбором папок
+    FunCog->>Discord: Отправка embed + view
+    Discord-->>User: Показ интерактивного меню
+
+    Note over User: Выбор папки через UI
+    User->>QuotesSelectView: Выбор папки
+    QuotesSelectView->>QuotesUtils: get_random_image_from_folder()
+    QuotesUtils->>FileSystem: Получение списка изображений
+    FileSystem-->>QuotesUtils: Список файлов
+    QuotesUtils->>QuotesUtils: Случайный выбор изображения
+    QuotesUtils-->>QuotesSelectView: Путь к изображению
+    QuotesSelectView->>Discord: Отправка embed + file
+    Discord-->>User: Показ случайного изображения
+
+    Note over User: Команда /quote с параметром
+    User->>FunCog: /quote folder_name
+    FunCog->>QuotesUtils: validate_folder_exists()
+    QuotesUtils->>FileSystem: Проверка папки
+    FileSystem-->>QuotesUtils: Результат проверки
+    alt Папка существует
+        FunCog->>QuotesUtils: send_random_quote_image()
+        QuotesUtils->>QuotesUtils: get_random_image_from_folder()
+        QuotesUtils->>FileSystem: Получение изображения
+        FileSystem-->>QuotesUtils: Файл изображения
+        QuotesUtils->>Discord: Отправка embed + file
+        Discord-->>User: Показ изображения
+    else Папка не найдена
+        FunCog->>Discord: Отправка сообщения об ошибке
+        Discord-->>User: Показ ошибки + список доступных папок
     end
 ```
 
@@ -238,6 +287,9 @@ graph TD
     D1 --> E[SQLite DB]
     D5 --> F[Stratz API]
     D6_4 --> G[YouTube API]
+
+    D --> D7[quotes_utils.py]
+    B4 --> D7
 ```
 
 ## Жизненный цикл команды

@@ -308,16 +308,34 @@ class DeathbattleConfig(BaseModel):
     damage: DeathbattleDamageConfig = DeathbattleDamageConfig()
 
 
+class QuotesConfig(BaseModel):
+    """Конфигурация модуля quotes для отправки случайных изображений.
+
+    Attributes:
+        assets_path: Путь к папке с изображениями
+        supported_extensions: Поддерживаемые расширения файлов
+        view_timeout: Таймаут для UI компонентов в секундах
+        max_folders_in_select: Максимальное количество папок в select menu
+    """
+
+    assets_path: str = "assets/quotes"
+    supported_extensions: list[str] = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
+    view_timeout: int = 300  # 5 минут
+    max_folders_in_select: int = 25  # Discord лимит для select options
+
+
 class FunConfig(BaseModel):
     """Конфигурация развлекательных команд.
 
     Attributes:
         penis: Настройки команды измерения пениса
         deathbattle: Настройки deathbattle
+        quotes: Настройки модуля quotes
     """
 
     penis: PenisConfig = PenisConfig()
     deathbattle: DeathbattleConfig = DeathbattleConfig()
+    quotes: QuotesConfig = QuotesConfig()
 
 
 class ActivityReportsConfig(BaseModel):

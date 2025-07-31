@@ -134,6 +134,17 @@ fun:
       low_damage_min: 1
       low_damage_max: 10
 
+  quotes:
+    assets_path: "assets/quotes"
+    supported_extensions:
+      - ".jpg"
+      - ".jpeg"
+      - ".png"
+      - ".gif"
+      - ".webp"
+    view_timeout: 300  # 5 минут
+    max_folders_in_select: 25  # Discord лимит для select options
+
 activity:
   view_timeout: 86400
   reports:
