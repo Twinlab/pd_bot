@@ -265,10 +265,10 @@ class TestGetFolderStats:
     def test_get_folder_stats_not_found(self, mock_validate):
         """Тест получения статистики несуществующей папки."""
         mock_validate.return_value = False
-        
+
         result = get_folder_stats("nonexistent")
-        
-        assert result == {"total_images": 0, "by_extension": {}}
+
+        assert result == {"total_images": 0}
 
     @patch("utils.quotes_utils.validate_folder_exists")
     @patch("utils.quotes_utils.get_images_from_folder")
@@ -284,14 +284,8 @@ class TestGetFolderStats:
         
         result = get_folder_stats("test_folder")
         
-        expected = {
-            "total_images": 3,
-            "by_extension": {
-                ".jpg": 2,
-                ".png": 1,
-            }
-        }
-        
+        expected = {"total_images": 3}
+
         assert result == expected
 
 

@@ -11,22 +11,17 @@
 """
 
 import logging
+import random
 from typing import Optional
 
 import discord
 from discord.ext import commands
 
-from config.settings import get_settings
 from utils.avatar_utils import display_avatar
 from utils.deathbattle_utils import run_battle
 from utils.error_handler import command_error_handler
 from utils.penis_utils import measure_penis
-from utils.quotes_utils import (
-    QuotesSelectView,
-    scan_quotes_folders,
-    send_random_quote_image,
-    validate_folder_exists,
-)
+from utils.quotes_utils import scan_quotes_folders, send_random_quote_image, validate_folder_exists
 from utils.snipe_utils import save_deleted_message, show_sniped_message
 
 logger: logging.Logger = logging.getLogger("bot.cogs.fun")  # Иерархическое имя логгера
@@ -119,77 +114,44 @@ class FunCog(commands.Cog):
         """
         await display_avatar(ctx, mentioned_user)
 
-    @commands.hybrid_command(description="Отправляет случайное изображение из указанной папки")
+    @commands.hybrid_command(description="Отправляет рандомную цитату указанного юзера")
     @command_error_handler
-    async def quote(self, ctx: commands.Context, folder_name: Optional[str] = None) -> None:
-        """Отправляет случайное изображение из папки quotes.
+    async def quote(self, ctx: commands.Context, user: Optional[str] = None) -> None:
+        """Отправляет случайную цитату пользователя.
 
-        Если folder_name не указан, показывает меню выбора папки.
-        Если указан, отправляет случайное изображение из этой папки.
+        Если user не указан, отправляет случайную цитату любого пользователя.
+        Если указан, отправляет случайную цитату этого пользователя.
 
         Args:
             ctx: Контекст команды.
-            folder_name: Имя папки с изображениями (опционально).
+            user: Юзернейм (опционально).
         """
-        if folder_name is None:
-            # Показываем меню выбора папки
-            available_folders = scan_quotes_folders()
+        if user is None:
+            # Отправляем случайную цитату любого пользователя
+            available_users = scan_quotes_folders()
 
-            if not available_folders:
-                settings = get_settings()
-                embed = discord.Embed(
-                    title="❌ Папки не найдены",
-                    description="Нет доступных папок с изображениями в assets/quotes/",
-                    color=discord.Color(int(settings.colors.error[1:], 16)),
-                )
-                await ctx.send(embed=embed, ephemeral=True)
+            if not available_users:
+                await ctx.send("❌ Цитаты не найдены!", ephemeral=True)
                 return
 
-            # Создаем эмбед с информацией о доступных папках
-            settings = get_settings()
-            embed = discord.Embed(
-                title="📁 Выберите папку с изображениями",
-                description=(
-                    "Используйте меню ниже для выбора папки или команду `/quote <folder_name>`"
-                ),
-                color=discord.Color(int(settings.colors.default[1:], 16)),
-            )
-
-            # Добавляем информацию о количестве папок
-            embed.add_field(name="Доступно папок", value=str(len(available_folders)), inline=True)
-
-            # Создаем View с выбором папок
-            view = QuotesSelectView(ctx.interaction if hasattr(ctx, "interaction") else ctx)
-
-            await ctx.send(embed=embed, view=view, ephemeral=False)
+            # Выбираем случайного пользователя
+            random_user = random.choice(available_users)
+            await send_random_quote_image(ctx, random_user, embed=False)
 
         else:
-            # Проверяем существование папки
-            if not validate_folder_exists(folder_name):
-                available_folders = scan_quotes_folders()
-                folders_text = (
-                    ", ".join(available_folders) if available_folders else "нет доступных папок"
-                )
-
-                settings = get_settings()
-                embed = discord.Embed(
-                    title="❌ Папка не найдена",
-                    description=f"Папка `{folder_name}` не найдена или не содержит изображений.",
-                    color=discord.Color(int(settings.colors.error[1:], 16)),
-                )
-                embed.add_field(name="Доступные папки", value=folders_text, inline=False)
-
-                await ctx.send(embed=embed, ephemeral=True)
+            # Проверяем существование пользователя
+            if not validate_folder_exists(user):
+                await ctx.send(f"❌ Цитаты пользователя `{user}` не найдены!", ephemeral=True)
                 return
 
-            # Отправляем случайное изображение из указанной папки
-            await send_random_quote_image(ctx, folder_name)
+            # Отправляем случайную цитату указанного пользователя
+            await send_random_quote_image(ctx, user, embed=False)
 
-    @quote.autocomplete("folder_name")
+    @quote.autocomplete("user")
     async def quote_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[discord.app_commands.Choice[str]]:
-        """Автокомплит для параметра folder_name команды quote.
+        """Автокомплит для параметра user команды quote.
 
         Args:
             interaction: Взаимодействие Discord.
@@ -199,20 +161,20 @@ class FunCog(commands.Cog):
             list[discord.app_commands.Choice[str]]: Список вариантов для автокомплита.
         """
         try:
-            available_folders = scan_quotes_folders()
+            available_users = scan_quotes_folders()
 
-            # Фильтруем папки по текущему вводу (регистронезависимо)
+            # Фильтруем пользователей по текущему вводу (регистронезависимо)
             if current:
-                filtered_folders = [
-                    folder for folder in available_folders if current.lower() in folder.lower()
+                filtered_users = [
+                    user for user in available_users if current.lower() in user.lower()
                 ]
             else:
-                filtered_folders = available_folders
+                filtered_users = available_users
 
             # Ограничиваем до 25 вариантов (лимит Discord)
             choices = []
-            for folder in filtered_folders[:25]:
-                choices.append(discord.app_commands.Choice(name=folder, value=folder))
+            for user in filtered_users[:25]:
+                choices.append(discord.app_commands.Choice(name=user, value=user))
 
             return choices
 

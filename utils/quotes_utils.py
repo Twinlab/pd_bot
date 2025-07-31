@@ -191,7 +191,7 @@ def get_random_image_from_folder(folder_name: str) -> Path:
 
 
 async def send_random_quote_image(
-    ctx: commands.Context, folder_name: str, ephemeral: bool = False
+    ctx: commands.Context, folder_name: str, ephemeral: bool = False, embed: bool = True
 ) -> None:
     """Отправляет случайное изображение из указанной папки.
 
@@ -199,6 +199,7 @@ async def send_random_quote_image(
         ctx: Контекст команды Discord
         folder_name: Имя папки с изображениями
         ephemeral: Отправить сообщение только автору команды
+        embed: Отправить с embed или только изображение
 
     Raises:
         FolderNotFoundError: Если папка не найдена
@@ -208,22 +209,25 @@ async def send_random_quote_image(
         # Получаем случайное изображение
         image_path = get_random_image_from_folder(folder_name)
 
-        # Создаем эмбед
-        settings = get_settings()
-        embed = discord.Embed(
-            title=f"📸 Случайное изображение из {folder_name}",
-            color=discord.Color(int(settings.colors.default[1:], 16)),
-        )
-
-        # Добавляем информацию о файле
-        embed.set_footer(text=f"Файл: {image_path.name}")
-
         # Отправляем изображение
         with open(image_path, "rb") as f:
             file = discord.File(f, filename=image_path.name)
-            embed.set_image(url=f"attachment://{image_path.name}")
 
-            await ctx.send(embed=embed, file=file, ephemeral=ephemeral)
+            if embed:
+                # Создаем эмбед
+                settings = get_settings()
+                embed_obj = discord.Embed(
+                    title=f"📸 Случайное изображение из {folder_name}",
+                    color=discord.Color(int(settings.colors.default[1:], 16)),
+                )
+                # Добавляем информацию о файле
+                embed_obj.set_footer(text=f"Файл: {image_path.name}")
+                embed_obj.set_image(url=f"attachment://{image_path.name}")
+
+                await ctx.send(embed=embed_obj, file=file, ephemeral=ephemeral)
+            else:
+                # Отправляем только изображение
+                await ctx.send(file=file, ephemeral=ephemeral)
 
         logger.info(f"Отправлено изображение {image_path.name} из папки {folder_name}")
 

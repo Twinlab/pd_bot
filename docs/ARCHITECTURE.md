@@ -120,44 +120,36 @@ sequenceDiagram
     participant FunCog
     participant QuotesUtils
     participant FileSystem
-    participant QuotesSelectView
     participant Discord
 
     Note over User: Команда /quote без параметра
     User->>FunCog: /quote
     FunCog->>QuotesUtils: scan_quotes_folders()
     QuotesUtils->>FileSystem: Сканирование assets/quotes/
-    FileSystem-->>QuotesUtils: Список папок с изображениями
-    QuotesUtils-->>FunCog: Доступные папки
-    FunCog->>QuotesSelectView: Создание UI с выбором папок
-    FunCog->>Discord: Отправка embed + view
-    Discord-->>User: Показ интерактивного меню
-
-    Note over User: Выбор папки через UI
-    User->>QuotesSelectView: Выбор папки
-    QuotesSelectView->>QuotesUtils: get_random_image_from_folder()
-    QuotesUtils->>FileSystem: Получение списка изображений
-    FileSystem-->>QuotesUtils: Список файлов
-    QuotesUtils->>QuotesUtils: Случайный выбор изображения
-    QuotesUtils-->>QuotesSelectView: Путь к изображению
-    QuotesSelectView->>Discord: Отправка embed + file
-    Discord-->>User: Показ случайного изображения
+    FileSystem-->>QuotesUtils: Список пользователей с цитатами
+    QuotesUtils-->>FunCog: Доступные пользователи
+    FunCog->>FunCog: random.choice() - выбор случайного пользователя
+    FunCog->>QuotesUtils: send_random_quote_image(user, embed=False)
+    QuotesUtils->>FileSystem: Получение случайной цитаты
+    FileSystem-->>QuotesUtils: Файл изображения
+    QuotesUtils->>Discord: Отправка только файла (без embed)
+    Discord-->>User: Показ случайной цитаты
 
     Note over User: Команда /quote с параметром
-    User->>FunCog: /quote folder_name
-    FunCog->>QuotesUtils: validate_folder_exists()
-    QuotesUtils->>FileSystem: Проверка папки
+    User->>FunCog: /quote username
+    FunCog->>QuotesUtils: validate_folder_exists(username)
+    QuotesUtils->>FileSystem: Проверка пользователя
     FileSystem-->>QuotesUtils: Результат проверки
-    alt Папка существует
-        FunCog->>QuotesUtils: send_random_quote_image()
+    alt Пользователь существует
+        FunCog->>QuotesUtils: send_random_quote_image(username, embed=False)
         QuotesUtils->>QuotesUtils: get_random_image_from_folder()
-        QuotesUtils->>FileSystem: Получение изображения
+        QuotesUtils->>FileSystem: Получение случайной цитаты
         FileSystem-->>QuotesUtils: Файл изображения
-        QuotesUtils->>Discord: Отправка embed + file
-        Discord-->>User: Показ изображения
-    else Папка не найдена
+        QuotesUtils->>Discord: Отправка только файла (без embed)
+        Discord-->>User: Показ цитаты пользователя
+    else Пользователь не найден
         FunCog->>Discord: Отправка сообщения об ошибке
-        Discord-->>User: Показ ошибки + список доступных папок
+        Discord-->>User: "Цитаты пользователя не найдены"
     end
 ```
 
