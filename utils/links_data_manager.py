@@ -9,7 +9,6 @@
 
 import logging
 from collections import defaultdict
-from typing import Dict, List, Tuple
 
 import aiosqlite
 
@@ -85,11 +84,11 @@ class LinksDataManager:
                             # Если changes == 0 и записи нет,
                             # значит была ошибка, но она не перехвачена (?)
                             logger.warning(
-                                (
+
                                     f"Не удалось добавить привязку {discord_user_id}: "
                                     f"{steam_id}, "
                                     "но она и не существовала."
-                                )
+
                             )
                     return False  # Возвращаем False, т.к. новая запись не добавлена
         except Exception as e:
@@ -156,7 +155,7 @@ class LinksDataManager:
             )
             return 0
 
-    async def get_links(self, discord_user_id: int) -> List[int]:
+    async def get_links(self, discord_user_id: int) -> list[int]:
         """
         Получает список Steam ID, привязанных к Discord ID.
 
@@ -167,7 +166,7 @@ class LinksDataManager:
             Список Steam ID, привязанных к указанному Discord ID.
             Возвращает пустой список, если привязки не найдены или произошла ошибка.
         """
-        links: List[int] = []
+        links: list[int] = []
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute(
@@ -181,7 +180,7 @@ class LinksDataManager:
             logger.error(f"Ошибка при получении привязок для {discord_user_id}: {e}", exc_info=True)
             return []
 
-    async def get_all_links_data(self) -> Dict[int, List[int]]:
+    async def get_all_links_data(self) -> dict[int, list[int]]:
         """
         Загружает все данные о привязках из БД.
 
@@ -192,7 +191,7 @@ class LinksDataManager:
         Note:
             Может быть неэффективно для больших баз данных.
         """
-        all_links: Dict[int, List[int]] = defaultdict(list)
+        all_links: dict[int, list[int]] = defaultdict(list)
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute(
@@ -236,10 +235,10 @@ class LinksDataManager:
                 )
                 return 0  # Возвращаем 0 мигрированных записей
 
-            with open(json_file_path, "r", encoding="utf-8") as f:
+            with open(json_file_path, encoding="utf-8") as f:
                 data = sync_json.load(f)
 
-            links_to_insert: List[Tuple[int, int]] = []
+            links_to_insert: list[tuple[int, int]] = []
             if isinstance(data, dict):  # Новый формат
                 for user_id_str, steam_ids in data.items():
                     try:
@@ -250,10 +249,10 @@ class LinksDataManager:
                                     links_to_insert.append((user_id, int(steam_id)))
                                 except (ValueError, TypeError):
                                     logger.warning(
-                                        (
+
                                             f"Некорректный steam_id '{steam_id}' для {user_id} "
                                             f"в {json_file_path}"
-                                        )
+
                                     )
                         else:
                             logger.warning(
@@ -273,24 +272,24 @@ class LinksDataManager:
                                         links_to_insert.append((user_id, int(steam_id)))
                                     except (ValueError, TypeError):
                                         logger.warning(
-                                            (
+
                                                 f"Некорректный steam_id '{steam_id}' для {user_id} "
                                                 f"в старом формате {json_file_path}"
-                                            )
+
                                         )
                             else:
                                 logger.warning(
-                                    (
+
                                         f"Некорректный формат links для {user_id} "
                                         f"в старом формате {json_file_path}"
-                                    )
+
                                 )
                         except (ValueError, TypeError):
                             logger.warning(
-                                (
+
                                     f"Некорректный user_id '{item.get('user')}' "
                                     f"в старом формате {json_file_path}"
-                                )
+
                             )
                     else:
                         logger.warning(
@@ -325,11 +324,11 @@ class LinksDataManager:
                     inserted_count = 0  # Сбрасываем счетчик при ошибке
 
             logger.info(
-                (
+
                     f"Миграция привязок завершена. Вставлено {inserted_count} "
                     "новых записей "
                     "(дубликаты проигнорированы)."
-                )
+
             )
             return inserted_count
 

@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import Dict
 
 import discord
 from discord.ext import commands
@@ -29,7 +28,7 @@ class MessageHandler(commands.Cog):
         self.bot: commands.Bot = bot
         # Словарь для отслеживания времени последней обработки сообщения от пользователя
         # {user_id: timestamp}
-        self.cooldowns: Dict[int, float] = {}
+        self.cooldowns: dict[int, float] = {}
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.

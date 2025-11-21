@@ -5,7 +5,6 @@
 """
 
 import logging
-from typing import Optional
 
 import discord
 from discord.ext import commands
@@ -14,7 +13,7 @@ logger = logging.getLogger("bot.utils.avatar_utils")
 
 
 async def display_avatar(
-    ctx: commands.Context, mentioned_user: Optional[discord.abc.User] = None
+    ctx: commands.Context, mentioned_user: discord.abc.User | None = None
 ) -> None:
     """Создает и отправляет эмбед с аватаром пользователя.
 

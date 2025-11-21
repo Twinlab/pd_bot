@@ -178,10 +178,10 @@ class Events(commands.Cog):
                         voice_client and len(voice_client.channel.members) == 1
                     ):  # Если остался только бот
                         logger.info(
-                            (
+
                                 f"Последний пользователь покинул канал {before.channel.name}, "
                                 "запускаем автоотключение..."
-                            )
+
                         )
                         # Передаем плеер, гильдию и голосовой канал
                         await auto_disconnect(player, member.guild, before.channel)

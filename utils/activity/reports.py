@@ -8,7 +8,7 @@ import asyncio
 import logging
 from collections import defaultdict  # Используется в _get_monthly_summary_text
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from cogs.activity import ActivityTracker
@@ -41,8 +41,8 @@ MONTH_NAMES_RU = {
 
 
 async def _get_report_channel(
-    bot: discord.Client, config: Dict[str, Any]
-) -> Optional[discord.TextChannel]:
+    bot: discord.Client, config: dict[str, Any]
+) -> discord.TextChannel | None:
     """Находит и возвращает канал для отправки отчетов.
 
     Args:
@@ -69,8 +69,8 @@ async def send_daily_report(
     target_date: date,
     bot: discord.Client,
     data_manager: ActivityDataManager,
-    config: Dict[str, Any],
-    channel: Optional[discord.TextChannel] = None,
+    config: dict[str, Any],
+    channel: discord.TextChannel | None = None,
 ) -> bool:
     """Получает данные за указанную дату и отправляет ежедневный отчет в виде ActivityView.
 
@@ -135,7 +135,7 @@ async def send_daily_report(
         return False
 
 
-def _get_monthly_summary_text(data: Dict[int, Dict[str, int]], month: int, year: int) -> str:
+def _get_monthly_summary_text(data: dict[int, dict[str, int]], month: int, year: int) -> str:
     """Формирует текстовую сводку для ежемесячного отчета.
 
     Использует краткий формат времени.
@@ -149,7 +149,7 @@ def _get_monthly_summary_text(data: Dict[int, Dict[str, int]], month: int, year:
         Строка с общей статистикой за месяц.
     """
     total_users = len(data)
-    all_games: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"players": 0, "time": 0})
+    all_games: dict[str, dict[str, Any]] = defaultdict(lambda: {"players": 0, "time": 0})
     total_time_all_games = 0
 
     for user_data in data.values():
@@ -161,9 +161,9 @@ def _get_monthly_summary_text(data: Dict[int, Dict[str, int]], month: int, year:
 
     total_unique_games = len(all_games)
 
-    most_popular_game_name: Optional[str] = None
+    most_popular_game_name: str | None = None
     max_players = 0
-    most_time_game_name: Optional[str] = None
+    most_time_game_name: str | None = None
     max_time = 0
 
     for game, stats in all_games.items():
@@ -204,8 +204,8 @@ async def send_monthly_report(
     month: int,
     bot: discord.Client,
     data_manager: ActivityDataManager,
-    config: Dict[str, Any],
-    channel: Optional[discord.TextChannel] = None,
+    config: dict[str, Any],
+    channel: discord.TextChannel | None = None,
 ) -> bool:
     """Получает данные за указанный месяц/год и отправляет ежемесячный отчет.
 
@@ -270,7 +270,7 @@ async def send_monthly_report(
 
         # Формируем содержимое отчета для всех пользователей
         all_users_content = ""
-        for user_id, activities, username, total_time_user in sorted_users:
+        for _, activities, username, total_time_user in sorted_users:
             # Формируем строку для пользователя с курсивом для времени
             user_line = f"**{username}** (*{format_time_short(total_time_user)}*): "
 
@@ -453,10 +453,10 @@ async def run_automatic_monthly_report(cog_instance: "ActivityTracker") -> None:
             return  # Запускаем только первого числа
 
         logger.info(
-            (
+
                 "run_automatic_monthly_report: Запуск формирования ежемесячного отчета "
                 "за предыдущий месяц."
-            )
+
         )
         # Определяем предыдущий месяц и год
         first_day_of_current_month = today.replace(day=1)

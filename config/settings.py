@@ -2,7 +2,7 @@
 
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING
 
 import yaml  # type: ignore
 from pydantic import BaseModel, Field
@@ -32,10 +32,10 @@ class ChannelConfig(BaseModel):
     """
 
     logging: int = 1365045098785542224
-    anime: Optional[int] = None
+    anime: int | None = None
     twitch: int = 1113813039083442296
     activity_reports: int = 573665353327181824
-    role_reactions_default: Optional[int] = None
+    role_reactions_default: int | None = None
 
 
 class TimeoutConfig(BaseModel):
@@ -380,7 +380,7 @@ class UserReaction(BaseModel):
 class ReactionsConfig(BaseModel):
     """Конфигурация реакций на сообщения."""
 
-    user_reactions: Dict[int, list[UserReaction]] = {}
+    user_reactions: dict[int, list[UserReaction]] = {}
 
 
 class UpdateSettings(BaseModel):
@@ -390,7 +390,7 @@ class UpdateSettings(BaseModel):
         restart_command: Команда для перезапуска бота (опционально)
     """
 
-    restart_command: Optional[str] = None
+    restart_command: str | None = None
 
 
 class Messages(BaseModel):
@@ -402,7 +402,7 @@ class Messages(BaseModel):
         info: Словарь информационных сообщений
     """
 
-    errors: Dict[str, str] = {
+    errors: dict[str, str] = {
         "no_permissions": "У вас нет прав для выполнения этой команды.",
         "invalid_argument": "Неверный аргумент: {error}",
         "unknown_error": "Произошла неизвестная ошибка: {error}",
@@ -412,12 +412,12 @@ class Messages(BaseModel):
         "anime_channel_not_configured": "Канал для публикации аниме не настроен или не найден.",
         "stratz_api_key_missing": "STRATZ_API_KEY не найден в конфигурации бота.",
     }
-    success: Dict[str, str] = {
+    success: dict[str, str] = {
         "purge_complete": "Удалено {count} сообщений",
         "link_added": "Аккаунт Dota 2 с ID {player_id} успешно привязан.",
         "restart_initiated": "🔄 Перезапуск бота...",
     }
-    info: Dict[str, str] = {
+    info: dict[str, str] = {
         "no_linked_accounts": (
             "У вас нет привязанных аккаунтов Dota 2. Используйте `/link PLAYER_ID`."
         ),
@@ -451,9 +451,9 @@ class BotSettings(BaseSettings):
     environment: Environment = Field(default=Environment.PRODUCTION, alias="BOT_ENVIRONMENT")
 
     # Опциональные API ключи
-    twitch_client_id: Optional[str] = Field(default=None, alias="TWITCH_CLIENT_ID")
-    twitch_client_secret: Optional[str] = Field(default=None, alias="TWITCH_CLIENT_SECRET")
-    proxy_url: Optional[str] = Field(default=None, alias="PROXY_URL")
+    twitch_client_id: str | None = Field(default=None, alias="TWITCH_CLIENT_ID")
+    twitch_client_secret: str | None = Field(default=None, alias="TWITCH_CLIENT_SECRET")
+    proxy_url: str | None = Field(default=None, alias="PROXY_URL")
 
     # Конфигурационные блоки
     channels: ChannelConfig = ChannelConfig()
@@ -489,11 +489,11 @@ class BotSettings(BaseSettings):
         Returns:
             Экземпляр BotSettings с загруженными настройками
         """
-        yaml_data: Dict[str, any] = {}  # type: ignore
+        yaml_data: dict[str, any] = {}  # type: ignore
         config_path = Path(config_file)
         if config_path.exists():
             try:
-                with open(config_path, "r", encoding="utf-8") as f:
+                with open(config_path, encoding="utf-8") as f:
                     yaml_data = yaml.safe_load(f) or {}
 
                 # Проверяем, что yaml_data является словарем
@@ -504,7 +504,7 @@ class BotSettings(BaseSettings):
                     )
 
             except Exception as e:
-                raise ValueError(f"Ошибка при загрузке YAML файла {config_file}: {e}")
+                raise ValueError(f"Ошибка при загрузке YAML файла {config_file}: {e}") from e
 
         return cls(**yaml_data)
 
@@ -524,7 +524,7 @@ class BotSettings(BaseSettings):
 
 
 # Глобальный экземпляр
-_settings: Optional[BotSettings] = None
+_settings: BotSettings | None = None
 
 
 def get_settings() -> BotSettings:

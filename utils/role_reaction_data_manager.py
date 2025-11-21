@@ -7,7 +7,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, cast
 
 import aiosqlite
 
@@ -38,7 +38,7 @@ class RoleReactionDataManager:
         self.db_path = db_path
         logger.info(f"Инициализация RoleReactionDataManager с БД: {self.db_path}")
 
-    async def get_message_info(self, guild_id: int) -> Optional[Tuple[int, int]]:
+    async def get_message_info(self, guild_id: int) -> tuple[int, int] | None:
         """
         Получает информацию о сообщении с реакциями для указанного сервера.
 
@@ -138,7 +138,7 @@ class RoleReactionDataManager:
             logger.error(f"Ошибка при удалении привязки роли: {e}", exc_info=True)
             return False
 
-    async def get_all_role_reactions(self, guild_id: int) -> List[Dict[str, Any]]:
+    async def get_all_role_reactions(self, guild_id: int) -> list[dict[str, Any]]:
         """
         Получает все привязки эмодзи к ролям для указанного сервера.
 
@@ -179,7 +179,7 @@ class RoleReactionDataManager:
             )
             return []
 
-    async def get_role_by_emoji(self, guild_id: int, emoji: str) -> Optional[int]:
+    async def get_role_by_emoji(self, guild_id: int, emoji: str) -> int | None:
         """
         Получает ID роли, привязанной к указанному эмодзи на сервере.
 

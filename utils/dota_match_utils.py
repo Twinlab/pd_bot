@@ -6,8 +6,7 @@
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Optional, Tuple
+from datetime import UTC, datetime
 
 import discord
 from discord.ext import commands  # Для type hint в docstring
@@ -85,7 +84,7 @@ query ($player_id: Long!) {
 
 async def get_match_data(
     user_links: dict[str, list[int]], user_id: str, stratz_api_key: str
-) -> Tuple[Optional[dict], Optional[dict], Optional[int], Optional[dict]]:
+) -> tuple[dict | None, dict | None, int | None, dict | None]:
     """Получает данные о последнем матче Dota 2 для указанного Discord пользователя.
 
     Находит самый свежий матч среди всех привязанных Steam ID,
@@ -173,7 +172,7 @@ async def get_match_data(
 
 
 async def handle_lastmatch(
-    ctx: commands.Context, user_links_list: list[int], member: Optional[discord.Member] = None
+    ctx: commands.Context, user_links_list: list[int], member: discord.Member | None = None
 ) -> None:
     """Основная логика команды /lastmatch.
 
@@ -219,11 +218,11 @@ async def handle_lastmatch(
     # Если данные о матче не получены
     if not match_data:
         await ctx.send(
-            (
+
                 "Не удалось получить данные о последнем матче. "
                 "Убедитесь, что история матчей доступна в настройках Dota 2, "
                 "или попробуйте позже."
-            )
+
         )
         return
 
@@ -238,7 +237,7 @@ async def handle_lastmatch(
 
     # Извлекаем основную информацию о матче
     match_info = match_data.get("match", {})
-    datetime_obj = datetime.fromtimestamp(match_info.get("startDateTime", 0), tz=timezone.utc)
+    datetime_obj = datetime.fromtimestamp(match_info.get("startDateTime", 0), tz=UTC)
     duration = match_info.get("durationSeconds", 0)
     is_victory = player_data.get("isVictory", False)
 

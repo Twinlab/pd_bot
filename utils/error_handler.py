@@ -2,7 +2,8 @@
 
 import functools
 import logging
-from typing import Any, Callable, Dict, Optional, TypeVar, Union, cast
+from collections.abc import Callable
+from typing import Any, TypeVar, cast
 
 import discord
 from discord.ext import commands
@@ -13,7 +14,7 @@ logger = logging.getLogger("bot.utils.error_handler")
 F = TypeVar("F", bound=Callable[..., Any])
 
 # Словарь с пользовательскими сообщениями для разных типов ошибок
-ERROR_MESSAGES: Dict[type, str] = {
+ERROR_MESSAGES: dict[type, str] = {
     commands.MissingRequiredArgument: "Отсутствует обязательный аргумент: {error.param.name}",
     commands.BadArgument: "Неверный аргумент: {error}",
     commands.MissingPermissions: "У вас недостаточно прав для выполнения этой команды.",
@@ -82,7 +83,7 @@ def command_error_handler(func: F) -> F:
             if isinstance(error, (commands.CommandInvokeError, commands.HybridCommandError)):
                 original = error.original
                 if isinstance(original, (SystemExit, KeyboardInterrupt)):
-                    raise original
+                    raise original from None
 
             # Записываем метрики ошибки, если есть
             if hasattr(self.bot, "metrics"):
@@ -122,13 +123,13 @@ def get_error_message(error: Exception) -> str:
 
 
 async def safe_send(
-    ctx: Union[commands.Context, discord.Interaction],
-    content: Optional[str] = None,
+    ctx: commands.Context | discord.Interaction,
+    content: str | None = None,
     *,
-    embed: Optional[discord.Embed] = None,
+    embed: discord.Embed | None = None,
     ephemeral: bool = False,
-    delete_after: Optional[float] = None,
-) -> Optional[discord.Message]:
+    delete_after: float | None = None,
+) -> discord.Message | None:
     """
     Безопасно отправляет сообщение, учитывая тип контекста (Context или Interaction).
 
@@ -163,8 +164,8 @@ async def safe_send(
 
 
 async def safe_send_error(
-    ctx: Union[commands.Context, discord.Interaction], error_message: str
-) -> Optional[discord.Message]:
+    ctx: commands.Context | discord.Interaction, error_message: str
+) -> discord.Message | None:
     """
     Безопасно отправляет сообщение об ошибке.
 

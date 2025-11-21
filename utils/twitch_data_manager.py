@@ -2,7 +2,6 @@
 
 import logging
 import time
-from typing import Dict, List, Optional
 
 import aiosqlite
 
@@ -80,7 +79,7 @@ class TwitchDataManager:
             return False
 
     async def add_streamer(
-        self, guild_id: int, channel_id: int, twitch_username: str, twitch_id: Optional[str] = None
+        self, guild_id: int, channel_id: int, twitch_username: str, twitch_id: str | None = None
     ) -> bool:
         """
         Добавляет стримера для отслеживания или обновляет существующего.
@@ -181,7 +180,7 @@ class TwitchDataManager:
             logger.error(f"Ошибка при удалении стримера {twitch_username}: {e}", exc_info=True)
             return False
 
-    async def get_streamers(self, guild_id: int) -> List[Dict]:
+    async def get_streamers(self, guild_id: int) -> list[dict]:
         """
         Получает список всех отслеживаемых стримеров для конкретного сервера.
 
@@ -219,7 +218,7 @@ class TwitchDataManager:
             logger.error(f"Ошибка при получении стримеров: {e}", exc_info=True)
             return []
 
-    async def get_all_streamers(self) -> List[Dict]:
+    async def get_all_streamers(self) -> list[dict]:
         """
         Получает список всех отслеживаемых стримеров для всех серверов.
 
@@ -253,7 +252,7 @@ class TwitchDataManager:
             return []
 
     async def update_streamer_status(
-        self, twitch_username: str, is_live: bool, stream_id: Optional[str] = None
+        self, twitch_username: str, is_live: bool, stream_id: str | None = None
     ) -> bool:
         """
         Обновляет статус стримера (онлайн/оффлайн) и ID стрима.
@@ -300,10 +299,10 @@ class TwitchDataManager:
 
                 await db.commit()
                 logger.debug(
-                    (
+
                         f"Обновлен статус стримера {twitch_username}: "
                         f"{'онлайн' if is_live else 'оффлайн'}"
-                    )
+
                 )
                 return True
         except Exception as e:
@@ -313,7 +312,7 @@ class TwitchDataManager:
             return False
 
     async def update_notification_time(
-        self, twitch_username: str, guild_id: int, stream_id: Optional[str] = None
+        self, twitch_username: str, guild_id: int, stream_id: str | None = None
     ) -> bool:
         """
         Обновляет время последнего уведомления о стриме и ID стрима для конкретного сервера.
@@ -348,10 +347,10 @@ class TwitchDataManager:
                         (current_time, stream_id, twitch_username, guild_id),
                     )
                     logger.debug(
-                        (
+
                             f"Обновлено время уведомления и ID стрима ({stream_id}) "
                             f"для стримера {twitch_username}"
-                        )
+
                     )
                 else:
                     # Обновляем только время уведомления

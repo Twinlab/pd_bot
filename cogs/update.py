@@ -79,7 +79,7 @@ class UpdateCog(commands.Cog):
 
             # Успешное обновление
             logger.info("Обновление получено, инициируем перезапуск...")
-            
+
             settings = get_settings()
             max_len = settings.limits.update_output_max_length
             if len(stdout_str) > max_len:
@@ -90,7 +90,7 @@ class UpdateCog(commands.Cog):
             await message.edit(
                 content=f"✅ Обновление получено!\n```{display_stdout}```\n🔄 Перезапуск бота..."
             )
-            
+
             # Даем время на отправку сообщения
             await asyncio.sleep(1)
             logger.info("Бот завершает работу для перезапуска (Docker поднимет его снова)...")

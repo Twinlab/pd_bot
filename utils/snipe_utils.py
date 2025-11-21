@@ -7,7 +7,7 @@
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 import discord
 from discord.ext import commands
@@ -15,7 +15,7 @@ from discord.ext import commands
 logger = logging.getLogger("bot.utils.snipe_utils")
 
 # Кэш для хранения удаленных сообщений
-snipe_cache: Dict[str, Dict[str, Any]] = {}
+snipe_cache: dict[str, dict[str, Any]] = {}
 
 
 async def save_deleted_message(message: discord.Message) -> None:
@@ -121,7 +121,7 @@ async def show_sniped_message(ctx: commands.Context) -> None:
 
             # Добавляем информацию о вложениях
             attachment_info = []
-            for i, attachment in enumerate(attachments):
+            for _, attachment in enumerate(attachments):
                 if attachment.get("content_type"):
                     type_info = f"({attachment['content_type']})"
                 else:

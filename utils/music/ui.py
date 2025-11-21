@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 import discord
 
@@ -25,7 +25,7 @@ class PlayerControlView(discord.ui.View):
     Автоматически обновляет состояние кнопок и удаляется по таймауту.
     """
 
-    def __init__(self, player: "MusicPlayer", timeout: Optional[float] = 600) -> None:
+    def __init__(self, player: "MusicPlayer", timeout: float | None = 600) -> None:
         """Инициализирует View для управления плеером.
 
         Args:
@@ -33,7 +33,7 @@ class PlayerControlView(discord.ui.View):
             timeout: Время в секундах, после которого View станет неактивной.
         """
         super().__init__(timeout=timeout)
-        self.player: "MusicPlayer" = player
+        self.player: MusicPlayer = player
         self._update_buttons()
 
     def _update_buttons(self) -> None:
@@ -234,17 +234,17 @@ class PlayerControlView(discord.ui.View):
                 )
             except discord.NotFound:
                 logger.warning(
-                    (
+
                         f"Сообщение {self.player.now_playing_message.id} не найдено "
                         "при попытке удалить View по таймауту."
-                    )
+
                 )
             except discord.HTTPException as e:
                 logger.error(
-                    (
+
                         "Ошибка HTTP при удалении View по таймауту для сообщения "
                         f"{self.player.now_playing_message.id}: {e}"
-                    )
+
                 )
             except Exception as e:
                 logger.error(
@@ -278,11 +278,11 @@ class SearchResultSelect(discord.ui.Select):
             interaction: Исходное взаимодействие, инициировавшее поиск.
             entries: Список словарей с результатами поиска от yt-dlp.
         """
-        self.player: "MusicPlayer" = player
+        self.player: MusicPlayer = player
         self.original_interaction: discord.Interaction = (
             interaction  # Сохраняем для использования в callback
         )
-        self.entries: List[Dict] = entries
+        self.entries: list[dict] = entries
         options: list[discord.SelectOption] = []
         for i, entry in enumerate(entries):
             if not isinstance(entry, dict):
@@ -335,10 +335,10 @@ class SearchResultSelect(discord.ui.Select):
                 )
             except discord.HTTPException as e:
                 logger.error(
-                    (
+
                         "Ошибка HTTP при удалении сообщения с результатами поиска "
                         f"(ID: {interaction.message.id if interaction.message else 'None'}): {e}"
-                    )
+
                 )
             except Exception as e:  # Ловим другие возможные ошибки
                 logger.error(
@@ -424,7 +424,7 @@ class SearchView(discord.ui.View):
             timeout: Время в секундах, после которого View станет неактивной.
         """
         super().__init__(timeout=timeout)
-        self.player: "MusicPlayer" = player
+        self.player: MusicPlayer = player
         self.original_interaction: discord.Interaction = interaction
         self.add_item(
             SearchResultSelect(player, self.original_interaction, entries)
@@ -448,26 +448,26 @@ class SearchView(discord.ui.View):
                 embed=None,
             )
             logger.debug(
-                (
+
                     f"Сообщение о поиске (взаимодействие {self.original_interaction.id}) "
                     "отредактировано по таймауту."
-                )
+
             )
         except discord.NotFound:
             logger.warning(
-                (
+
                     f"Исходное сообщение для SearchView "
                     f"(взаимодействие {self.original_interaction.id}) "
                     "не найдено при таймауте."
-                )
+
             )
         except discord.HTTPException as e:
             logger.error(
-                (
+
                     "Ошибка HTTP при редактировании сообщения SearchView "
                     "по таймауту "
                     f"(взаимодействие {self.original_interaction.id}): {e}"
-                )
+
             )
         except Exception as e:
             logger.error(

@@ -21,7 +21,6 @@ from discord import Intents
 from discord.ext import commands
 
 from config import get_settings
-from utils import dota_api
 from utils.database import DB_PATH, close_database, initialize_database
 from utils.logging_utils import setup_logging
 
@@ -156,7 +155,7 @@ async def main() -> None:
     """
     logger.info(f"Используется файл базы данных: {DB_PATH}")
     await initialize_database()
-    
+
     # Инициализация кэша Dota API теперь происходит внутри модуля при первом запросе
     # или мы можем явно вызвать init, если он нужен.
     # await dota_api.init() # Пока закомментируем, так как переписываем dota_api

@@ -15,7 +15,6 @@
 import asyncio
 import logging
 from datetime import date, datetime, time
-from typing import Dict, List, Optional, Tuple
 
 import discord
 import pytz  # type: ignore
@@ -72,7 +71,7 @@ class ActivityTracker(commands.Cog):
 
         # Словарь для отслеживания текущих активных игровых сессий в памяти
         # {user_id: (game_name, start_time_utc)}
-        self.current_activities: Dict[int, Tuple[str, datetime]] = {}
+        self.current_activities: dict[int, tuple[str, datetime]] = {}
 
         # Флаг для предотвращения многократного запуска сканирования при on_ready
         self.scan_scheduled = False
@@ -133,10 +132,10 @@ class ActivityTracker(commands.Cog):
                         self.current_activities[member.id] = (playing_activity.name, now_utc)
                         found_activities += 1
                         logger.debug(
-                            (
+
                                 f"Обнаружена активная игра у {member.name} ({member.id}): "
                                 f"{playing_activity.name}"
-                            )
+
                         )
 
             logger.info(
@@ -168,10 +167,10 @@ class ActivityTracker(commands.Cog):
             logger.info("Финальное сохранение активности завершено.")
         except RuntimeError as e:
             logger.warning(
-                (
+
                     "Не удалось выполнить финальное сохранение активности "
                     f"(возможно, цикл событий остановлен): {e}"
-                )
+
             )
         except Exception as e:
             logger.error(
@@ -199,10 +198,10 @@ class ActivityTracker(commands.Cog):
             return  # Нечего обновлять
 
         logger.debug(
-            (
+
                 f"update_current_activities: Обновление "
                 f"{len(self.current_activities)} активных сессий..."
-            )
+
         )
 
         for user_id, (game_name, start_time) in list(self.current_activities.items()):
@@ -227,21 +226,21 @@ class ActivityTracker(commands.Cog):
             elif elapsed_seconds < 0:
                 # Обработка возможной смены системного времени или других аномалий
                 logger.warning(
-                    (
+
                         f"Обнаружено отрицательное время ({elapsed_seconds}s) для {user_id} "
                         f"в {game_name}. "
                         "Сбрасываем время начала сессии в памяти."
-                    )
+
                 )
                 # Обновляем только в памяти, чтобы избежать записи отрицательного времени
                 self.current_activities[user_id] = (game_name, now_utc)
             elif elapsed_seconds >= max_record_threshold:
                 logger.warning(
-                    (
+
                         f"Обнаружено слишком большое время ({elapsed_seconds}s > "
                         f"{max_record_threshold}s) "
                         f"для {user_id} в {game_name}. Сессия будет проигнорирована и сброшена."
-                    )
+
                 )
                 # Удаляем аномальную сессию из памяти, чтобы она не копилась
                 if (
@@ -336,10 +335,10 @@ class ActivityTracker(commands.Cog):
                     min_record_threshold = settings.timeouts.activity_min_record
                     if elapsed_seconds >= min_record_threshold:
                         logger.debug(
-                            (
+
                                 f"Завершилась сессия {user_id} - {before_game} "
                                 f"({elapsed_seconds} сек). Запись в БД..."
-                            )
+
                         )
                         # Запускаем запись асинхронно, чтобы не блокировать обработчик событий
                         asyncio.create_task(
@@ -347,10 +346,10 @@ class ActivityTracker(commands.Cog):
                         )
                     else:
                         logger.debug(
-                            (
+
                                 f"Сессия {user_id} - {before_game} была слишком короткой "
                                 f"({elapsed_seconds} сек), пропуск записи."
-                            )
+
                         )
 
             # --- Обработка начала новой игры ---
@@ -432,10 +431,10 @@ class ActivityTracker(commands.Cog):
         except RuntimeError as e:
             if "Client has not been properly initialised" in str(e):
                 logger.debug(
-                    (
+
                         "before_monthly_report: Бот еще не инициализирован, "
                         "задача будет запущена позже."
-                    )
+
                 )
             else:
                 logger.error(f"Ошибка в before_monthly_report: {e}", exc_info=True)
@@ -455,19 +454,19 @@ class ActivityTracker(commands.Cog):
         """
         now = datetime.now(pytz.timezone("Europe/Moscow"))
         logger.info(
-            (
+
                 "daily_report: Запуск автоматической задачи ежедневного отчета... "
                 f"(фактическое время: {now.strftime('%Y-%m-%d %H:%M:%S %Z')})"
-            )
+
         )
         # Вызываем перенесенную логику
         await run_automatic_daily_report(self)
         now_end = datetime.now(pytz.timezone("Europe/Moscow"))
         logger.info(
-            (
+
                 "daily_report: Автоматическая задача ежедневного отчета завершена. "
                 f"(фактическое время: {now_end.strftime('%Y-%m-%d %H:%M:%S %Z')})"
-            )
+
         )
 
     @daily_report.before_loop
@@ -502,10 +501,10 @@ class ActivityTracker(commands.Cog):
         Доступно администраторам. Позволяет использовать тестовые данные.
         """
         logger.info(
-            (
+
                 f"Команда /activity вызвана пользователем {ctx.author} "
                 f"(ID: {ctx.author.id}), test_mode={test_mode}"
-            )
+
         )
         # Обновляем текущие сессии перед показом статистики
         await self.update_current_activities()
@@ -550,9 +549,9 @@ class ActivityTracker(commands.Cog):
     async def mystats_command(
         self,
         ctx: commands.Context,
-        user: Optional[discord.Member] = None,
-        month: Optional[int] = None,
-        year: Optional[int] = None,
+        user: discord.Member | None = None,
+        month: int | None = None,
+        year: int | None = None,
     ) -> None:
         """Показывает статистику игровой активности пользователя за указанный месяц (или текущий).
 
@@ -617,7 +616,7 @@ class ActivityTracker(commands.Cog):
                 return
 
             # Сортируем игры по времени
-            sorted_games: List[Tuple[str, int]] = sorted(
+            sorted_games: list[tuple[str, int]] = sorted(
                 monthly_data.items(), key=lambda item: item[1], reverse=True
             )
 
@@ -657,7 +656,7 @@ class ActivityTracker(commands.Cog):
     )
     @app_commands.describe(user="Пользователь, чью статистику показать (по умолчанию - вы).")
     async def mystatsall_command(
-        self, ctx: commands.Context, user: Optional[discord.Member] = None
+        self, ctx: commands.Context, user: discord.Member | None = None
     ) -> None:
         """Показывает суммарную статистику игровой активности пользователя за всё время."""
         target_user = user if user else ctx.author
@@ -680,7 +679,7 @@ class ActivityTracker(commands.Cog):
                 return
 
             # Сортируем игры по времени
-            sorted_games: List[Tuple[str, int]] = sorted(
+            sorted_games: list[tuple[str, int]] = sorted(
                 all_user_games.items(), key=lambda item: item[1], reverse=True
             )
 
@@ -750,10 +749,10 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-                        (
+
                             f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} "
                             "успешно отправлен (или данных не было)."
-                        )
+
                     )
             else:
                 if ctx.interaction:
@@ -766,10 +765,10 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-                        (
+
                             f"Не удалось отправить ежедневный отчет за "
                             f"{target_date.strftime('%d.%m.%Y')}. Проверьте логи."
-                        )
+
                     )
 
         except Exception as e:
@@ -835,10 +834,10 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-                        (
+
                             f"Ежемесячный отчет за {month_name} {year} "
                             "успешно отправлен (или данных не было)."
-                        )
+
                     )
             else:  # Этот else соответствует 'if success:' (строка 779)
                 if ctx.interaction:
@@ -851,10 +850,10 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-                        (
+
                             f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. "
                             "Проверьте логи."
-                        )
+
                     )
 
         except Exception as e:

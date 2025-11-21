@@ -11,7 +11,7 @@
 import asyncio
 import datetime
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import discord
 from discord import app_commands
@@ -46,8 +46,8 @@ class TwitchCog(commands.Cog):
     data_manager: TwitchDataManager
     client_id: str
     client_secret: str
-    twitch_api: Optional[TwitchAPI]
-    streamers_cache: Dict[str, Dict[str, Any]]
+    twitch_api: TwitchAPI | None
+    streamers_cache: dict[str, dict[str, Any]]
     check_interval: int
     first_run: bool
 
@@ -72,7 +72,7 @@ class TwitchCog(commands.Cog):
             self.twitch_api = TwitchAPI(self.client_id, self.client_secret)
 
         # Кеш для хранения информации о стримерах
-        self.streamers_cache: Dict[str, Dict[str, Any]] = (
+        self.streamers_cache: dict[str, dict[str, Any]] = (
             {}
         )  # {username: {'user_id': str, 'is_live': bool, 'stream_data': Optional[Dict[str, Any]]}}
 
@@ -144,7 +144,7 @@ class TwitchCog(commands.Cog):
                 return
 
             # Группируем стримеров по имени пользователя для оптимизации запросов к API
-            streamers_by_username: Dict[str, list[dict]] = {}
+            streamers_by_username: dict[str, list[dict]] = {}
             for streamer in streamers:
                 username = streamer["twitch_username"]
                 if username not in streamers_by_username:
@@ -204,12 +204,12 @@ class TwitchCog(commands.Cog):
                 # Если стример только что начал стрим
                 if is_live and status_changed:
                     logger.info(
-                        (
+
                             f"ОБНАРУЖЕН НОВЫЙ СТРИМ: Стример {username} начал стрим: "
                             f"{stream_data['title']}"
                             if stream_data
                             else "Нет данных о стриме"
-                        )
+
                     )
 
                     # Обновляем статус в БД
@@ -261,7 +261,7 @@ class TwitchCog(commands.Cog):
         logger.info("Бот готов, запускаем проверку стримов")
 
     async def send_stream_notification(
-        self, guild_id: int, channel_id: int, username: str, stream_data: Dict[str, Any]
+        self, guild_id: int, channel_id: int, username: str, stream_data: dict[str, Any]
     ) -> None:
         """Отправляет уведомление о начале стрима в указанный канал.
 
@@ -298,10 +298,10 @@ class TwitchCog(commands.Cog):
                 default_channel = guild.get_channel(default_channel_id)
                 if isinstance(default_channel, discord.TextChannel):
                     logger.info(
-                        (
+
                             f"Используем канал по умолчанию {default_channel.name} "
                             f"({default_channel_id})"
-                        )
+
                     )
                     channel = default_channel
                 else:
@@ -347,19 +347,19 @@ class TwitchCog(commands.Cog):
             permissions = channel.permissions_for(guild.me)
             if not permissions.send_messages:
                 logger.error(
-                    (
+
                         f"У бота нет прав на отправку сообщений в канал {channel.name} "
                         f"({channel.id}) на сервере {guild.name}"
-                    )
+
                 )
                 return
 
             if not permissions.embed_links:
                 logger.warning(
-                    (
+
                         f"У бота нет прав на отправку эмбедов в канал {channel.name} "
                         f"({channel.id}) на сервере {guild.name}"
-                    )
+
                 )
                 # Продолжаем, но без эмбеда
 
@@ -372,16 +372,16 @@ class TwitchCog(commands.Cog):
                     logger.info(f"Отправка сообщения с эмбедом в канал {channel.name}")
                     message = await channel.send(
                         content=(
-                            (
-                                (
-                                    (
-                                        (
+
+
+
+
                                             f"{mention_text}**{stream_data['user_name']}** "
                                             "начал(а) стрим на Twitch!"
-                                        )
-                                    )
-                                )
-                            )
+
+
+
+
                         ),
                         embed=embed,
                     )
@@ -390,27 +390,27 @@ class TwitchCog(commands.Cog):
                     logger.info(f"Отправка текстового сообщения в канал {channel.name}")
                     message = await channel.send(
                         content=(
-                            (
-                                (
-                                    (
-                                        (
+
+
+
+
                                             f"{mention_text}**{stream_data['user_name']}** "
                                             f"начал(а) стрим на Twitch!\n"
                                             f"Название: {stream_data['title']}\n"
                                             f"Ссылка: https://twitch.tv/{username}"
-                                        )
-                                    )
-                                )
-                            )
+
+
+
+
                         )
                     )
                     logger.info(f"Сообщение успешно отправлено: {message.id}")
 
                 logger.info(
-                    (
+
                         f"УСПЕХ: Отправлено уведомление о стриме {username} на сервер {guild.name} "
                         f"в канал {channel.name}"
-                    )
+
                 )
             except Exception as e:
                 logger.error(
@@ -420,10 +420,10 @@ class TwitchCog(commands.Cog):
 
         except discord.Forbidden:
             logger.error(
-                (
+
                     f"Недостаточно прав для отправки уведомления в канал {channel_id} "
                     f"на сервере {guild_id}"
-                )
+
             )
         except Exception as e:
             logger.error(f"Ошибка при отправке уведомления о стриме {username}: {e}", exc_info=True)
@@ -440,7 +440,7 @@ class TwitchCog(commands.Cog):
         self,
         interaction: discord.Interaction,
         twitch_username: str,
-        channel: Optional[discord.TextChannel] = None,
+        channel: discord.TextChannel | None = None,
     ) -> None:
         """Добавляет Twitch-стримера для отслеживания.
 
@@ -494,10 +494,10 @@ class TwitchCog(commands.Cog):
                     await interaction.response.send_message(msg, ephemeral=True)
                     return
                 logger.warning(
-                    (
+
                         f"Канал по умолчанию {default_channel_id} не найден или не TextChannel, "
                         f"используется текущий канал {notification_channel.name}"
-                    )
+
                 )
 
         # Проверяем, существует ли пользователь Twitch
@@ -675,7 +675,7 @@ class TwitchCog(commands.Cog):
         )
 
         # Группируем стримеров по каналу для уведомлений
-        streamers_by_channel: Dict[int, list[dict]] = {}
+        streamers_by_channel: dict[int, list[dict]] = {}
         for streamer in streamers:
             channel_id = streamer["channel_id"]
             if channel_id not in streamers_by_channel:
@@ -698,7 +698,7 @@ class TwitchCog(commands.Cog):
                 streamers_list.append(f"[{username}](https://twitch.tv/{username}) - {status}")
 
             # Разбиваем список стримеров на чанки по 900 символов (с запасом)
-            chunk: List[str] = []
+            chunk: list[str] = []
             chunk_len = 0
             for entry in streamers_list:
                 settings = get_settings()

@@ -3,7 +3,7 @@
 Используются в музыкальном модуле.
 """
 
-from typing import Any, Optional  # Оставляем только используемые типы
+from typing import Any  # Оставляем только используемые типы
 
 import discord
 
@@ -11,7 +11,7 @@ from .config import COLORS
 
 
 def create_embed(
-    title: str, description: str = "", color: Optional[discord.Color] = None, **kwargs: Any
+    title: str, description: str = "", color: discord.Color | None = None, **kwargs: Any
 ) -> discord.Embed:
     """Создает и возвращает объект discord.Embed с заданными параметрами.
 
@@ -72,7 +72,7 @@ def create_embed(
     return embed
 
 
-def format_duration(duration: Optional[int] = None) -> str:
+def format_duration(duration: int | None = None) -> str:
     """Форматирует секунды в MM:SS или HH:MM:SS.
 
     Args:

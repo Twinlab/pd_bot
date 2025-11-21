@@ -4,7 +4,7 @@ import asyncio
 import logging
 import subprocess
 from collections import deque
-from typing import TYPE_CHECKING, Any, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import discord
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 class Track:
     """Представляет музыкальный трек в очереди воспроизведения."""
 
-    def __init__(self, info: Dict[str, Any], requester: discord.Member) -> None:
+    def __init__(self, info: dict[str, Any], requester: discord.Member) -> None:
         """Инициализирует объект трека.
 
         Args:
@@ -31,10 +31,10 @@ class Track:
         """
         self.url: str = info.get("webpage_url", info.get("original_url", ""))
         self.title: str = info.get("title", "Неизвестное название")
-        self.duration: Optional[int] = info.get("duration")  # в секундах
-        self.thumbnail: Optional[str] = info.get("thumbnail")
-        self.uploader: Optional[str] = info.get("uploader")
-        self.uploader_url: Optional[str] = info.get("uploader_url")
+        self.duration: int | None = info.get("duration")  # в секундах
+        self.thumbnail: str | None = info.get("thumbnail")
+        self.uploader: str | None = info.get("uploader")
+        self.uploader_url: str | None = info.get("uploader_url")
         self.requester: discord.Member = requester
         self.id: str = info.get("id", "")  # ID видео/трека с сервиса
         self.extractor: str = info.get(
@@ -46,7 +46,7 @@ class Track:
         """Возвращает строковое представление трека (название и длительность)."""
         return f"**{self.title}** ({format_duration(self.duration)})"
 
-    def to_embed_field(self, index: Optional[int] = None) -> tuple[str, str, bool]:
+    def to_embed_field(self, index: int | None = None) -> tuple[str, str, bool]:
         """Форматирует информацию о треке для использования в качестве поля в discord.Embed.
 
         Args:
@@ -78,7 +78,7 @@ class MusicPlayer:
         Args:
             bot: Экземпляр бота commands.Bot.
         """
-        self.bot: "commands.Bot" = bot
+        self.bot: commands.Bot = bot
         self.voice_client: discord.VoiceClient | None = None
         self.text_channel: discord.TextChannel | discord.Thread | None = None
         self.queue: deque[Track] = deque()
@@ -90,8 +90,8 @@ class MusicPlayer:
         self.player_view: discord.ui.View | None = None
         self._play_next_task: asyncio.Task | None = None
         self._cleanup_task: asyncio.Task | None = None
-        self.yt_process: Optional[subprocess.Popen] = None
-        self.ffmpeg_process: Optional[subprocess.Popen] = None
+        self.yt_process: subprocess.Popen | None = None
+        self.ffmpeg_process: subprocess.Popen | None = None
 
     async def connect(self, channel: discord.VoiceChannel) -> bool:
         """Подключает или перемещает бота в указанный голосовой канал.
@@ -110,7 +110,7 @@ class MusicPlayer:
                 logger.info(f"Перемещение в голосовой канал: {channel.name} ({channel.id})")
                 await self.voice_client.move_to(channel)
                 return True
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.error(f"Таймаут при перемещении в голосовой канал: {channel.name}")
                 return False
             except Exception as e:
@@ -130,7 +130,7 @@ class MusicPlayer:
             )
             logger.info(f"Успешно подключились к {channel.name}")
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.error(f"Таймаут при подключении к голосовому каналу: {channel.name}")
             self.voice_client = None
             return False
@@ -140,11 +140,11 @@ class MusicPlayer:
                 self.voice_client = cast(discord.VoiceClient, channel.guild.voice_client)
                 if self.voice_client and self.voice_client.channel:
                     logger.warning(
-                        (
+
                             f"Найдено существующее голосовое подключение в "
                             f"{self.voice_client.channel.name}. "
                             "Перемещаемся, если необходимо."
-                        )
+
                     )
                 return await self.connect(channel)
             self.voice_client = None
@@ -347,14 +347,14 @@ class MusicPlayer:
                 )
 
                 if self.yt_process.stdout is None:
-                    raise IOError("Не удалось получить stdout от yt-dlp.")
+                    raise OSError("Не удалось получить stdout от yt-dlp.")
 
                 self.ffmpeg_process = subprocess.Popen(
                     ffmpeg_args, stdin=self.yt_process.stdout, stdout=subprocess.PIPE
                 )
 
                 if self.ffmpeg_process.stdout is None:
-                    raise IOError("Не удалось получить stdout от ffmpeg.")
+                    raise OSError("Не удалось получить stdout от ffmpeg.")
 
                 source = discord.PCMAudio(self.ffmpeg_process.stdout)
                 self.voice_client.play(
@@ -579,10 +579,10 @@ class MusicPlayer:
         """
         if not self.text_channel:
             logger.warning(
-                (
+
                     "_update_now_playing_message: text_channel не установлен, "
                     "сообщение не будет отправлено/обновлено."
-                )
+
             )
             return
 
@@ -680,17 +680,17 @@ class MusicPlayer:
                 )
             except discord.HTTPException as e:
                 logger.error(
-                    (
+
                         f"Не удалось отправить сообщение об ошибке в текстовый канал "
                         f"(HTTPException): {e}"
-                    )
+
                 )
             except Exception as e:
                 logger.error(
-                    (
+
                         f"Не удалось отправить сообщение об ошибке в текстовый канал "
                         f"(Общая ошибка): {e}"
-                    )
+
                 )
         else:
             logger.warning(

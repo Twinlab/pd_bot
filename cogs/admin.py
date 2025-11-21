@@ -12,8 +12,6 @@
 import asyncio
 import datetime
 import logging
-import subprocess
-from typing import Dict, Optional, Tuple
 
 import discord
 from discord.ext import commands
@@ -43,10 +41,10 @@ class AdminCog(commands.Cog):
         self.bot: commands.Bot = bot
         # Словарь для отслеживания времени последней очистки {channel_id: (timestamp, count)}
         # Используется для предотвращения спама командой clear
-        self.recent_purges: Dict[int, Tuple[float, Optional[int]]] = {}
+        self.recent_purges: dict[int, tuple[float, int | None]] = {}
 
     async def _clear_messages_helper(
-        self, ctx: commands.Context, count: int, user: Optional[discord.Member] = None
+        self, ctx: commands.Context, count: int, user: discord.Member | None = None
     ) -> int:
         """Вспомогательная функция для удаления сообщений, обходящая ограничение в 14 дней.
 
@@ -76,7 +74,7 @@ class AdminCog(commands.Cog):
         # Discord API позволяет массово удалять только сообщения не старше N дней
         settings = get_settings()
         days_limit = settings.limits.discord_api_days_limit
-        cutoff_date = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+        cutoff_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
             days=days_limit
         )
 
@@ -150,7 +148,7 @@ class AdminCog(commands.Cog):
         self,
         ctx: commands.Context,
         count: int = 10,
-        user: Optional[discord.Member] = None,
+        user: discord.Member | None = None,
     ) -> None:
         """
         Очищает указанное количество сообщений из текущего канала.
@@ -219,10 +217,10 @@ class AdminCog(commands.Cog):
         )
 
         logger.info(
-            (
+
                 f"Администратор {ctx.author} удалил {deleted_count} сообщений "
                 f"в канале {ctx.channel.name}"
-            )
+
         )
 
     @commands.hybrid_command(description="Кикнуть пользователя с сервера")
@@ -266,10 +264,10 @@ class AdminCog(commands.Cog):
             await member.send(f"Вы были кикнуты с сервера **{ctx.guild.name}**. Причина: {reason}")
         except discord.Forbidden:
             logger.warning(
-                (
+
                     f"Не удалось отправить DM пользователю {member} "
                     "при кике (ЛС закрыты или бот заблокирован)."
-                )
+
             )
         except Exception as dm_error:
             logger.error(f"Ошибка при отправке DM пользователю {member} при кике: {dm_error}")
@@ -302,7 +300,7 @@ class AdminCog(commands.Cog):
 
         settings = get_settings()
         message_content = settings.messages.success["restart_initiated"]
-        
+
         if is_slash and ctx.interaction:
             await ctx.interaction.followup.send(message_content, ephemeral=True)
         else:

@@ -10,6 +10,7 @@ services:
       - .env
     environment:
       - BOT_ENVIRONMENT=production
+      - TZ=Europe/Moscow
     deploy:
       resources:
         limits:

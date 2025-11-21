@@ -101,7 +101,7 @@ class LoggingCog(commands.Cog):
             return
 
         try:
-            with open(self.log_file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.log_file_path, encoding="utf-8", errors="ignore") as f:
                 buffer = ""
                 for line in f:
                     if (
@@ -137,7 +137,7 @@ class LoggingCog(commands.Cog):
         if not os.path.exists(self.log_file_path):
             return
         try:
-            with open(self.log_file_path, "r", encoding="utf-8", errors="ignore") as f:
+            with open(self.log_file_path, encoding="utf-8", errors="ignore") as f:
                 f.seek(self.last_read_position)
                 new_lines = f.readlines()
                 new_position = f.tell()

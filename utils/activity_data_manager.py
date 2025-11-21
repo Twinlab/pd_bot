@@ -3,7 +3,6 @@
 import logging
 from collections import defaultdict
 from datetime import date
-from typing import Dict
 
 import aiosqlite
 
@@ -61,7 +60,7 @@ class ActivityDataManager:
         except Exception as e:
             logger.error(f"Ошибка при обновлении daily_activity в БД: {e}", exc_info=True)
 
-    async def get_daily_stats(self, target_date: date) -> Dict[int, Dict[str, int]]:
+    async def get_daily_stats(self, target_date: date) -> dict[int, dict[str, int]]:
         """Получает всю статистику активности за указанную дату из БД.
 
         Args:
@@ -72,7 +71,7 @@ class ActivityDataManager:
             активности всех пользователей за указанную дату.
         """
         target_date_str = target_date.isoformat()
-        daily_stats: Dict[int, Dict[str, int]] = defaultdict(dict)
+        daily_stats: dict[int, dict[str, int]] = defaultdict(dict)
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute(
@@ -174,7 +173,7 @@ class ActivityDataManager:
 
         return success
 
-    async def get_monthly_stats(self, user_id: int, year: int, month: int) -> Dict[str, int]:
+    async def get_monthly_stats(self, user_id: int, year: int, month: int) -> dict[str, int]:
         """Получает статистику активности пользователя за указанный месяц и год из БД.
 
         Args:
@@ -186,7 +185,7 @@ class ActivityDataManager:
             Словарь вида {game_name: seconds}, содержащий статистику
             активности пользователя за указанный месяц.
         """
-        user_stats: Dict[str, int] = {}
+        user_stats: dict[str, int] = {}
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute(
@@ -216,7 +215,7 @@ class ActivityDataManager:
 
     async def get_aggregated_monthly_stats(
         self, year: int, month: int
-    ) -> Dict[int, Dict[str, int]]:
+    ) -> dict[int, dict[str, int]]:
         """Получает всю статистику активности за указанный месяц и год из БД.
 
         Args:
@@ -227,7 +226,7 @@ class ActivityDataManager:
             Словарь вида {user_id: {game_name: seconds}}, содержащий статистику
             активности всех пользователей за указанный месяц.
         """
-        monthly_stats: Dict[int, Dict[str, int]] = defaultdict(dict)
+        monthly_stats: dict[int, dict[str, int]] = defaultdict(dict)
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute(
@@ -254,7 +253,7 @@ class ActivityDataManager:
             )
             return {}
 
-    async def get_all_time_stats(self, user_id: int) -> Dict[str, int]:
+    async def get_all_time_stats(self, user_id: int) -> dict[str, int]:
         """Получает суммарную статистику активности пользователя за всё время из БД.
 
         Args:
@@ -264,7 +263,7 @@ class ActivityDataManager:
             Словарь вида {game_name: seconds}, содержащий суммарную статистику
             активности пользователя за всё время.
         """
-        user_stats: Dict[str, int] = defaultdict(int)
+        user_stats: dict[str, int] = defaultdict(int)
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 # Суммируем данные из monthly_activity

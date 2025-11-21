@@ -10,7 +10,7 @@ import logging
 import os
 import random
 from io import BytesIO
-from typing import Optional, cast
+from typing import cast
 
 import aiohttp
 import discord
@@ -79,7 +79,7 @@ def get_event_and_damage() -> tuple[str, int]:
 
 async def create_deathbattle_image(
     member1: discord.Member, member2: discord.Member
-) -> Optional[BytesIO]:
+) -> BytesIO | None:
     """Создает изображение для deathbattle, накладывая аватары участников на фон.
 
     Фоновое изображение 'assets/deathbattle.jpg'.
@@ -149,8 +149,8 @@ async def create_deathbattle_image(
 
 async def run_battle(
     ctx: commands.Context,
-    member1: Optional[discord.Member] = None,
-    member2: Optional[discord.Member] = None,
+    member1: discord.Member | None = None,
+    member2: discord.Member | None = None,
 ) -> None:
     """Основная функция для команды /deathbattle.
 

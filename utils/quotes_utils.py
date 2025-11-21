@@ -10,7 +10,6 @@
 import logging
 import random
 from pathlib import Path
-from typing import Optional
 
 import discord
 from discord.ext import commands
@@ -162,7 +161,7 @@ def get_images_from_folder(folder_name: str) -> list[Path]:
                 images.append(file)
     except Exception as e:
         logger.error(f"Ошибка при получении изображений из папки {folder_name}: {e}")
-        raise NoImagesFoundError(f"Не удалось получить изображения из папки '{folder_name}'")
+        raise NoImagesFoundError(f"Не удалось получить изображения из папки '{folder_name}'") from e
 
     if not images:
         raise NoImagesFoundError(f"В папке '{folder_name}' не найдено изображений")
@@ -426,8 +425,8 @@ class QuotesFolderSelect(discord.ui.Select):
 
                 async def send(
                     self,
-                    embed: Optional[discord.Embed] = None,
-                    file: Optional[discord.File] = None,
+                    embed: discord.Embed | None = None,
+                    file: discord.File | None = None,
                     ephemeral: bool = False,
                 ) -> discord.WebhookMessage:
                     return await self.interaction.followup.send(
@@ -489,7 +488,7 @@ class QuotesFolderSelect(discord.ui.Select):
 class QuotesSelectView(discord.ui.View):
     """View с выпадающим списком для выбора папки с изображениями quotes."""
 
-    def __init__(self, original_interaction: discord.Interaction, timeout: Optional[float] = None):
+    def __init__(self, original_interaction: discord.Interaction, timeout: float | None = None):
         """Инициализирует View для выбора папки.
 
         Args:

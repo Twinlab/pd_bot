@@ -12,7 +12,6 @@
 
 import logging
 import random
-from typing import Optional
 
 import discord
 from discord.ext import commands
@@ -64,8 +63,8 @@ class FunCog(commands.Cog):
     async def deathbattle(
         self,
         ctx: commands.Context,
-        member1: Optional[discord.Member] = None,
-        member2: Optional[discord.Member] = None,
+        member1: discord.Member | None = None,
+        member2: discord.Member | None = None,
     ) -> None:
         """Запускает битву между двумя пользователями с визуализацией сражения.
 
@@ -89,7 +88,7 @@ class FunCog(commands.Cog):
     @commands.hybrid_command(description="Показывает размер пениса")
     @command_error_handler
     async def penis(
-        self, ctx: commands.Context, mentioned_user: Optional[discord.Member] = None
+        self, ctx: commands.Context, mentioned_user: discord.Member | None = None
     ) -> None:
         """Генерирует случайный размер пениса.
 
@@ -103,7 +102,7 @@ class FunCog(commands.Cog):
     @commands.hybrid_command(description="Показывает аватар пользователя")
     @command_error_handler
     async def avatar(
-        self, ctx: commands.Context, mentioned_user: Optional[discord.Member] = None
+        self, ctx: commands.Context, mentioned_user: discord.Member | None = None
     ) -> None:
         """Показывает аватар указанного пользователя или автора команды.
 
@@ -116,7 +115,7 @@ class FunCog(commands.Cog):
 
     @commands.hybrid_command(description="Отправляет рандомную цитату указанного юзера")
     @command_error_handler
-    async def quote(self, ctx: commands.Context, user: Optional[str] = None) -> None:
+    async def quote(self, ctx: commands.Context, user: str | None = None) -> None:
         """Отправляет случайную цитату пользователя.
 
         Если user не указан, отправляет случайную цитату любого пользователя.

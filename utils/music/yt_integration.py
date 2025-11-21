@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yt_dlp
 
@@ -14,7 +14,7 @@ from .config import PROXY_URL
 logger = logging.getLogger("bot.utils.music.yt_integration")
 
 
-async def get_stream_info(url: str) -> Optional[Dict[str, Any]]:
+async def get_stream_info(url: str) -> dict[str, Any] | None:
     """
     Получает информацию о треке и URL аудиопотока с помощью yt-dlp без скачивания.
 
@@ -66,7 +66,7 @@ async def get_stream_info(url: str) -> Optional[Dict[str, Any]]:
 
         # Добавляем оригинальный URL для справки
         info["original_url"] = url
-        result: Dict[str, Any] = info
+        result: dict[str, Any] = info
         return result
 
     except yt_dlp.utils.DownloadError as e:
@@ -80,8 +80,8 @@ async def get_stream_info(url: str) -> Optional[Dict[str, Any]]:
 
 
 async def search_youtube(
-    query: str, max_results: Optional[int] = None
-) -> Optional[List[Dict[str, Any]]]:
+    query: str, max_results: int | None = None
+) -> list[dict[str, Any]] | None:
     """
     Ищет видео на YouTube по заданному запросу без фактического скачивания.
 

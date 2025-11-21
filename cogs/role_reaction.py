@@ -11,7 +11,6 @@
 """
 
 import logging
-from typing import Dict, Tuple
 
 import discord
 from discord import app_commands
@@ -28,7 +27,7 @@ class RoleReactionCog(commands.Cog):
 
     bot: commands.Bot
     data_manager: RoleReactionDataManager
-    message_cache: Dict[int, Tuple[int, int]]
+    message_cache: dict[int, tuple[int, int]]
 
     def __init__(self, bot: commands.Bot):
         """Инициализирует ког RoleReactionCog.
@@ -38,7 +37,7 @@ class RoleReactionCog(commands.Cog):
         """
         self.bot = bot
         self.data_manager = RoleReactionDataManager()
-        self.message_cache: Dict[int, Tuple[int, int]] = (
+        self.message_cache: dict[int, tuple[int, int]] = (
             {}
         )  # Кеш для хранения ID сообщений с реакциями {guild_id: (channel_id, message_id)}
 

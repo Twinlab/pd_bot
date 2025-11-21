@@ -17,14 +17,14 @@ import logging
 import random
 from collections import deque
 from datetime import time
-from typing import Any, Optional, Tuple
+from typing import Any
 
 import aiohttp
 from discord.ext import commands, tasks
 
 from config import get_settings
-from utils.database import load_anime_cache, save_anime_cache_item
 from utils.error_handler import command_error_handler
+from utils.models import AnimeCache
 
 logger: logging.Logger = logging.getLogger("bot.cogs.anime")  # Иерархическое имя логгера
 
@@ -48,7 +48,7 @@ class AnimeCog(commands.Cog):
         self.bot: commands.Bot = bot
         # Получаем настройки из новой системы конфигурации
         settings = get_settings()
-        self.channel_id: Optional[int] = settings.channels.anime
+        self.channel_id: int | None = settings.channels.anime
         self.cache_size: int = settings.anime.cache_size
         self.post_cache: deque[int] = deque(maxlen=self.cache_size)
         self._cache_loaded: bool = False  # Флаг для отслеживания загрузки кеша
@@ -79,10 +79,17 @@ class AnimeCog(commands.Cog):
             return
 
         try:
-            cached_ids = await load_anime_cache()
-            self.post_cache.extend(cached_ids)
+            # Загружаем последние N записей из БД, сортируя по времени добавления (новые первые)
+            last_items = await AnimeCache.all().order_by("-added_at").limit(self.cache_size)
+            
+            # Сортируем их по возрастанию времени (старые первые), чтобы правильно заполнить deque
+            sorted_items = sorted(last_items, key=lambda x: x.added_at)
+            
+            for item in sorted_items:
+                self.post_cache.append(item.post_id)
+
             self._cache_loaded = True
-            logger.info(f"Кеш аниме загружен из БД: {len(cached_ids)} элементов")
+            logger.info(f"Кеш аниме загружен из БД: {len(sorted_items)} элементов")
         except Exception as e:
             logger.error(f"Ошибка при загрузке кеша из БД: {e}", exc_info=True)
             self._cache_loaded = True
@@ -93,7 +100,7 @@ class AnimeCog(commands.Cog):
         self.morning_post.cancel()
         self.evening_post.cancel()
 
-    async def get_anime_image(self) -> Optional[Tuple[str, int]]:
+    async def get_anime_image(self) -> tuple[str, int] | None:
         """Асинхронно получает URL и ID случайного SFW аниме-изображения.
 
         Использует API safebooru.org для поиска изображений по настроенным тегам.
@@ -132,7 +139,7 @@ class AnimeCog(commands.Cog):
         logger.error("Не удалось найти новое изображение после нескольких попыток.")
         return None
 
-    async def _try_get_image_with_tags(self, settings: Any) -> Optional[Tuple[str, int]]:
+    async def _try_get_image_with_tags(self, settings: Any) -> tuple[str, int] | None:
         """Пробует получить изображение с выбранными тегами."""
         available_tags = settings.anime.tags
 
@@ -148,7 +155,7 @@ class AnimeCog(commands.Cog):
 
         return await self._make_api_request(all_tags, selected_tags, settings)
 
-    async def _try_get_image_fallback(self, settings: Any) -> Optional[Tuple[str, int]]:
+    async def _try_get_image_fallback(self, settings: Any) -> tuple[str, int] | None:
         """Fallback запрос только с тегом '1girl' и исключениями."""
         # Только обязательные теги: 1girl + исключения + рейтинг
         selected_tags = ["1girl"]
@@ -159,7 +166,7 @@ class AnimeCog(commands.Cog):
 
     async def _make_api_request(
         self, all_tags: list[str], selected_tags: list[str], settings: Any
-    ) -> Optional[Tuple[str, int]]:
+    ) -> tuple[str, int] | None:
         """Выполняет запрос к API safebooru.org и возвращает URL и ID поста."""
         api_url = "https://safebooru.org/index.php"
 
@@ -274,7 +281,8 @@ class AnimeCog(commands.Cog):
                 await channel.send(image_url)
                 self.post_cache.append(post_id)
                 try:
-                    await save_anime_cache_item(post_id)
+                    import time
+                    await AnimeCache.create(post_id=post_id, added_at=int(time.time()))
                 except Exception as e:
                     logger.error(f"Ошибка при сохранении поста {post_id} в БД: {e}", exc_info=True)
 

@@ -5,10 +5,11 @@ import logging
 import os
 import sys
 import traceback
+from collections.abc import Callable
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import colorlog
 
@@ -134,7 +135,7 @@ def setup_logging(
     return log_path
 
 
-def with_context(logger: logging.Logger, context: Dict[str, Any]) -> Callable[[F], F]:
+def with_context(logger: logging.Logger, context: dict[str, Any]) -> Callable[[F], F]:
     """
     Декоратор для добавления контекста к логам внутри функции.
 

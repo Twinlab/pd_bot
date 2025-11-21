@@ -1,6 +1,5 @@
 """Pydantic схемы для валидации данных API."""
 
-from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -10,14 +9,14 @@ class Item(BaseModel):
 
     id: int
     name: str
-    displayName: Optional[str] = None
-    image: Optional[str] = None
+    displayName: str | None = None
+    image: str | None = None
 
 
 class ItemResponse(BaseModel):
     """Ответ API Stratz на запрос предметов."""
 
-    items: List[Item]
+    items: list[Item]
 
 
 class ConstantsResponse(BaseModel):
@@ -29,4 +28,4 @@ class ConstantsResponse(BaseModel):
 class StratzResponse(BaseModel):
     """Корневой ответ API Stratz."""
 
-    data: Optional[ConstantsResponse] = None
+    data: ConstantsResponse | None = None

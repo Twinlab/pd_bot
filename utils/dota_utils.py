@@ -7,15 +7,15 @@
 """
 
 import logging
-from datetime import datetime, timezone
-from typing import Any, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 logger = logging.getLogger("bot.utils.dota_utils")
 
 # --- Функции форматирования данных Dota 2 ---
 
 
-def get_role(player_position: Optional[str]) -> str:
+def get_role(player_position: str | None) -> str:
     """Преобразует номер позиции игрока в читаемое название роли.
 
     Args:
@@ -30,7 +30,7 @@ def get_role(player_position: Optional[str]) -> str:
     return roles.get(str(player_position), "Неизвестно")
 
 
-def convert_average_rank_to_medal(average_rank: Optional[int]) -> str:
+def convert_average_rank_to_medal(average_rank: int | None) -> str:
     """Преобразует числовой ранг Dota 2 в строку с названием медали и звездами.
 
     Например, 52 -> 'Legend II'.
@@ -77,7 +77,7 @@ def convert_average_rank_to_medal(average_rank: Optional[int]) -> str:
         return "Unknown"
 
 
-def get_game_mode(game_mode_id: Optional[int], lobby_type_id: Optional[int] = None) -> str:
+def get_game_mode(game_mode_id: int | None, lobby_type_id: int | None = None) -> str:
     """Определяет название режима игры на основе ID режима и ID типа лобби из API Stratz.
 
     Args:
@@ -148,8 +148,8 @@ def get_game_mode(game_mode_id: Optional[int], lobby_type_id: Optional[int] = No
 
 
 def get_win_rates(
-    player_matches: List[dict[str, Any]], num_days: int = 7
-) -> Tuple[List[int], List[int], int, int]:
+    player_matches: list[dict[str, Any]], num_days: int = 7
+) -> tuple[list[int], list[int], int, int]:
     """Рассчитывает статистику побед и поражений за последние `num_days` дней.
 
     Также отдельно за последние 24 часа (первый элемент списков daily_wins/losses).
@@ -163,7 +163,7 @@ def get_win_rates(
         Кортеж: (daily_wins, daily_losses, total_period_wins, total_period_losses).
                Списки daily_* содержат статистику по дням, начиная с сегодня (индекс 0).
     """
-    now = datetime.now(timezone.utc)  # Текущее время UTC
+    now = datetime.now(UTC)  # Текущее время UTC
     # Инициализируем списки для хранения статистики по дням
     daily_wins = [0] * num_days
     daily_losses = [0] * num_days
@@ -185,7 +185,7 @@ def get_win_rates(
 
         # Получаем время начала матча и разницу в днях с текущим моментом
         try:
-            match_time = datetime.fromtimestamp(match["startDateTime"], timezone.utc)
+            match_time = datetime.fromtimestamp(match["startDateTime"], UTC)
         except (TypeError, ValueError):
             logger.warning(f"Некорректный timestamp в матче: {match.get('startDateTime')}")
             continue

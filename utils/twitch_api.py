@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, cast
 
 import aiohttp
 
@@ -36,11 +36,11 @@ class TwitchAPI:
         """
         self.client_id = client_id
         self.client_secret = client_secret
-        self.access_token: Optional[str] = None
+        self.access_token: str | None = None
         self.token_expires_at: float = 0
         self.base_url: str = "https://api.twitch.tv/helix"
         self.auth_url: str = "https://id.twitch.tv/oauth2/token"
-        self.session: Optional[aiohttp.ClientSession] = None
+        self.session: aiohttp.ClientSession | None = None
 
     async def initialize(self) -> None:
         """
@@ -103,8 +103,8 @@ class TwitchAPI:
             return False
 
     async def _make_request(
-        self, endpoint: str, params: Optional[Dict[str, Any]] = None
-    ) -> Optional[Dict[str, Any]]:
+        self, endpoint: str, params: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
         """
         Выполняет запрос к Twitch API с автоматическим обновлением токена.
 
@@ -134,7 +134,7 @@ class TwitchAPI:
                             f"Ответ API не является словарем: {type(json_response)} для {url}"
                         )
                         return None
-                    return cast(Dict[str, Any], json_response)
+                    return cast(dict[str, Any], json_response)
                 elif response.status == 401:
                     # Токен истек, получаем новый и повторяем запрос
                     logger.warning("Токен доступа истек, получаем новый")
@@ -150,7 +150,7 @@ class TwitchAPI:
             logger.error(f"Исключение при запросе к API: {e}", exc_info=True)
             return None
 
-    async def get_users(self, usernames: List[str]) -> List[Dict]:
+    async def get_users(self, usernames: list[str]) -> list[dict]:
         """
         Получает информацию о пользователях Twitch по их именам.
 
@@ -177,7 +177,7 @@ class TwitchAPI:
 
         return all_users
 
-    async def get_streams(self, user_ids: List[str]) -> List[Dict]:
+    async def get_streams(self, user_ids: list[str]) -> list[dict]:
         """
         Получает информацию о текущих стримах пользователей.
 
@@ -204,7 +204,7 @@ class TwitchAPI:
 
         return all_streams
 
-    async def get_user_by_username(self, username: str) -> Optional[Dict]:
+    async def get_user_by_username(self, username: str) -> dict | None:
         """
         Получает информацию о пользователе Twitch по его имени.
 
@@ -217,7 +217,7 @@ class TwitchAPI:
         users = await self.get_users([username])
         return users[0] if users else None
 
-    async def is_user_live(self, user_id: str) -> Tuple[bool, Optional[Dict]]:
+    async def is_user_live(self, user_id: str) -> tuple[bool, dict | None]:
         """
         Проверяет, ведет ли пользователь стрим в данный момент.
 

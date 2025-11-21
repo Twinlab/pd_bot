@@ -7,7 +7,6 @@
 
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple  # Union не используется
 
 import discord
 from discord import ButtonStyle, Interaction, ui
@@ -27,8 +26,8 @@ class ActivityView(ui.View):
     def __init__(
         self,
         bot: discord.Client,
-        data: Dict[int, Dict[str, int]],
-        ctx: Optional[commands.Context] = None,
+        data: dict[int, dict[str, int]],
+        ctx: commands.Context | None = None,
         report_type: str = "daily",
         date_str: str = "",
     ):
@@ -57,7 +56,7 @@ class ActivityView(ui.View):
         self.max_items_per_page = (
             20  # Количество пользователей на одной странице (ограничено для Discord)
         )
-        self.message: Optional[discord.Message] = None  # Для редактирования при таймауте
+        self.message: discord.Message | None = None  # Для редактирования при таймауте
 
         # Подготавливаем данные для отображения
         self.prepare_data()
@@ -66,7 +65,7 @@ class ActivityView(ui.View):
         # и отключаем кнопки навигации, если страниц мало
         self._update_buttons()
 
-    def _get_guild(self) -> Optional[discord.Guild]:
+    def _get_guild(self) -> discord.Guild | None:
         """Получает объект гильдии (сервера).
 
         Сначала пытается получить гильдию из контекста команды (self.ctx).
@@ -95,7 +94,7 @@ class ActivityView(ui.View):
         """
         # Отображение по пользователям
         # Фильтруем пользователей и игры с нулевым временем
-        self.users_data: Dict[int, Dict[str, int]] = {}
+        self.users_data: dict[int, dict[str, int]] = {}
         for user_id, activities in self.data.items():
             filtered_activities = {game: time for game, time in activities.items() if time > 0}
             if filtered_activities:
@@ -119,7 +118,7 @@ class ActivityView(ui.View):
             self.user_ids = sorted(self.users_data.keys(), key=get_username)
 
         # Отображение по играм
-        self.games_data: Dict[str, Dict[int, int]] = defaultdict(dict)
+        self.games_data: dict[str, dict[int, int]] = defaultdict(dict)
         for user_id, activities in self.users_data.items():
             for game, time in activities.items():
                 # Дополнительная проверка > 0 не нужна, т.к. users_data уже отфильтрован
@@ -249,7 +248,7 @@ class ActivityView(ui.View):
             self.games_data
         )  # Используем games_data, т.к. там только игры с >0 временем
 
-        most_popular_game: Optional[str] = None
+        most_popular_game: str | None = None
         max_players = 0
         # Находим самую популярную игру по количеству игроков
         for game, players in self.games_data.items():
@@ -336,8 +335,8 @@ class StatsView(ui.View):
     def __init__(
         self,
         title: str,
-        games_data: List[Tuple[str, int]],
-        user: Optional[discord.User | discord.Member] = None,
+        games_data: list[tuple[str, int]],
+        user: discord.User | discord.Member | None = None,
         items_per_page: int = 5,
     ):
         """Инициализирует представление статистики пользователя.
@@ -362,7 +361,7 @@ class StatsView(ui.View):
         self.max_pages = max(
             1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page
         )
-        self.message: Optional[discord.Message] = None  # Для редактирования при таймауте
+        self.message: discord.Message | None = None  # Для редактирования при таймауте
 
         # Обновляем состояние кнопок при инициализации
         self._update_buttons()

@@ -10,7 +10,6 @@
 """
 
 import logging
-from typing import Optional
 
 from discord.ext import commands
 
@@ -122,7 +121,7 @@ class LinksCog(commands.Cog):
 
     @commands.hybrid_command(description="Отвязать аккаунт Dota 2")
     @command_error_handler
-    async def unlink(self, ctx: commands.Context, player_id: Optional[int] = None) -> None:
+    async def unlink(self, ctx: commands.Context, player_id: int | None = None) -> None:
         """Отвязывает аккаунт Dota 2 от Discord аккаунта."""
         is_interaction = hasattr(ctx, "interaction") and ctx.interaction is not None
         if is_interaction:
