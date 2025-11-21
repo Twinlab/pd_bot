@@ -347,83 +347,29 @@ class TestRestartCommand:
     """Тесты для команды restart."""
 
     @pytest.mark.asyncio
-    @patch("subprocess.Popen")
-    async def test_restart_successful_prefix(self, mock_subprocess_popen: MagicMock, admin_cog: AdminCog, mock_context: commands.Context, mock_bot: commands.Bot):
+    async def test_restart_successful_prefix(self, admin_cog: AdminCog, mock_context: commands.Context, mock_bot: commands.Bot):
         """Тест успешного перезапуска как префиксной команды."""
         mock_bot.close = AsyncMock()
         mock_context.interaction = None # Префиксная команда
-        # Мок для response_message = await ctx.send(message_content)
-        mock_response_msg = AsyncMock(spec=discord.Message)
-        mock_context.send.return_value = mock_response_msg
-
-
-        # Используем asyncio.wait_for для имитации того, что bot.close() завершится
-        # и тест не будет висеть вечно, если Popen не вызовет exit
-        try:
-            await asyncio.wait_for(admin_cog.restart.callback(admin_cog, mock_context), timeout=1.0)
-        except asyncio.TimeoutError:
-            # Ожидаем TimeoutError, так как bot.close() должен остановить цикл событий
-            pass
-
+        
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            await admin_cog.restart.callback(admin_cog, mock_context)
 
         mock_context.send.assert_called_once_with("🔄 Перезапуск бота...")
-        mock_subprocess_popen.assert_called_once_with(
-            ["systemctl", "--user", "restart", "discord-bot.service"],
-            start_new_session=True
-        )
         mock_bot.close.assert_called_once()
 
 
     @pytest.mark.asyncio
-    @patch("subprocess.Popen")
-    async def test_restart_successful_slash(self, mock_subprocess_popen: MagicMock, admin_cog: AdminCog, mock_interaction_context: commands.Context, mock_bot: commands.Bot):
+    async def test_restart_successful_slash(self, admin_cog: AdminCog, mock_interaction_context: commands.Context, mock_bot: commands.Bot):
         """Тест успешного перезапуска как slash-команды."""
         mock_bot.close = AsyncMock()
 
-        try:
-            await asyncio.wait_for(admin_cog.restart.callback(admin_cog, mock_interaction_context), timeout=1.0)
-        except asyncio.TimeoutError:
-            pass
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            await admin_cog.restart.callback(admin_cog, mock_interaction_context)
 
         mock_interaction_context.defer.assert_called_once_with(ephemeral=True)
         mock_interaction_context.interaction.followup.send.assert_called_once_with("🔄 Перезапуск бота...", ephemeral=True)
-        mock_subprocess_popen.assert_called_once()
         mock_bot.close.assert_called_once()
-
-
-    @pytest.mark.asyncio
-    @patch("subprocess.Popen", side_effect=Exception("Popen failed"))
-    async def test_restart_subprocess_error_slash(self, mock_subprocess_popen: MagicMock, admin_cog: AdminCog, mock_interaction_context: commands.Context, mock_bot: commands.Bot):
-        """Тест ошибки subprocess при перезапуске (slash-команда)."""
-        mock_bot.close = AsyncMock() # close не должен быть вызван
-
-        await admin_cog.restart.callback(admin_cog, mock_interaction_context)
-
-        mock_interaction_context.defer.assert_called_once_with(ephemeral=True)
-        mock_interaction_context.interaction.followup.send.assert_called_once_with("🔄 Перезапуск бота...", ephemeral=True)
-        mock_interaction_context.interaction.edit_original_response.assert_called_once()
-        assert "❌ Ошибка при перезапуске: ```Popen failed```" in mock_interaction_context.interaction.edit_original_response.call_args[1]['content']
-        mock_bot.close.assert_not_called()
-
-
-    @pytest.mark.asyncio
-    @patch("subprocess.Popen", side_effect=Exception("Popen failed"))
-    async def test_restart_subprocess_error_prefix(self, mock_subprocess_popen: MagicMock, admin_cog: AdminCog, mock_context: commands.Context, mock_bot: commands.Bot):
-        """Тест ошибки subprocess при перезапуске (префиксная команда)."""
-        mock_bot.close = AsyncMock()
-        mock_context.interaction = None
-        # Мок для response_message = await ctx.send(message_content)
-        mock_response_msg = AsyncMock(spec=discord.Message)
-        mock_response_msg.edit = AsyncMock()
-        mock_context.send.return_value = mock_response_msg
-
-
-        await admin_cog.restart.callback(admin_cog, mock_context)
-
-        mock_context.send.assert_called_once_with("🔄 Перезапуск бота...")
-        mock_response_msg.edit.assert_called_once()
-        assert "❌ Ошибка при перезапуске: ```Popen failed```" in mock_response_msg.edit.call_args[1]['content']
-        mock_bot.close.assert_not_called()
 
 
 class TestCogErrorHandling:

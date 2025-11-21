@@ -1,114 +1,99 @@
-import os
-import tempfile
+"""Тесты для модуля dota_api."""
+
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from utils.dota_api import (
     fetch_items_data,
-    load_cache_from_disk,
+    get_cached_response,
     query_api,
     query_api_with_retry,
-    read_json_file,
-    save_cache_to_disk,
-    write_json_file,
+    save_to_cache,
 )
 
 
-@pytest.mark.asyncio
-async def test_read_write_json_file() -> None:
-    data = {"a": 1}
-    with tempfile.NamedTemporaryFile(delete=False) as tf:
-        path = tf.name
-    await write_json_file(path, data)
-    result = await read_json_file(path)
-    assert result == data
-    os.remove(path)
+class TestDotaAPI:
+    """Тесты для функций взаимодействия с API Dota 2."""
 
+    @pytest.mark.asyncio
+    async def test_get_cached_response_found(self):
+        """Тест получения данных из кэша (найдено)."""
+        mock_entry = MagicMock()
+        mock_entry.data = {"test": "data"}
+        mock_entry.timestamp = 1000000000
+        mock_entry.ttl = 300
 
-@pytest.mark.asyncio
-async def test_load_save_cache(monkeypatch) -> None:
-    # Мокаем open/read/write для изоляции
-    monkeypatch.setattr("builtins.open", lambda *a, **kw: tempfile.TemporaryFile())
-    await load_cache_from_disk()
-    await save_cache_to_disk()
+        with patch("utils.models.APICache.get_or_none", new_callable=AsyncMock) as mock_get, patch(
+            "time.time", return_value=1000000000
+        ):
+            mock_get.return_value = mock_entry
+            result = await get_cached_response("test_key")
+            assert result == {"test": "data"}
 
+    @pytest.mark.asyncio
+    async def test_get_cached_response_expired(self):
+        """Тест получения данных из кэша (истек срок действия)."""
+        mock_entry = MagicMock()
+        mock_entry.timestamp = 1000
+        mock_entry.ttl = 300
+        mock_entry.delete = AsyncMock()
 
-@pytest.mark.asyncio
-async def test_query_api(monkeypatch) -> None:
-    class DummySession:
-        async def post(self, url, json, headers):
-            return DummyResponse()
+        with patch("utils.models.APICache.get_or_none", new_callable=AsyncMock) as mock_get, patch(
+            "time.time", return_value=2000
+        ):
+            mock_get.return_value = mock_entry
+            result = await get_cached_response("test_key")
+            assert result is None
+            mock_entry.delete.assert_called_once()
 
-        async def __aenter__(self):
-            return self
+    @pytest.mark.asyncio
+    async def test_save_to_cache(self):
+        """Тест сохранения данных в кэш."""
+        with patch(
+            "utils.models.APICache.update_or_create", new_callable=AsyncMock
+        ) as mock_update:
+            await save_to_cache("test_key", {"data": 1})
+            mock_update.assert_called_once()
 
-        async def __aexit__(self, exc_type, exc, tb):
-            pass
+    @pytest.mark.asyncio
+    async def test_query_api_success(self):
+        """Тест успешного запроса к API."""
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json.return_value = {"data": {"hero": "Pudge"}}
 
-    class DummyResponse:
-        async def json(self):
-            return {"data": {}}
+        mock_session = MagicMock() # MagicMock, так как __aenter__ должен быть awaitable
+        mock_session.__aenter__.return_value = mock_session
+        mock_session.__aexit__.return_value = None
+        
+        # post возвращает контекстный менеджер, а не корутину
+        mock_post_cm = MagicMock()
+        mock_post_cm.__aenter__.return_value = mock_response
+        mock_post_cm.__aexit__.return_value = None
+        
+        mock_session.post.return_value = mock_post_cm
 
-        async def __aenter__(self):
-            return self
+        with patch("aiohttp.ClientSession", return_value=mock_session):
+            result = await query_api("query", "url", {})
+            assert result == {"hero": "Pudge"}
 
-        async def __aexit__(self, exc_type, exc, tb):
-            pass
+    @pytest.mark.asyncio
+    async def test_query_api_with_retry_success(self):
+        """Тест успешного запроса с повторными попытками."""
+        with patch("utils.dota_api.query_api", new_callable=AsyncMock) as mock_query:
+            mock_query.side_effect = [None, {"data": "success"}]
+            result = await query_api_with_retry("query", "url", {})
+            assert result == {"data": "success"}
+            assert mock_query.call_count == 2
 
-    monkeypatch.setattr("aiohttp.ClientSession", lambda: DummySession())
-    result = await query_api("query", "url", {}, {})
-    assert isinstance(result, dict) or result is None
-
-
-@pytest.mark.asyncio
-async def test_query_api_with_retry(monkeypatch) -> None:
-    class DummySession:
-        async def post(self, url, json, headers):
-            return DummyResponse()
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            pass
-
-    class DummyResponse:
-        async def json(self):
-            return {"data": {}}
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            pass
-
-    monkeypatch.setattr("aiohttp.ClientSession", lambda: DummySession())
-    result = await query_api_with_retry("query", "url", {}, {})
-    assert isinstance(result, dict) or result is None
-
-
-@pytest.mark.asyncio
-async def test_fetch_items_data(monkeypatch) -> None:
-    class DummySession:
-        async def get(self, url, headers=None):
-            return DummyResponse()
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            pass
-
-    class DummyResponse:
-        async def json(self):
-            return {1: {"name": "item1"}}
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            pass
-
-    monkeypatch.setattr("aiohttp.ClientSession", lambda: DummySession())
-    result = await fetch_items_data("url", {})
-    assert isinstance(result, dict)
+    @pytest.mark.asyncio
+    async def test_fetch_items_data_cached(self):
+        """Тест получения предметов из кэша."""
+        cached_data = {"1": {"name": "blink"}}
+        with patch(
+            "utils.dota_api.get_cached_response", new_callable=AsyncMock
+        ) as mock_get_cache:
+            mock_get_cache.return_value = cached_data
+            result = await fetch_items_data("url", {})
+            assert result == {1: {"name": "blink"}}

@@ -87,11 +87,14 @@ class UpdateCog(commands.Cog):
             else:
                 display_stdout = stdout_str
 
-            await message.edit(
-                content=f"✅ Обновление получено!\n```{display_stdout}```\n🔄 Перезапуск бота..."
-            )
+            try:
+                await message.edit(
+                    content=f"✅ Обновление получено!\n```{display_stdout}```\n🔄 Перезапуск бота..."
+                )
+            except Exception as e:
+                logger.error(f"Не удалось отправить сообщение об успехе: {e}")
 
-            # Даем время на отправку сообщения
+            # Даем время на отправку сообщения (если получилось)
             await asyncio.sleep(1)
             logger.info("Бот завершает работу для перезапуска (Docker поднимет его снова)...")
             await self.bot.close()

@@ -148,18 +148,13 @@ class TestUpdateCommand:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("asyncio.create_subprocess_shell") as mock_shell, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             await update_cog.update(update_cog, mock_context)
         
         # Проверки
         mock_context.defer.assert_called_once_with(ephemeral=True)
-        mock_shell.assert_called_once_with(
-            update_cog.bot.settings.update.restart_command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        # mock_shell больше не вызывается
         update_cog.bot.close.assert_called_once()
 
     @pytest.mark.asyncio
@@ -197,59 +192,8 @@ class TestUpdateCommand:
         assert update_message_call is not None
         assert "... (truncated)" in update_message_call[1]["content"]
 
-    @pytest.mark.asyncio
-    async def test_update_restart_command_error(self, update_cog, mock_context):
-        """Тест обработки ошибки команды перезапуска."""
-        # Настройка моков
-        mock_message = AsyncMock()
-        mock_context.send = AsyncMock(return_value=mock_message)
-        mock_context.defer = AsyncMock()
-        
-        mock_process = AsyncMock()
-        mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"Updating abc123..def456\n", b"")
-        )
-        
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("asyncio.create_subprocess_shell", side_effect=OSError("Permission denied")):
-            
-            await update_cog.update(update_cog, mock_context)
-        
-        # Проверяем что ошибка была обработана
-        edit_calls = mock_message.edit.call_args_list
-        error_message_call = None
-        for call in edit_calls:
-            if "не удалось инициировать перезапуск" in call[1]["content"]:
-                error_message_call = call
-                break
-        
-        assert error_message_call is not None
-
-    @pytest.mark.asyncio
-    async def test_update_restart_and_message_edit_both_fail(self, update_cog, mock_context):
-        """Тест обработки ошибки когда и перезапуск и редактирование сообщения не удаются."""
-        # Настройка моков
-        mock_message = AsyncMock()
-        # Первый edit проходит, второй (в обработке ошибки) падает
-        mock_message.edit.side_effect = [None, Exception("Discord API error")]
-        mock_context.send = AsyncMock(return_value=mock_message)
-        mock_context.defer = AsyncMock()
-        
-        mock_process = AsyncMock()
-        mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(
-            return_value=(b"Updating abc123..def456\n", b"")
-        )
-        
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("asyncio.create_subprocess_shell", side_effect=OSError("Permission denied")):
-            
-            # Не должно выбрасывать исключение даже если оба действия не удались
-            await update_cog.update(update_cog, mock_context)
-        
-        # Проверяем что было несколько вызовов edit (последний упал в except)
-        assert mock_message.edit.call_count >= 2
+    # Тесты test_update_restart_command_error и test_update_restart_and_message_edit_both_fail
+    # больше не актуальны, так как мы не запускаем внешнюю команду перезапуска
 
     @pytest.mark.asyncio
     async def test_update_message_edit_error(self, update_cog, mock_context):
@@ -268,7 +212,6 @@ class TestUpdateCommand:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("asyncio.create_subprocess_shell"), \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             # Не должно выбрасывать исключение
@@ -408,7 +351,6 @@ class TestUpdateCogIntegration:
         )
         
         with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("asyncio.create_subprocess_shell") as mock_shell, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             await update_cog.update(update_cog, mock_context)
@@ -418,9 +360,6 @@ class TestUpdateCogIntegration:
         assert "🔄 Получение последних изменений..." in edit_sequence[0]
         assert "✅ Обновление получено!" in edit_sequence[1]
         assert "🔄 Перезапуск бота..." in edit_sequence[1]
-        
-        # Проверяем что команда перезапуска была вызвана
-        mock_shell.assert_called_once()
         
         # Проверяем что бот закрылся
         update_cog.bot.close.assert_called_once()
@@ -440,13 +379,9 @@ class TestUpdateCogIntegration:
             return_value=(b"Already up to date.\n", b"")
         )
         
-        with patch("asyncio.create_subprocess_exec", return_value=mock_process), \
-             patch("asyncio.create_subprocess_shell") as mock_shell:
+        with patch("asyncio.create_subprocess_exec", return_value=mock_process):
             
             await update_cog.update(update_cog, mock_context)
-        
-        # Проверяем что команда перезапуска НЕ была вызвана
-        mock_shell.assert_not_called()
         
         # Проверяем что бот НЕ закрылся
         update_cog.bot.close.assert_not_called()

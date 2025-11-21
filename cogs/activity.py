@@ -65,18 +65,14 @@ class ActivityTracker(commands.Cog):
             bot: Экземпляр бота.
         """
         self.bot: commands.Bot = bot
-        # Инициализируем менеджер данных
         self.data_manager: ActivityDataManager = ActivityDataManager()
         logger.info("Инициализация ActivityDataManager завершена.")
 
-        # Словарь для отслеживания текущих активных игровых сессий в памяти
         # {user_id: (game_name, start_time_utc)}
         self.current_activities: dict[int, tuple[str, datetime]] = {}
 
-        # Флаг для предотвращения многократного запуска сканирования при on_ready
         self.scan_scheduled = False
 
-        # Запуск фоновых задач
         try:
             self.periodic_save.start()
             self.daily_report.start()
@@ -87,64 +83,42 @@ class ActivityTracker(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
-        """
-        Выполняется при готовности бота, запускает начальное сканирование активности.
-
-        Запускает асинхронную задачу сканирования активности всех пользователей
-        на всех серверах, чтобы обнаружить уже идущие игровые сессии.
-        Использует флаг для предотвращения многократного запуска при переподключениях.
-        """
-        # Используем флаг, чтобы сканирование выполнялось только один раз,
-        # даже если on_ready вызывается несколько раз (например, при переподключениях).
+        """Выполняется при готовности бота, запускает начальное сканирование активности."""
         if not self.scan_scheduled:
             self.scan_scheduled = True
             logger.info("Бот готов. Запуск начального сканирования активности...")
-            # Запускаем сканирование асинхронно, чтобы не блокировать on_ready
             asyncio.create_task(self.scan_all_users_activity())
 
     async def scan_all_users_activity(self) -> None:
-        """Сканирует активность всех пользователей на всех серверах при запуске бота.
-
-        Обнаруживает уже идущие игровые сессии и записывает их начало.
-        """
+        """Сканирует активность всех пользователей на всех серверах при запуске бота."""
         try:
-            # Ожидаем полной готовности кеша пользователей
             await self.bot.wait_until_ready()
             logger.info("Начинаем сканирование активности всех пользователей после запуска.")
             now_utc = datetime.now(pytz.UTC)
             found_activities = 0
             for guild in self.bot.guilds:
                 for member in guild.members:
-                    # Пропускаем ботов и известные приложения
                     if member.bot or is_application(member):
                         continue
 
-                    # Ищем активную игру (ActivityType.playing)
                     playing_activity = None
                     for activity in member.activities:
                         if activity.type == discord.ActivityType.playing:
                             playing_activity = activity
-                            break  # Берем первую найденную игру
+                            break
 
-                    if playing_activity and playing_activity.name:  # Убедимся, что имя есть
-                        # Записываем начало сессии в память
-                        assert playing_activity.name is not None  # для mypy
+                    if playing_activity and playing_activity.name:
+                        assert playing_activity.name is not None
                         self.current_activities[member.id] = (playing_activity.name, now_utc)
                         found_activities += 1
                         logger.debug(
-
-                                f"Обнаружена активная игра у {member.name} ({member.id}): "
-                                f"{playing_activity.name}"
-
+                            f"Обнаружена активная игра у {member.name} ({member.id}): "
+                            f"{playing_activity.name}"
                         )
 
             logger.info(
                 f"Сканирование завершено. Обнаружено {found_activities} активных игровых сессий."
             )
-
-            # Важно: Не обновляем БД сразу после сканирования,
-            # так как это может привести к записи нулевой длительности.
-            # periodic_save обработает эти сессии позже.
 
         except Exception as e:
             logger.error(f"Ошибка при сканировании активности пользователей: {e}", exc_info=True)

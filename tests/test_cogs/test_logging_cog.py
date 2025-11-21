@@ -220,7 +220,7 @@ class TestSendFullLogAndStartTail:
         await logging_cog._send_full_log_and_start_tail()
 
         # Проверяем, что файл логов был открыт для чтения
-        mock_file_open.assert_any_call(logging_cog.log_file_path, "r", encoding="utf-8", errors="ignore")
+        mock_file_open.assert_any_call(logging_cog.log_file_path, encoding="utf-8", errors="ignore")
         # Проверяем, что send_log_message был вызван
         logging_cog.send_log_message.assert_called_once()
         # Проверяем, что last_read_position обновлена

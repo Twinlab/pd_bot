@@ -25,8 +25,7 @@ class TestMainWithNewConfig:
             with patch("pathlib.Path.exists", return_value=False):
                 # Патчим другие зависимости
                 with patch("main.setup_logging"), \
-                     patch("main.initialize_database"), \
-                     patch("main.dota_api"):
+                     patch("main.initialize_database"):
                     
                     # Импортируем main после патчинга
                     import importlib
@@ -56,7 +55,6 @@ class TestMainWithNewConfig:
                 # Патчим зависимости
                 with patch("main.setup_logging"), \
                      patch("main.initialize_database"), \
-                     patch("main.dota_api"), \
                      patch("main.bot", mock_bot), \
                      patch("pathlib.Path.glob") as mock_glob:
                     
@@ -90,17 +88,16 @@ class TestMainWithNewConfig:
                 # Патчим зависимости
                 with patch("main.setup_logging"), \
                      patch("main.initialize_database", AsyncMock()) as mock_init_db, \
-                     patch("main.dota_api.load_cache_from_disk", AsyncMock()) as mock_load_cache, \
+                     patch("main.close_database", AsyncMock()) as mock_close_db, \
                      patch("main.load_cogs", AsyncMock()) as mock_load_cogs, \
                      patch("main.bot", mock_bot):
-                    
+    
                     # Импортируем и вызываем функцию
                     import main as main_module
                     await main_module.main()
                     
                     # Проверяем, что все функции были вызваны
                     mock_init_db.assert_called_once()
-                    mock_load_cache.assert_called_once()
                     mock_load_cogs.assert_called_once()
                     mock_bot.start.assert_called_once_with('test_token')
 
@@ -114,8 +111,7 @@ class TestMainWithNewConfig:
         }):
             with patch("pathlib.Path.exists", return_value=False):
                 with patch("main.setup_logging"), \
-                     patch("main.initialize_database"), \
-                     patch("main.dota_api"):
+                     patch("main.initialize_database"):
                     
                     # Импортируем main
                     import importlib
@@ -144,11 +140,11 @@ class TestMainWithNewConfig:
                 # Патчим зависимости
                 with patch("main.setup_logging"), \
                      patch("main.initialize_database", AsyncMock()), \
-                     patch("main.dota_api.load_cache_from_disk", AsyncMock()), \
+                     patch("main.close_database", AsyncMock()), \
                      patch("main.load_cogs", AsyncMock()), \
                      patch("main.bot", mock_bot), \
                      patch("main.logger") as mock_logger:
-                    
+    
                     # Импортируем и вызываем функцию
                     import main as main_module
                     await main_module.main()

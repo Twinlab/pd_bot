@@ -1100,119 +1100,30 @@ class TestCommandErrorHandler:
     """Тесты для обработчика ошибок команд."""
 
     @pytest.mark.asyncio
-    async def test_cog_command_error_missing_permissions(self, mock_bot, mock_context):
-        """Тест обработки ошибки MissingPermissions."""
+    async def test_cog_command_error_delegates_to_utils(self, mock_bot, mock_context):
+        """Тест делегирования обработки ошибок в utils.error_handler."""
         # Патчим tasks.loop, чтобы избежать проблем с циклом событий
         with patch('discord.ext.tasks.loop', return_value=MagicMock()):
             # Создаем экземпляр ActivityTracker
             activity_tracker = ActivityTracker(mock_bot)
             
-            # Создаем ошибку MissingPermissions
-            error = commands.MissingPermissions(["administrator"])
+            # Создаем ошибку
+            error = commands.CommandError("Test error")
             
-            # Вызываем обработчик ошибок
-            await activity_tracker.cog_command_error(mock_context, error)
+            # Настраиваем mock_context.command для логирования
+            mock_context.command = MagicMock()
+            mock_context.command.__str__.return_value = "test_command"
             
-            # Проверяем, что было отправлено сообщение об ошибке
-            mock_context.send.assert_called_once()
-            assert "недостаточно прав" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_user_not_found(self, mock_bot, mock_context):
-        """Тест обработки ошибки UserNotFound."""
-        # Создаем экземпляр ActivityTracker
-        activity_tracker = ActivityTracker(mock_bot)
-        
-        # Создаем ошибку UserNotFound
-        error = commands.UserNotFound("test_user")
-        
-        # Вызываем обработчик ошибок
-        await activity_tracker.cog_command_error(mock_context, error)
-        
-        # Проверяем, что было отправлено сообщение об ошибке
-        mock_context.send.assert_called_once()
-        assert "Не удалось найти" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_user_input_error(self, mock_bot, mock_context):
-        """Тест обработки ошибки UserInputError."""
-        # Создаем экземпляр ActivityTracker
-        activity_tracker = ActivityTracker(mock_bot)
-        
-        # Создаем ошибку UserInputError
-        error = commands.UserInputError("Invalid input")
-        
-        # Вызываем обработчик ошибок
-        await activity_tracker.cog_command_error(mock_context, error)
-        
-        # Проверяем, что было отправлено сообщение об ошибке
-        mock_context.send.assert_called_once()
-        assert "Ошибка ввода" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_command_error(self, mock_bot, mock_context):
-        """Тест обработки ошибки CommandError."""
-        # Создаем экземпляр ActivityTracker
-        activity_tracker = ActivityTracker(mock_bot)
-        
-        # Создаем ошибку CommandError
-        error = commands.CommandError("Command failed")
-        
-        # Настраиваем mock_context
-        mock_context.command = MagicMock()
-        mock_context.command.name = "test_command"
-        mock_context.interaction = None
-        
-        # Вызываем обработчик ошибок
-        await activity_tracker.cog_command_error(mock_context, error)
-        
-        # Проверяем, что было отправлено сообщение об ошибке
-        mock_context.send.assert_called_once()
-        assert "непредвиденная ошибка" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_general_exception(self, mock_bot, mock_context):
-        """Тест обработки общего исключения."""
-        # Создаем экземпляр ActivityTracker
-        activity_tracker = ActivityTracker(mock_bot)
-        
-        # Создаем общее исключение
-        error = Exception("General error")
-        
-        # Настраиваем mock_context
-        mock_context.command = MagicMock()
-        mock_context.command.name = "test_command"
-        mock_context.interaction = None
-        
-        # Вызываем обработчик ошибок
-        await activity_tracker.cog_command_error(mock_context, error)
-        
-        # Проверяем, что было отправлено сообщение об ошибке
-        mock_context.send.assert_called_once()
-        assert "критическая непредвиденная ошибка" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_with_interaction_done(self, mock_bot, mock_context):
-        """Тест обработки ошибки с завершенным взаимодействием."""
-        # Создаем экземпляр ActivityTracker
-        activity_tracker = ActivityTracker(mock_bot)
-        
-        # Создаем ошибку CommandError
-        error = commands.CommandError("Command failed")
-        
-        # Настраиваем mock_context с завершенным взаимодействием
-        mock_context.command = MagicMock()
-        mock_context.command.name = "test_command"
-        mock_context.interaction = MagicMock()
-        mock_context.interaction.response.is_done.return_value = True
-        mock_context.interaction.followup.send = AsyncMock()
-        
-        # Вызываем обработчик ошибок
-        await activity_tracker.cog_command_error(mock_context, error)
-        
-        # Проверяем, что было использовано followup.send
-        mock_context.interaction.followup.send.assert_called_once()
-        assert "непредвиденная ошибка" in mock_context.interaction.followup.send.call_args[0][0]
+            # Патчим safe_send_error и get_error_message
+            with patch('utils.error_handler.safe_send_error', new_callable=AsyncMock) as mock_safe_send, \
+                 patch('utils.error_handler.get_error_message', return_value="Error message") as mock_get_msg:
+                
+                # Вызываем обработчик ошибок
+                await activity_tracker.cog_command_error(mock_context, error)
+                
+                # Проверяем, что вызваны утилиты
+                mock_get_msg.assert_called_once_with(error)
+                mock_safe_send.assert_called_once_with(mock_context, "Error message")
 
 
 class TestReportCommandsEdgeCases:
