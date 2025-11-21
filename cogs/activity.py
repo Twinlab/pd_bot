@@ -507,42 +507,37 @@ class ActivityTracker(commands.Cog):
                 f"(ID: {ctx.author.id}), test_mode={test_mode}"
             )
         )
-        try:
-            # Обновляем текущие сессии перед показом статистики
-            await self.update_current_activities()
-            today_data = await self.data_manager.get_daily_stats(date.today())
+        # Обновляем текущие сессии перед показом статистики
+        await self.update_current_activities()
+        today_data = await self.data_manager.get_daily_stats(date.today())
 
-            # Генерация тестовых данных, если запрошено и реальных данных нет
-            if not today_data and test_mode:
-                logger.info("Генерация тестовых данных для /activity.")
-                today_data = {ctx.author.id: {"Test Game 1": 3660, "Test Game 2": 1800}}
-                # Пытаемся добавить еще пару пользователей для теста
-                if ctx.guild:
-                    members = [m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id][
-                        :2
-                    ]
-                    if len(members) > 0:
-                        today_data[members[0].id] = {"Another Game": 7200}
-                    if len(members) > 1:
-                        today_data[members[1].id] = {"Test Game 1": 1200, "Third Game": 5000}
+        # Генерация тестовых данных, если запрошено и реальных данных нет
+        if not today_data and test_mode:
+            logger.info("Генерация тестовых данных для /activity.")
+            today_data = {ctx.author.id: {"Test Game 1": 3660, "Test Game 2": 1800}}
+            # Пытаемся добавить еще пару пользователей для теста
+            if ctx.guild:
+                members = [m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id][
+                    :2
+                ]
+                if len(members) > 0:
+                    today_data[members[0].id] = {"Another Game": 7200}
+                if len(members) > 1:
+                    today_data[members[1].id] = {"Test Game 1": 1200, "Third Game": 5000}
 
-            if not today_data:
-                await ctx.send("Сегодня пока никто не играл в игры 😢", ephemeral=True)
-                return
+        if not today_data:
+            await ctx.send("Сегодня пока никто не играл в игры 😢", ephemeral=True)
+            return
 
-            # Создаем и отправляем View
-            view = ActivityView(self.bot, today_data, ctx=ctx, report_type="command")
-            prefix = "**[ТЕСТ]** " if test_mode else ""
-            message_content = f"{prefix}Статистика активности за сегодня:"
-            # Отправляем как обычное сообщение, чтобы кнопки были видны всем
-            message = await ctx.send(
-                content=f"{message_content}\n{view.get_current_content()}", view=view
-            )
-            view.message = message  # Сохраняем для таймаута
-
-        except Exception as e:
-            logger.error(f"Ошибка при выполнении команды /activity: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при получении статистики: {e}", ephemeral=True)
+        # Создаем и отправляем View
+        view = ActivityView(self.bot, today_data, ctx=ctx, report_type="command")
+        prefix = "**[ТЕСТ]** " if test_mode else ""
+        message_content = f"{prefix}Статистика активности за сегодня:"
+        # Отправляем как обычное сообщение, чтобы кнопки были видны всем
+        message = await ctx.send(
+            content=f"{message_content}\n{view.get_current_content()}", view=view
+        )
+        view.message = message  # Сохраняем для таймаута
 
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="mystats", description="Показать статистику игровой активности пользователя за месяц."
@@ -879,90 +874,16 @@ class ActivityTracker(commands.Cog):
 
     async def cog_command_error(
         self, ctx: commands.Context, error: Exception
-    ) -> None:  # Изменен тип error
+    ) -> None:
         """Локальный обработчик ошибок для команд этого кога."""
-        # Обработка стандартных ошибок
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send(
-                "У вас недостаточно прав для использования этой команды.", ephemeral=True
-            )
-            return
-        elif isinstance(error, commands.UserNotFound):  # UserNotFound наследуется от UserInputError
-            await ctx.send(
-                "Не удалось найти указанного пользователя. " "Проверьте правильность имени или ID.",
-                ephemeral=True,
-            )
-            return
+        from utils.error_handler import get_error_message, safe_send_error
 
-        elif (
-            isinstance(error, app_commands.AppCommandError)
-            and not isinstance(error, commands.UserInputError)
-            and not isinstance(error, commands.CommandError)
-        ):
-            # "Чистый" AppCommandError, который не является UserInputError или другим CommandError
-            logger.warning(f"Ошибка AppCommand в ActivityTracker: {error}", exc_info=True)
-            await ctx.send(f"Произошла ошибка команды: {error}", ephemeral=True)
-            return
-        elif isinstance(error, commands.UserInputError):
-            await ctx.send(f"Ошибка ввода: {error}", ephemeral=True)
-            return
-        elif isinstance(error, commands.CommandError):
-            command_name = getattr(ctx.command, "name", "N/A") if ctx.command else "N/A"
-            logger.error(
-                (
-                    f"Необработанная ошибка commands.CommandError в коге ActivityTracker "
-                    f"({command_name}): {error}"
-                ),
-                exc_info=True,
-            )
-            try:
-                if ctx.interaction and ctx.interaction.response.is_done():
-                    await ctx.interaction.followup.send(
-                        "Произошла непредвиденная ошибка при выполнении команды.",
-                        ephemeral=True,
-                    )
-                elif hasattr(ctx, "send"):
-                    await ctx.send(
-                        "Произошла непредвиденная ошибка при выполнении команды.",
-                        ephemeral=True,
-                    )
-                else:
-                    logger.error(
-                        "Не удалось отправить сообщение об ошибке: ctx не имеет метода send."
-                    )
-            except Exception as send_error:
-                logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
-            return
-
-        # Логируем все остальные ошибки (не CommandError и не AppCommandError)
-        command_name_for_exception = getattr(ctx.command, "name", "N/A") if ctx.command else "N/A"
         logger.error(
-            (
-                f"Необработанная ошибка Exception в коге ActivityTracker "
-                f"({command_name_for_exception}): {error}"
-            ),
-            exc_info=True,
+            f"Ошибка в команде {ctx.command}: {error}",
+            exc_info=error,
         )
-        try:
-            # Этот блок теперь для действительно непредвиденных Exception,
-            # которые не были пойманы выше как CommandError или AppCommandError.
-            error_message_to_send = (
-                "Произошла критическая непредвиденная ошибка при выполнении команды."
-            )
-            if ctx.interaction and ctx.interaction.response.is_done():
-                await ctx.interaction.followup.send(
-                    error_message_to_send,
-                    ephemeral=True,
-                )
-            elif hasattr(ctx, "send"):
-                await ctx.send(
-                    error_message_to_send,
-                    ephemeral=True,
-                )
-            else:
-                logger.error("Не удалось отправить сообщение об ошибке: ctx не имеет метода send.")
-        except Exception as send_error:
-            logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
+        error_message = get_error_message(error)
+        await safe_send_error(ctx, error_message)
 
 
 async def setup(bot: commands.Bot) -> None:

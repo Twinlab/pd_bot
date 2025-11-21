@@ -222,6 +222,13 @@ erDiagram
         int added_at
     }
 
+    api_cache {
+        string key PK
+        json data
+        float timestamp
+        int ttl
+    }
+
     links ||--o{ daily_activity : "tracks"
     daily_activity ||--o{ monthly_activity : "aggregates to"
 ```

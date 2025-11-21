@@ -1,0 +1,17 @@
+services:
+  bot:
+    build: .
+    container_name: pd_bot
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - /app/.venv # Prevent overwriting venv with host's venv if it exists
+    env_file:
+      - .env
+    environment:
+      - BOT_ENVIRONMENT=production
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G

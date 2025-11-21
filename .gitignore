@@ -51,3 +51,7 @@ build/
 
 # Исключаем план улучшений
 docs/IMPROVEMENT_PLAN_COMPLETE.md
+
+# Optimization plans and backups
+OPTIMIZATION_PLAN.md
+backups/

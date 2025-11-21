@@ -22,7 +22,7 @@ from discord.ext import commands
 
 from config import get_settings
 from utils import dota_api
-from utils.database import DB_PATH, initialize_database
+from utils.database import DB_PATH, close_database, initialize_database
 from utils.logging_utils import setup_logging
 
 # Настройка расширенного логирования
@@ -146,8 +146,8 @@ async def main() -> None:
     Основная асинхронная функция для инициализации и запуска бота.
 
     Выполняет следующие действия:
-    1. Инициализирует базу данных
-    2. Загружает кэш Dota API с диска
+    1. Инициализирует базу данных (Tortoise ORM)
+    2. Загружает кэш Dota API (теперь через ORM)
     3. Загружает коги и обработчики
     4. Запускает бота с токеном из конфигурации
 
@@ -156,13 +156,18 @@ async def main() -> None:
     """
     logger.info(f"Используется файл базы данных: {DB_PATH}")
     await initialize_database()
-    logger.info("Загрузка кэша Dota API с диска...")
-    await dota_api.load_cache_from_disk()
+    
+    # Инициализация кэша Dota API теперь происходит внутри модуля при первом запросе
+    # или мы можем явно вызвать init, если он нужен.
+    # await dota_api.init() # Пока закомментируем, так как переписываем dota_api
+
     await load_cogs()
     try:
         await bot.start(settings.bot_token)
     except Exception as e:
         logger.critical(f"Не удалось запустить бота: {e}")
+    finally:
+        await close_database()
 
 
 if __name__ == "__main__":

@@ -27,6 +27,8 @@ dependencies = [
     "typing-extensions",
     "ujson",
     "yt-dlp",
+    "tortoise-orm",
+    "aerich",
 ]
 
 [tool.setuptools]
@@ -34,9 +36,7 @@ packages = ["cogs", "handlers", "utils"]
 
 [project.optional-dependencies]
 dev = [
-    "flake8",
-    "black",
-    "isort",
+    "ruff",
     "mypy",
     "pre-commit",
     "pytest",
@@ -44,30 +44,42 @@ dev = [
     "pytest-cov",
     "freezegun",
     "types-pytz",
-    "flake8-docstrings",
-    "flake8-print",
-    "flake8-pyproject",
 ]
 
-[tool.black]
+[tool.ruff]
 line-length = 100
-target-version = ['py312']
-exclude = '''
-/(
-    \.git
-  | \.venv
-  | venv
-  | data
-  | downloads
-  | logs
-  | tests
-)/
-'''
+target-version = "py313"
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "data",
+    "downloads",
+    "logs",
+    "tests",
+]
 
-[tool.isort]
-profile = "black"
-line_length = 100
-skip = ["data", "downloads", "logs", ".venv", "venv", "tests"]
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "B",  # flake8-bugbear
+    "C4", # flake8-comprehensions
+    "UP", # pyupgrade
+]
+ignore = [
+    "E501", # line too long, handled by black
+    "B008", # do not perform function calls in argument defaults
+    "C901", # too complex
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
 
 [tool.mypy]
 python_version = 3.13
@@ -121,11 +133,3 @@ filterwarnings = [
     "ignore::DeprecationWarning:discord"
 ]
 
-[tool.flake8]
-max-line-length = 100
-exclude = ".git,__pycache__,.venv,venv,data,downloads,logs,tests"
-extend-ignore = ["E203", "W503"]
-show-source = true
-per-file-ignores = """
-    tests/*: D100,D101,D102,D103,D104,D105,D106,D107,D200,D201,D202,D203,D204,D205,D206,D207,D208,D209,D210,D211,D212,D213,D214,D215,D300,D301,D400,D401,D402,D403,D404,D405,D406,D407,D408,D409,D410,D411,D412,D413,D414,D415,D416,D417,D418,D419
-"""

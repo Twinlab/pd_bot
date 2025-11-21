@@ -50,22 +50,15 @@ class UpdateCog(commands.Cog):
     async def update(self, ctx: commands.Context) -> None:
         """(Владелец) Обновляет код бота (`git pull`) и перезапускает его.
 
-        Перезапуск выполняется через пользовательский сервис systemd.
-
-        ТРЕБОВАНИЯ:
-        - Для автоматического перезапуска в `config/bot_settings.yaml` должна быть
-          указана команда в `update.restart_command`.
-        - Например: `restart_command: "systemctl --user restart discord-bot.service"`
-        - Если команда не указана, бот просто завершит работу.
+        В среде Docker это выполняет `git pull` внутри контейнера (обновляя примонтированный код)
+        и завершает процесс, чтобы Docker перезапустил его с новым кодом.
         """
-        await ctx.defer(ephemeral=True)  # Делаем ответ эфемерным
+        await ctx.defer(ephemeral=True)
         logger.info(f"Команда /update вызвана пользователем {ctx.author} (ID: {ctx.author.id})")
         message = await ctx.send("🔄 Проверка обновлений...", ephemeral=True)
 
-        # Получаем обновления
         try:
             await message.edit(content="🔄 Получение последних изменений...")
-            # Используем asyncio.create_subprocess_exec для асинхронного выполнения
             process = await asyncio.create_subprocess_exec(
                 "git", "pull", stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
@@ -85,9 +78,8 @@ class UpdateCog(commands.Cog):
                 return
 
             # Успешное обновление
-            logger.info("Обновление получено, инициируем перезапуск бота через systemctl --user...")
-
-            # Ограничиваем длину вывода для Discord (максимум 1900 символов)
+            logger.info("Обновление получено, инициируем перезапуск...")
+            
             settings = get_settings()
             max_len = settings.limits.update_output_max_length
             if len(stdout_str) > max_len:
@@ -95,59 +87,18 @@ class UpdateCog(commands.Cog):
             else:
                 display_stdout = stdout_str
 
-            try:
-                await message.edit(
-                    content=f"✅ Обновление получено!\n```{display_stdout}```\n🔄 Перезапуск бота..."
-                )
-            except Exception as e:
-                logger.error(f"Ошибка при отправке сообщения об обновлении: {e}", exc_info=True)
-                # Не блокируем рестарт
-
-            # Получаем команду перезапуска из настроек
-            restart_command = self.bot.settings.update.restart_command
-
-            if not restart_command:
-                logger.warning(
-                    "Команда для перезапуска не задана в конфигурации. Бот будет остановлен."
-                )
-                await message.edit(
-                    content=(
-                        f"✅ Обновление получено!\n```{display_stdout}```\n"
-                        "⚠️ Команда для перезапуска не настроена. Бот будет остановлен."
-                    )
-                )
-                await asyncio.sleep(settings.timeouts.update_restart_delay)
-                await self.bot.close()
-                return
-
-            try:
-                logger.info(f"Выполнение команды перезапуска: {restart_command}")
-                # Используем shell=True, так как команда может быть сложной
-                process = await asyncio.create_subprocess_shell(
-                    restart_command,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                # Не ждем завершения, так как бот должен умереть
-                logger.info(f"Команда перезапуска '{restart_command}' отправлена.")
-            except Exception as e:
-                logger.error(f"Ошибка при выполнении команды перезапуска: {e}", exc_info=True)
-                try:
-                    await message.edit(
-                        content=f"✅ Обновление получено, но не удалось инициировать перезапуск: {e}"
-                    )
-                except Exception:
-                    pass
-                return
-
-            # Даем немного времени на запуск команды перед закрытием
-            await asyncio.sleep(settings.timeouts.update_restart_delay)
-            logger.info("Бот завершает работу для перезапуска...")
+            await message.edit(
+                content=f"✅ Обновление получено!\n```{display_stdout}```\n🔄 Перезапуск бота..."
+            )
+            
+            # Даем время на отправку сообщения
+            await asyncio.sleep(1)
+            logger.info("Бот завершает работу для перезапуска (Docker поднимет его снова)...")
             await self.bot.close()
 
         except FileNotFoundError:
             logger.error(
-                "Ошибка: команда 'git' не найдена. Убедитесь, что Git установлен и доступен в PATH."
+                "Ошибка: команда 'git' не найдена. Убедитесь, что Git установлен в контейнере."
             )
             await message.edit(content="❌ Ошибка: команда 'git' не найдена.")
         except Exception as e:

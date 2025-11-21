@@ -293,9 +293,8 @@ class AdminCog(commands.Cog):
         """
         (Только для владельца) Инициирует перезапуск бота.
 
-        Предполагается, что бот запущен через systemd user-сервис с именем
-        'discord-bot.service' и у пользователя бота есть права на выполнение
-        `systemctl --user restart discord-bot.service`.
+        В среде Docker это просто завершает процесс, а Docker (restart: unless-stopped)
+        автоматически запустит его снова.
         """
         is_slash = hasattr(ctx, "interaction") and ctx.interaction is not None
         if is_slash:
@@ -303,39 +302,15 @@ class AdminCog(commands.Cog):
 
         settings = get_settings()
         message_content = settings.messages.success["restart_initiated"]
-        response_message = None
+        
         if is_slash and ctx.interaction:
-            await ctx.interaction.followup.send(
-                message_content, ephemeral=True
-            )  # Используем followup
-        elif not is_slash:
-            response_message = await ctx.send(message_content)
-        else:  # Случай если is_slash True, но ctx.interaction почему-то None (маловероятно)
-            await ctx.send(message_content, ephemeral=True)
+            await ctx.interaction.followup.send(message_content, ephemeral=True)
+        else:
+            await ctx.send(message_content)
 
-        service_name = "discord-bot.service"  # Имя systemd user-сервиса
-        restart_command = ["systemctl", "--user", "restart", service_name]
-        try:
-            logger.info(f"Отправка команды перезапуска: {' '.join(restart_command)}")
-            subprocess.Popen(restart_command, start_new_session=True)
-
-            logger.info("Закрытие текущего экземпляра бота...")
-            await asyncio.sleep(settings.timeouts.admin_restart_delay)
-            await self.bot.close()  # Завершаем работу текущего процесса бота
-
-        except Exception as e:
-            logger.error(f"Ошибка при попытке перезапуска: {e}")
-            error_message = f"❌ Ошибка при перезапуске: ```{e}```"
-            # Пытаемся отредактировать исходное сообщение об ошибке или отправить новое
-            if is_slash and ctx.interaction:
-                await ctx.interaction.edit_original_response(content=error_message)
-            elif response_message:
-                try:
-                    await response_message.edit(content=error_message)
-                except discord.NotFound:
-                    await ctx.send(error_message)
-            else:
-                await ctx.send(error_message)
+        logger.info("Получена команда перезапуска. Завершаем работу...")
+        await asyncio.sleep(1) # Даем время на отправку сообщения
+        await self.bot.close()
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""
