@@ -135,11 +135,11 @@ async def fetch_items_data(url: str, headers: dict[str, str]) -> dict[int, dict[
     # Давайте сохранять обработанный словарь для удобства.
 
     if cached_data:
-         # В save_to_cache мы сохраняем то, что передаем.
-         # Если мы сохраним items_dict, то получим его обратно.
-         # Но get_cached_response возвращает Dict[str, Any].
-         # Нам нужно привести ключи к int.
-         return {int(k): v for k, v in cached_data.items()}
+        # В save_to_cache мы сохраняем то, что передаем.
+        # Если мы сохраним items_dict, то получим его обратно.
+        # Но get_cached_response возвращает Dict[str, Any].
+        # Нам нужно привести ключи к int.
+        return {int(k): v for k, v in cached_data.items()}
 
     query = """
     {

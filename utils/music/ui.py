@@ -229,22 +229,17 @@ class PlayerControlView(discord.ui.View):
             try:
                 await self.player.now_playing_message.edit(view=None)
                 logger.debug(
-                    f"Кнопки удалены из сообщения {self.player.now_playing_message.id} "
-                    "по таймауту."
+                    f"Кнопки удалены из сообщения {self.player.now_playing_message.id} по таймауту."
                 )
             except discord.NotFound:
                 logger.warning(
-
-                        f"Сообщение {self.player.now_playing_message.id} не найдено "
-                        "при попытке удалить View по таймауту."
-
+                    f"Сообщение {self.player.now_playing_message.id} не найдено "
+                    "при попытке удалить View по таймауту."
                 )
             except discord.HTTPException as e:
                 logger.error(
-
-                        "Ошибка HTTP при удалении View по таймауту для сообщения "
-                        f"{self.player.now_playing_message.id}: {e}"
-
+                    "Ошибка HTTP при удалении View по таймауту для сообщения "
+                    f"{self.player.now_playing_message.id}: {e}"
                 )
             except Exception as e:
                 logger.error(
@@ -287,7 +282,7 @@ class SearchResultSelect(discord.ui.Select):
         for i, entry in enumerate(entries):
             if not isinstance(entry, dict):
                 continue
-            label = entry.get("title", f"Неизвестное название {i+1}")
+            label = entry.get("title", f"Неизвестное название {i + 1}")
             if len(label) > 100:
                 label = label[:97] + "..."
             desc = (
@@ -335,10 +330,8 @@ class SearchResultSelect(discord.ui.Select):
                 )
             except discord.HTTPException as e:
                 logger.error(
-
-                        "Ошибка HTTP при удалении сообщения с результатами поиска "
-                        f"(ID: {interaction.message.id if interaction.message else 'None'}): {e}"
-
+                    "Ошибка HTTP при удалении сообщения с результатами поиска "
+                    f"(ID: {interaction.message.id if interaction.message else 'None'}): {e}"
                 )
             except Exception as e:  # Ловим другие возможные ошибки
                 logger.error(
@@ -448,26 +441,20 @@ class SearchView(discord.ui.View):
                 embed=None,
             )
             logger.debug(
-
-                    f"Сообщение о поиске (взаимодействие {self.original_interaction.id}) "
-                    "отредактировано по таймауту."
-
+                f"Сообщение о поиске (взаимодействие {self.original_interaction.id}) "
+                "отредактировано по таймауту."
             )
         except discord.NotFound:
             logger.warning(
-
-                    f"Исходное сообщение для SearchView "
-                    f"(взаимодействие {self.original_interaction.id}) "
-                    "не найдено при таймауте."
-
+                f"Исходное сообщение для SearchView "
+                f"(взаимодействие {self.original_interaction.id}) "
+                "не найдено при таймауте."
             )
         except discord.HTTPException as e:
             logger.error(
-
-                    "Ошибка HTTP при редактировании сообщения SearchView "
-                    "по таймауту "
-                    f"(взаимодействие {self.original_interaction.id}): {e}"
-
+                "Ошибка HTTP при редактировании сообщения SearchView "
+                "по таймауту "
+                f"(взаимодействие {self.original_interaction.id}): {e}"
             )
         except Exception as e:
             logger.error(

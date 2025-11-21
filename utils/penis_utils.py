@@ -15,9 +15,7 @@ from discord.ext import commands
 logger = logging.getLogger("bot.utils.penis_utils")
 
 
-async def measure_penis(
-    ctx: commands.Context, target_user: discord.Member | None = None
-) -> None:
+async def measure_penis(ctx: commands.Context, target_user: discord.Member | None = None) -> None:
     """
     Генерирует случайный размер пениса и отправляет его в виде эмбеда.
 

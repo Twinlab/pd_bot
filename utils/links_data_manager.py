@@ -84,11 +84,9 @@ class LinksDataManager:
                             # Если changes == 0 и записи нет,
                             # значит была ошибка, но она не перехвачена (?)
                             logger.warning(
-
-                                    f"Не удалось добавить привязку {discord_user_id}: "
-                                    f"{steam_id}, "
-                                    "но она и не существовала."
-
+                                f"Не удалось добавить привязку {discord_user_id}: "
+                                f"{steam_id}, "
+                                "но она и не существовала."
                             )
                     return False  # Возвращаем False, т.к. новая запись не добавлена
         except Exception as e:
@@ -231,7 +229,7 @@ class LinksDataManager:
 
             if not sync_os.path.exists(json_file_path) or sync_os.path.getsize(json_file_path) == 0:
                 logger.warning(
-                    f"Файл {json_file_path} не найден или пуст. " "Миграция привязок пропущена."
+                    f"Файл {json_file_path} не найден или пуст. Миграция привязок пропущена."
                 )
                 return 0  # Возвращаем 0 мигрированных записей
 
@@ -249,10 +247,8 @@ class LinksDataManager:
                                     links_to_insert.append((user_id, int(steam_id)))
                                 except (ValueError, TypeError):
                                     logger.warning(
-
-                                            f"Некорректный steam_id '{steam_id}' для {user_id} "
-                                            f"в {json_file_path}"
-
+                                        f"Некорректный steam_id '{steam_id}' для {user_id} "
+                                        f"в {json_file_path}"
                                     )
                         else:
                             logger.warning(
@@ -272,24 +268,18 @@ class LinksDataManager:
                                         links_to_insert.append((user_id, int(steam_id)))
                                     except (ValueError, TypeError):
                                         logger.warning(
-
-                                                f"Некорректный steam_id '{steam_id}' для {user_id} "
-                                                f"в старом формате {json_file_path}"
-
+                                            f"Некорректный steam_id '{steam_id}' для {user_id} "
+                                            f"в старом формате {json_file_path}"
                                         )
                             else:
                                 logger.warning(
-
-                                        f"Некорректный формат links для {user_id} "
-                                        f"в старом формате {json_file_path}"
-
+                                    f"Некорректный формат links для {user_id} "
+                                    f"в старом формате {json_file_path}"
                                 )
                         except (ValueError, TypeError):
                             logger.warning(
-
-                                    f"Некорректный user_id '{item.get('user')}' "
-                                    f"в старом формате {json_file_path}"
-
+                                f"Некорректный user_id '{item.get('user')}' "
+                                f"в старом формате {json_file_path}"
                             )
                     else:
                         logger.warning(
@@ -297,7 +287,7 @@ class LinksDataManager:
                         )
             else:
                 logger.error(
-                    f"Неизвестный формат данных в {json_file_path}. " "Миграция привязок прервана."
+                    f"Неизвестный формат данных в {json_file_path}. Миграция привязок прервана."
                 )
                 return 0
 
@@ -324,11 +314,9 @@ class LinksDataManager:
                     inserted_count = 0  # Сбрасываем счетчик при ошибке
 
             logger.info(
-
-                    f"Миграция привязок завершена. Вставлено {inserted_count} "
-                    "новых записей "
-                    "(дубликаты проигнорированы)."
-
+                f"Миграция привязок завершена. Вставлено {inserted_count} "
+                "новых записей "
+                "(дубликаты проигнорированы)."
             )
             return inserted_count
 

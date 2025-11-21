@@ -510,7 +510,7 @@ class QuotesSelectView(discord.ui.View):
         try:
             await self.original_interaction.edit_original_response(
                 content=(
-                    "⏱️ Время выбора папки истекло. " "Используйте команду снова, если необходимо."
+                    "⏱️ Время выбора папки истекло. Используйте команду снова, если необходимо."
                 ),
                 view=None,
                 embed=None,

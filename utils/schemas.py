@@ -1,6 +1,5 @@
 """Pydantic схемы для валидации данных API."""
 
-
 from pydantic import BaseModel
 
 

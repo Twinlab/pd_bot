@@ -282,6 +282,7 @@ class AnimeCog(commands.Cog):
                 self.post_cache.append(post_id)
                 try:
                     import time
+
                     await AnimeCache.create(post_id=post_id, added_at=int(time.time()))
                 except Exception as e:
                     logger.error(f"Ошибка при сохранении поста {post_id} в БД: {e}", exc_info=True)

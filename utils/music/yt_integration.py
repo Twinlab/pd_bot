@@ -79,9 +79,7 @@ async def get_stream_info(url: str) -> dict[str, Any] | None:
         return None
 
 
-async def search_youtube(
-    query: str, max_results: int | None = None
-) -> list[dict[str, Any]] | None:
+async def search_youtube(query: str, max_results: int | None = None) -> list[dict[str, Any]] | None:
     """
     Ищет видео на YouTube по заданному запросу без фактического скачивания.
 

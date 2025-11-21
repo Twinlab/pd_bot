@@ -37,9 +37,9 @@ class RoleReactionCog(commands.Cog):
         """
         self.bot = bot
         self.data_manager = RoleReactionDataManager()
-        self.message_cache: dict[int, tuple[int, int]] = (
-            {}
-        )  # Кеш для хранения ID сообщений с реакциями {guild_id: (channel_id, message_id)}
+        self.message_cache: dict[
+            int, tuple[int, int]
+        ] = {}  # Кеш для хранения ID сообщений с реакциями {guild_id: (channel_id, message_id)}
 
     async def cog_load(self) -> None:
         """Вызывается при загрузке кога.
@@ -530,7 +530,7 @@ class RoleReactionCog(commands.Cog):
             )
         except Exception as e:
             logger.error(
-                f"Ошибка при снятии роли {role.name} с пользователя " f"{member.display_name}: {e}",
+                f"Ошибка при снятии роли {role.name} с пользователя {member.display_name}: {e}",
                 exc_info=True,
             )
 

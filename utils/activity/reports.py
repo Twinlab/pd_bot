@@ -453,10 +453,8 @@ async def run_automatic_monthly_report(cog_instance: "ActivityTracker") -> None:
             return  # Запускаем только первого числа
 
         logger.info(
-
-                "run_automatic_monthly_report: Запуск формирования ежемесячного отчета "
-                "за предыдущий месяц."
-
+            "run_automatic_monthly_report: Запуск формирования ежемесячного отчета "
+            "за предыдущий месяц."
         )
         # Определяем предыдущий месяц и год
         first_day_of_current_month = today.replace(day=1)

@@ -140,11 +140,9 @@ class MusicPlayer:
                 self.voice_client = cast(discord.VoiceClient, channel.guild.voice_client)
                 if self.voice_client and self.voice_client.channel:
                     logger.warning(
-
-                            f"Найдено существующее голосовое подключение в "
-                            f"{self.voice_client.channel.name}. "
-                            "Перемещаемся, если необходимо."
-
+                        f"Найдено существующее голосовое подключение в "
+                        f"{self.voice_client.channel.name}. "
+                        "Перемещаемся, если необходимо."
                     )
                 return await self.connect(channel)
             self.voice_client = None
@@ -579,10 +577,8 @@ class MusicPlayer:
         """
         if not self.text_channel:
             logger.warning(
-
-                    "_update_now_playing_message: text_channel не установлен, "
-                    "сообщение не будет отправлено/обновлено."
-
+                "_update_now_playing_message: text_channel не установлен, "
+                "сообщение не будет отправлено/обновлено."
             )
             return
 
@@ -680,17 +676,13 @@ class MusicPlayer:
                 )
             except discord.HTTPException as e:
                 logger.error(
-
-                        f"Не удалось отправить сообщение об ошибке в текстовый канал "
-                        f"(HTTPException): {e}"
-
+                    f"Не удалось отправить сообщение об ошибке в текстовый канал "
+                    f"(HTTPException): {e}"
                 )
             except Exception as e:
                 logger.error(
-
-                        f"Не удалось отправить сообщение об ошибке в текстовый канал "
-                        f"(Общая ошибка): {e}"
-
+                    f"Не удалось отправить сообщение об ошибке в текстовый канал "
+                    f"(Общая ошибка): {e}"
                 )
         else:
             logger.warning(

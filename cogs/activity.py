@@ -141,10 +141,8 @@ class ActivityTracker(commands.Cog):
             logger.info("Финальное сохранение активности завершено.")
         except RuntimeError as e:
             logger.warning(
-
-                    "Не удалось выполнить финальное сохранение активности "
-                    f"(возможно, цикл событий остановлен): {e}"
-
+                "Не удалось выполнить финальное сохранение активности "
+                f"(возможно, цикл событий остановлен): {e}"
             )
         except Exception as e:
             logger.error(
@@ -172,10 +170,8 @@ class ActivityTracker(commands.Cog):
             return  # Нечего обновлять
 
         logger.debug(
-
-                f"update_current_activities: Обновление "
-                f"{len(self.current_activities)} активных сессий..."
-
+            f"update_current_activities: Обновление "
+            f"{len(self.current_activities)} активных сессий..."
         )
 
         for user_id, (game_name, start_time) in list(self.current_activities.items()):
@@ -200,21 +196,17 @@ class ActivityTracker(commands.Cog):
             elif elapsed_seconds < 0:
                 # Обработка возможной смены системного времени или других аномалий
                 logger.warning(
-
-                        f"Обнаружено отрицательное время ({elapsed_seconds}s) для {user_id} "
-                        f"в {game_name}. "
-                        "Сбрасываем время начала сессии в памяти."
-
+                    f"Обнаружено отрицательное время ({elapsed_seconds}s) для {user_id} "
+                    f"в {game_name}. "
+                    "Сбрасываем время начала сессии в памяти."
                 )
                 # Обновляем только в памяти, чтобы избежать записи отрицательного времени
                 self.current_activities[user_id] = (game_name, now_utc)
             elif elapsed_seconds >= max_record_threshold:
                 logger.warning(
-
-                        f"Обнаружено слишком большое время ({elapsed_seconds}s > "
-                        f"{max_record_threshold}s) "
-                        f"для {user_id} в {game_name}. Сессия будет проигнорирована и сброшена."
-
+                    f"Обнаружено слишком большое время ({elapsed_seconds}s > "
+                    f"{max_record_threshold}s) "
+                    f"для {user_id} в {game_name}. Сессия будет проигнорирована и сброшена."
                 )
                 # Удаляем аномальную сессию из памяти, чтобы она не копилась
                 if (
@@ -309,10 +301,8 @@ class ActivityTracker(commands.Cog):
                     min_record_threshold = settings.timeouts.activity_min_record
                     if elapsed_seconds >= min_record_threshold:
                         logger.debug(
-
-                                f"Завершилась сессия {user_id} - {before_game} "
-                                f"({elapsed_seconds} сек). Запись в БД..."
-
+                            f"Завершилась сессия {user_id} - {before_game} "
+                            f"({elapsed_seconds} сек). Запись в БД..."
                         )
                         # Запускаем запись асинхронно, чтобы не блокировать обработчик событий
                         asyncio.create_task(
@@ -320,10 +310,8 @@ class ActivityTracker(commands.Cog):
                         )
                     else:
                         logger.debug(
-
-                                f"Сессия {user_id} - {before_game} была слишком короткой "
-                                f"({elapsed_seconds} сек), пропуск записи."
-
+                            f"Сессия {user_id} - {before_game} была слишком короткой "
+                            f"({elapsed_seconds} сек), пропуск записи."
                         )
 
             # --- Обработка начала новой игры ---
@@ -405,10 +393,8 @@ class ActivityTracker(commands.Cog):
         except RuntimeError as e:
             if "Client has not been properly initialised" in str(e):
                 logger.debug(
-
-                        "before_monthly_report: Бот еще не инициализирован, "
-                        "задача будет запущена позже."
-
+                    "before_monthly_report: Бот еще не инициализирован, "
+                    "задача будет запущена позже."
                 )
             else:
                 logger.error(f"Ошибка в before_monthly_report: {e}", exc_info=True)
@@ -428,19 +414,15 @@ class ActivityTracker(commands.Cog):
         """
         now = datetime.now(pytz.timezone("Europe/Moscow"))
         logger.info(
-
-                "daily_report: Запуск автоматической задачи ежедневного отчета... "
-                f"(фактическое время: {now.strftime('%Y-%m-%d %H:%M:%S %Z')})"
-
+            "daily_report: Запуск автоматической задачи ежедневного отчета... "
+            f"(фактическое время: {now.strftime('%Y-%m-%d %H:%M:%S %Z')})"
         )
         # Вызываем перенесенную логику
         await run_automatic_daily_report(self)
         now_end = datetime.now(pytz.timezone("Europe/Moscow"))
         logger.info(
-
-                "daily_report: Автоматическая задача ежедневного отчета завершена. "
-                f"(фактическое время: {now_end.strftime('%Y-%m-%d %H:%M:%S %Z')})"
-
+            "daily_report: Автоматическая задача ежедневного отчета завершена. "
+            f"(фактическое время: {now_end.strftime('%Y-%m-%d %H:%M:%S %Z')})"
         )
 
     @daily_report.before_loop
@@ -475,10 +457,8 @@ class ActivityTracker(commands.Cog):
         Доступно администраторам. Позволяет использовать тестовые данные.
         """
         logger.info(
-
-                f"Команда /activity вызвана пользователем {ctx.author} "
-                f"(ID: {ctx.author.id}), test_mode={test_mode}"
-
+            f"Команда /activity вызвана пользователем {ctx.author} "
+            f"(ID: {ctx.author.id}), test_mode={test_mode}"
         )
         # Обновляем текущие сессии перед показом статистики
         await self.update_current_activities()
@@ -490,9 +470,7 @@ class ActivityTracker(commands.Cog):
             today_data = {ctx.author.id: {"Test Game 1": 3660, "Test Game 2": 1800}}
             # Пытаемся добавить еще пару пользователей для теста
             if ctx.guild:
-                members = [m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id][
-                    :2
-                ]
+                members = [m for m in ctx.guild.members if not m.bot and m.id != ctx.author.id][:2]
                 if len(members) > 0:
                     today_data[members[0].id] = {"Another Game": 7200}
                 if len(members) > 1:
@@ -723,10 +701,8 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-
-                            f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} "
-                            "успешно отправлен (или данных не было)."
-
+                        f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} "
+                        "успешно отправлен (или данных не было)."
                     )
             else:
                 if ctx.interaction:
@@ -739,10 +715,8 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-
-                            f"Не удалось отправить ежедневный отчет за "
-                            f"{target_date.strftime('%d.%m.%Y')}. Проверьте логи."
-
+                        f"Не удалось отправить ежедневный отчет за "
+                        f"{target_date.strftime('%d.%m.%Y')}. Проверьте логи."
                     )
 
         except Exception as e:
@@ -808,10 +782,8 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-
-                            f"Ежемесячный отчет за {month_name} {year} "
-                            "успешно отправлен (или данных не было)."
-
+                        f"Ежемесячный отчет за {month_name} {year} "
+                        "успешно отправлен (или данных не было)."
                     )
             else:  # Этот else соответствует 'if success:' (строка 779)
                 if ctx.interaction:
@@ -824,10 +796,8 @@ class ActivityTracker(commands.Cog):
                     )
                 else:
                     await ctx.send(
-
-                            f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. "
-                            "Проверьте логи."
-
+                        f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. "
+                        "Проверьте логи."
                     )
 
         except Exception as e:
@@ -845,9 +815,7 @@ class ActivityTracker(commands.Cog):
 
     # --- Обработчики ошибок для команд кога ---
 
-    async def cog_command_error(
-        self, ctx: commands.Context, error: Exception
-    ) -> None:
+    async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
         """Локальный обработчик ошибок для команд этого кога."""
         from utils.error_handler import get_error_message, safe_send_error
 

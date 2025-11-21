@@ -299,10 +299,8 @@ class TwitchDataManager:
 
                 await db.commit()
                 logger.debug(
-
-                        f"Обновлен статус стримера {twitch_username}: "
-                        f"{'онлайн' if is_live else 'оффлайн'}"
-
+                    f"Обновлен статус стримера {twitch_username}: "
+                    f"{'онлайн' if is_live else 'оффлайн'}"
                 )
                 return True
         except Exception as e:
@@ -347,10 +345,8 @@ class TwitchDataManager:
                         (current_time, stream_id, twitch_username, guild_id),
                     )
                     logger.debug(
-
-                            f"Обновлено время уведомления и ID стрима ({stream_id}) "
-                            f"для стримера {twitch_username}"
-
+                        f"Обновлено время уведомления и ID стрима ({stream_id}) "
+                        f"для стримера {twitch_username}"
                     )
                 else:
                     # Обновляем только время уведомления

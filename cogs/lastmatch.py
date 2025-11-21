@@ -33,9 +33,7 @@ class LastMatchCog(commands.Cog):
 
     @commands.hybrid_command(description="Показать информацию о последнем матче Dota 2")
     @command_error_handler
-    async def lastmatch(
-        self, ctx: commands.Context, member: discord.Member | None = None
-    ) -> None:
+    async def lastmatch(self, ctx: commands.Context, member: discord.Member | None = None) -> None:
         """Показывает информацию о последнем матче Dota 2.
 
         Для указанного пользователя (или автора команды).

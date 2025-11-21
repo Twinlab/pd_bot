@@ -74,9 +74,7 @@ class AdminCog(commands.Cog):
         # Discord API позволяет массово удалять только сообщения не старше N дней
         settings = get_settings()
         days_limit = settings.limits.discord_api_days_limit
-        cutoff_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(
-            days=days_limit
-        )
+        cutoff_date = datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days_limit)
 
         messages_to_delete = []
         # Собираем историю сообщений (берем с запасом, т.к. будем фильтровать)
@@ -217,10 +215,8 @@ class AdminCog(commands.Cog):
         )
 
         logger.info(
-
-                f"Администратор {ctx.author} удалил {deleted_count} сообщений "
-                f"в канале {ctx.channel.name}"
-
+            f"Администратор {ctx.author} удалил {deleted_count} сообщений "
+            f"в канале {ctx.channel.name}"
         )
 
     @commands.hybrid_command(description="Кикнуть пользователя с сервера")
@@ -264,10 +260,8 @@ class AdminCog(commands.Cog):
             await member.send(f"Вы были кикнуты с сервера **{ctx.guild.name}**. Причина: {reason}")
         except discord.Forbidden:
             logger.warning(
-
-                    f"Не удалось отправить DM пользователю {member} "
-                    "при кике (ЛС закрыты или бот заблокирован)."
-
+                f"Не удалось отправить DM пользователю {member} "
+                "при кике (ЛС закрыты или бот заблокирован)."
             )
         except Exception as dm_error:
             logger.error(f"Ошибка при отправке DM пользователю {member} при кике: {dm_error}")
@@ -307,7 +301,7 @@ class AdminCog(commands.Cog):
             await ctx.send(message_content)
 
         logger.info("Получена команда перезапуска. Завершаем работу...")
-        await asyncio.sleep(1) # Даем время на отправку сообщения
+        await asyncio.sleep(1)  # Даем время на отправку сообщения
         await self.bot.close()
 
     async def cog_unload(self) -> None:

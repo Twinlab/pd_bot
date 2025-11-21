@@ -151,7 +151,7 @@ class ActivityDataManager:
                     await db.commit()
                     success = True
                     logger.info(
-                        f"Транзакция переноса данных за {target_date_str} " "успешно завершена."
+                        f"Транзакция переноса данных за {target_date_str} успешно завершена."
                     )
 
                 except Exception as inner_e:
@@ -166,7 +166,7 @@ class ActivityDataManager:
 
         except Exception as outer_e:
             logger.error(
-                f"Ошибка подключения к БД при переносе данных за {target_date_str}: " f"{outer_e}",
+                f"Ошибка подключения к БД при переносе данных за {target_date_str}: {outer_e}",
                 exc_info=True,
             )
             success = False
@@ -207,8 +207,7 @@ class ActivityDataManager:
             return user_stats
         except Exception as e:
             logger.error(
-                f"Ошибка при получении monthly_stats из БД для {user_id} "
-                f"({year}-{month:02d}): {e}",
+                f"Ошибка при получении monthly_stats из БД для {user_id} ({year}-{month:02d}): {e}",
                 exc_info=True,
             )
             return {}
