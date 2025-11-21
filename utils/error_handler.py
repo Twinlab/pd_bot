@@ -3,7 +3,7 @@
 import functools
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 import discord
 from discord.ext import commands
