@@ -10,9 +10,6 @@ from discord.ext import commands
 
 logger = logging.getLogger("bot.utils.error_handler")
 
-# Типы для аннотаций
-F = TypeVar("F", bound=Callable[..., Any])
-
 # Словарь с пользовательскими сообщениями для разных типов ошибок
 ERROR_MESSAGES: dict[type, str] = {
     commands.MissingRequiredArgument: "Отсутствует обязательный аргумент: {error.param.name}",
@@ -40,7 +37,7 @@ ERROR_MESSAGES: dict[type, str] = {
 }
 
 
-def command_error_handler(func: F) -> F:
+def command_error_handler[F: Callable[..., Any]](func: F) -> F:
     """
     Декоратор для обработки ошибок команд.
 

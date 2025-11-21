@@ -81,10 +81,10 @@ class AnimeCog(commands.Cog):
         try:
             # Загружаем последние N записей из БД, сортируя по времени добавления (новые первые)
             last_items = await AnimeCache.all().order_by("-added_at").limit(self.cache_size)
-            
+
             # Сортируем их по возрастанию времени (старые первые), чтобы правильно заполнить deque
             sorted_items = sorted(last_items, key=lambda x: x.added_at)
-            
+
             for item in sorted_items:
                 self.post_cache.append(item.post_id)
 
