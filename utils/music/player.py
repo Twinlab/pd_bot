@@ -119,10 +119,12 @@ class MusicPlayer:
                 )
                 await self.disconnect()
         try:
-            # Получаем настройки
-            from config.settings import get_settings
-
-            settings = get_settings()
+            # Получаем настройки через self.bot.settings, если они доступны, иначе через get_settings
+            if hasattr(self.bot, "settings"):
+                settings = self.bot.settings
+            else:
+                from config.settings import get_settings
+                settings = get_settings()
 
             logger.info(f"Подключение к голосовому каналу: {channel.name} ({channel.id})")
             self.voice_client = await channel.connect(

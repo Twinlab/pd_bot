@@ -262,6 +262,7 @@ graph TD
     D --> D4[activity_data_manager.py]
     D --> D5[dota_api.py]
     D --> D6[music/]
+    D --> D8[models.py]
 
     D6 --> D6_1[player.py]
     D6 --> D6_2[ui.py]
@@ -283,7 +284,8 @@ graph TD
     B11 --> D2
     B12 --> D2
 
-    D1 --> E[SQLite DB]
+    D1 --> E[SQLite DB (Tortoise ORM)]
+    D8 --> E
     D5 --> F[Stratz API]
     D6_4 --> G[YouTube API]
 
@@ -354,5 +356,3 @@ graph TD
 - **Цветной вывод в консоль**: Разные уровни логирования отображаются разными цветами
 - **Пересылка в Discord**: Логи автоматически пересылаются в указанный Discord-канал
 - **Контекстное логирование**: Возможность добавления контекста к группе логов
-
-Подробная документация по системе логирования доступна в [LOGGING.md](LOGGING.md).

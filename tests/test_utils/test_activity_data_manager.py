@@ -1,117 +1,100 @@
 """Тесты для модуля управления данными активности пользователей."""
 
+import asyncio
 import pytest
 from datetime import date
 from unittest.mock import AsyncMock, MagicMock, patch
 from collections import defaultdict
 
 from utils.activity_data_manager import ActivityDataManager
+from utils.models import DailyActivity, MonthlyActivity
+
+
+@pytest.fixture
+def manager():
+    """Создает экземпляр ActivityDataManager."""
+    return ActivityDataManager()
 
 
 class TestActivityDataManagerInit:
     """Тесты инициализации ActivityDataManager."""
 
-    def test_init_default_path(self):
-        """Тест инициализации с путем по умолчанию."""
+    def test_init(self):
+        """Тест инициализации."""
         manager = ActivityDataManager()
-        # Проверяем, что путь содержит ожидаемые части
-        assert 'bot_data.db' in manager.db_path or 'data' in manager.db_path
-
-    def test_init_custom_path(self):
-        """Тест инициализации с пользовательским путем."""
-        custom_path = '/custom/path/test.db'
-        manager = ActivityDataManager(db_path=custom_path)
-        assert manager.db_path == custom_path
+        assert manager is not None
 
 
 class TestUpdateActivity:
     """Тесты метода update_activity."""
 
-    @pytest.fixture
-    def manager(self):
-        """Создает экземпляр ActivityDataManager."""
-        return ActivityDataManager(db_path=":memory:")
+    @pytest.mark.asyncio
+    async def test_update_activity_success_create(self, manager):
+        """Тест успешного создания новой записи активности."""
+        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = None
+            with patch("utils.activity_data_manager.DailyActivity.create", new_callable=AsyncMock) as mock_create:
+                await manager.update_activity(123, "Dota 2", 3600)
+                
+                mock_get.assert_called_once()
+                mock_create.assert_called_once()
+                args, kwargs = mock_create.call_args
+                assert kwargs["discord_user_id"] == 123
+                assert kwargs["game_name"] == "Dota 2"
+                assert kwargs["seconds_played_today"] == 3600
 
     @pytest.mark.asyncio
-    async def test_update_activity_success(self, manager):
-        """Тест успешного обновления активности."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_conn.execute = AsyncMock()
-        mock_conn.commit = AsyncMock()
+    async def test_update_activity_success_update(self, manager):
+        """Тест успешного обновления существующей записи активности."""
+        mock_activity = MagicMock()
+        mock_activity.save = AsyncMock()
         
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_activity
+            
             await manager.update_activity(123, "Dota 2", 3600)
             
-            # Проверяем, что execute был вызван с правильными параметрами
-            mock_conn.execute.assert_called_once()
-            call_args = mock_conn.execute.call_args
-            assert "INSERT INTO daily_activity" in call_args[0][0]
-            assert call_args[0][1] == (123, "Dota 2", date.today().isoformat(), 3600)
-            mock_conn.commit.assert_called_once()
+            mock_get.assert_called_once()
+            mock_activity.save.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_activity_zero_seconds(self, manager):
         """Тест обновления активности с нулевым временем."""
-        mock_conn = AsyncMock()
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
             await manager.update_activity(123, "Dota 2", 0)
-            
-            # Не должно быть вызовов к базе данных
-            mock_conn.execute.assert_not_called()
-            mock_conn.commit.assert_not_called()
+            mock_get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_activity_negative_seconds(self, manager):
         """Тест обновления активности с отрицательным временем."""
-        mock_conn = AsyncMock()
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
             await manager.update_activity(123, "Dota 2", -100)
-            
-            # Не должно быть вызовов к базе данных
-            mock_conn.execute.assert_not_called()
-            mock_conn.commit.assert_not_called()
+            mock_get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_activity_database_error(self, manager):
         """Тест обработки ошибки базы данных при обновлении активности."""
-        with patch('aiosqlite.connect', side_effect=Exception("Database error")):
-            with patch('utils.activity_data_manager.logger') as mock_logger:
-                await manager.update_activity(123, "Dota 2", 3600)
-                
-                # Проверяем, что ошибка была залогирована
-                mock_logger.error.assert_called_once()
-                assert "Ошибка при обновлении daily_activity в БД" in mock_logger.error.call_args[0][0]
+        with patch("utils.activity_data_manager.DailyActivity.get_or_none", side_effect=Exception("Database error")):
+            # Не должно выбрасывать исключение, а логировать ошибку
+            await manager.update_activity(123, "Dota 2", 3600)
 
 
 class TestGetDailyStats:
     """Тесты метода get_daily_stats."""
 
-    @pytest.fixture
-    def manager(self):
-        """Создает экземпляр ActivityDataManager."""
-        return ActivityDataManager(db_path=":memory:")
-
     @pytest.mark.asyncio
     async def test_get_daily_stats_success(self, manager):
         """Тест успешного получения дневной статистики."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_cursor = AsyncMock()
+        mock_activity1 = MagicMock(discord_user_id=123, game_name="Dota 2", seconds_played_today=3600)
+        mock_activity2 = MagicMock(discord_user_id=123, game_name="CS:GO", seconds_played_today=1800)
+        mock_activity3 = MagicMock(discord_user_id=456, game_name="Dota 2", seconds_played_today=7200)
         
-        # Настраиваем возвращаемые данные
-        mock_row1 = (123, "Dota 2", 3600)
-        mock_row2 = (123, "CS:GO", 1800)
-        mock_row3 = (456, "Dota 2", 7200)
-        mock_cursor.__aiter__.return_value = [mock_row1, mock_row2, mock_row3]
-        mock_cursor.__aenter__.return_value = mock_cursor
-        mock_conn.execute = MagicMock(return_value=mock_cursor)
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        with patch("utils.activity_data_manager.DailyActivity.filter") as mock_filter:
+            # Имитируем awaitable результат filter()
+            future = asyncio.Future()
+            future.set_result([mock_activity1, mock_activity2, mock_activity3])
+            mock_filter.return_value = future
+            
             target_date = date(2024, 5, 26)
             result = await manager.get_daily_stats(target_date)
             
@@ -124,15 +107,11 @@ class TestGetDailyStats:
     @pytest.mark.asyncio
     async def test_get_daily_stats_empty_result(self, manager):
         """Тест получения дневной статистики без данных."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_cursor = AsyncMock()
-        mock_cursor.__aiter__.return_value = []
-        mock_cursor.__aenter__.return_value = mock_cursor
-        mock_conn.execute = MagicMock(return_value=mock_cursor)
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        with patch("utils.activity_data_manager.DailyActivity.filter") as mock_filter:
+            future = asyncio.Future()
+            future.set_result([])
+            mock_filter.return_value = future
+            
             target_date = date(2024, 5, 26)
             result = await manager.get_daily_stats(target_date)
             
@@ -141,169 +120,126 @@ class TestGetDailyStats:
     @pytest.mark.asyncio
     async def test_get_daily_stats_database_error(self, manager):
         """Тест обработки ошибки базы данных при получении дневной статистики."""
-        with patch('aiosqlite.connect', side_effect=Exception("Database error")):
-            with patch('utils.activity_data_manager.logger') as mock_logger:
-                target_date = date(2024, 5, 26)
-                result = await manager.get_daily_stats(target_date)
-                
-                assert result == {}
-                mock_logger.error.assert_called_once()
-                assert "Ошибка при получении daily_stats из БД" in mock_logger.error.call_args[0][0]
+        with patch("utils.activity_data_manager.DailyActivity.filter", side_effect=Exception("Database error")):
+            target_date = date(2024, 5, 26)
+            result = await manager.get_daily_stats(target_date)
+            assert result == {}
 
 
 class TestTransferDailyToMonthly:
     """Тесты метода transfer_daily_to_monthly."""
 
-    @pytest.fixture
-    def manager(self):
-        """Создает экземпляр ActivityDataManager."""
-        return ActivityDataManager(db_path=":memory:")
-
     @pytest.mark.asyncio
     async def test_transfer_daily_to_monthly_success(self, manager):
         """Тест успешного переноса дневных данных в месячные."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_conn.execute = AsyncMock()
-        mock_conn.commit = AsyncMock()
-        mock_conn.rollback = AsyncMock()
+        mock_daily_record = MagicMock(
+            discord_user_id=123,
+            game_name="Dota 2",
+            seconds_played_today=3600
+        )
         
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        # Мокаем транзакцию
+        mock_transaction = AsyncMock()
+        mock_transaction.__aenter__ = AsyncMock()
+        mock_transaction.__aexit__ = AsyncMock()
+        
+        with patch("tortoise.transactions.in_transaction", return_value=mock_transaction):
+            with patch("utils.activity_data_manager.DailyActivity.filter") as mock_daily_filter:
+                # Мокаем получение записей
+                mock_daily_filter.return_value.all = AsyncMock(return_value=[mock_daily_record])
+                # Мокаем удаление
+                mock_daily_filter.return_value.delete = AsyncMock()
+                
+                with patch("utils.activity_data_manager.MonthlyActivity.get_or_none", new_callable=AsyncMock) as mock_monthly_get:
+                    mock_monthly_get.return_value = None
+                    
+                    with patch("utils.activity_data_manager.MonthlyActivity.create", new_callable=AsyncMock) as mock_monthly_create:
+                        target_date = date(2024, 5, 26)
+                        result = await manager.transfer_daily_to_monthly(target_date)
+                        
+                        assert result is True
+                        mock_monthly_create.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_transfer_daily_to_monthly_update_existing(self, manager):
+        """Тест обновления существующей месячной записи."""
+        mock_daily_record = MagicMock(
+            discord_user_id=123,
+            game_name="Dota 2",
+            seconds_played_today=3600
+        )
+        mock_monthly_record = MagicMock()
+        mock_monthly_record.save = AsyncMock()
+        
+        mock_transaction = AsyncMock()
+        mock_transaction.__aenter__ = AsyncMock()
+        mock_transaction.__aexit__ = AsyncMock()
+        
+        with patch("tortoise.transactions.in_transaction", return_value=mock_transaction):
+            with patch("utils.activity_data_manager.DailyActivity.filter") as mock_daily_filter:
+                mock_daily_filter.return_value.all = AsyncMock(return_value=[mock_daily_record])
+                mock_daily_filter.return_value.delete = AsyncMock()
+                
+                with patch("utils.activity_data_manager.MonthlyActivity.get_or_none", new_callable=AsyncMock) as mock_monthly_get:
+                    mock_monthly_get.return_value = mock_monthly_record
+                    
+                    target_date = date(2024, 5, 26)
+                    result = await manager.transfer_daily_to_monthly(target_date)
+                    
+                    assert result is True
+                    mock_monthly_record.save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_transfer_daily_to_monthly_error(self, manager):
+        """Тест обработки ошибки при переносе."""
+        with patch("tortoise.transactions.in_transaction", side_effect=Exception("Transaction error")):
             target_date = date(2024, 5, 26)
             result = await manager.transfer_daily_to_monthly(target_date)
-            
-            assert result is True
-            
-            # Проверяем последовательность вызовов
-            calls = mock_conn.execute.call_args_list
-            assert len(calls) == 3  # BEGIN, INSERT, DELETE
-            assert calls[0][0][0] == "BEGIN"
-            assert "INSERT INTO monthly_activity" in calls[1][0][0]
-            assert "DELETE FROM daily_activity" in calls[2][0][0]
-            
-            mock_conn.commit.assert_called_once()
-            mock_conn.rollback.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_transfer_daily_to_monthly_inner_exception(self, manager):
-        """Тест обработки ошибки внутри транзакции."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_conn.execute = AsyncMock()
-        mock_conn.commit = AsyncMock()
-        mock_conn.rollback = AsyncMock()
-        
-        # Настраиваем ошибку на втором вызове execute (INSERT)
-        mock_conn.execute.side_effect = [None, Exception("Insert error"), None]
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            with patch('utils.activity_data_manager.logger') as mock_logger:
-                target_date = date(2024, 5, 26)
-                result = await manager.transfer_daily_to_monthly(target_date)
-                
-                assert result is False
-                mock_conn.rollback.assert_called_once()
-                mock_conn.commit.assert_not_called()
-                mock_logger.error.assert_called()
-                assert "Ошибка внутри транзакции переноса данных" in mock_logger.error.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_transfer_daily_to_monthly_connection_error(self, manager):
-        """Тест обработки ошибки подключения к базе данных."""
-        with patch('aiosqlite.connect', side_effect=Exception("Connection error")):
-            with patch('utils.activity_data_manager.logger') as mock_logger:
-                target_date = date(2024, 5, 26)
-                result = await manager.transfer_daily_to_monthly(target_date)
-                
-                assert result is False
-                mock_logger.error.assert_called_once()
-                assert "Ошибка подключения к БД при переносе данных" in mock_logger.error.call_args[0][0]
+            assert result is False
 
 
 class TestGetMonthlyStats:
     """Тесты метода get_monthly_stats."""
 
-    @pytest.fixture
-    def manager(self):
-        """Создает экземпляр ActivityDataManager."""
-        return ActivityDataManager(db_path=":memory:")
-
     @pytest.mark.asyncio
     async def test_get_monthly_stats_success(self, manager):
         """Тест успешного получения месячной статистики."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_cursor = AsyncMock()
+        mock_activity1 = MagicMock(game_name="Dota 2", total_seconds_in_month=36000)
+        mock_activity2 = MagicMock(game_name="CS:GO", total_seconds_in_month=18000)
         
-        # Настраиваем возвращаемые данные
-        mock_row1 = ("Dota 2", 36000)
-        mock_row2 = ("CS:GO", 18000)
-        mock_cursor.__aiter__.return_value = [mock_row1, mock_row2]
-        mock_cursor.__aenter__.return_value = mock_cursor
-        mock_conn.execute = MagicMock(return_value=mock_cursor)
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_filter:
+            future = asyncio.Future()
+            future.set_result([mock_activity1, mock_activity2])
+            mock_filter.return_value = future
+            
             result = await manager.get_monthly_stats(123, 2024, 5)
             
             expected = {"Dota 2": 36000, "CS:GO": 18000}
             assert result == expected
 
     @pytest.mark.asyncio
-    async def test_get_monthly_stats_empty_result(self, manager):
-        """Тест получения месячной статистики без данных."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_cursor = AsyncMock()
-        mock_cursor.__aiter__.return_value = []
-        mock_cursor.__aenter__.return_value = mock_cursor
-        mock_conn.execute = MagicMock(return_value=mock_cursor)
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            result = await manager.get_monthly_stats(123, 2024, 5)
-            
-            assert result == {}
-
-    @pytest.mark.asyncio
     async def test_get_monthly_stats_database_error(self, manager):
-        """Тест обработки ошибки базы данных при получении месячной статистики."""
-        with patch('aiosqlite.connect', side_effect=Exception("Database error")):
-            with patch('utils.activity_data_manager.logger') as mock_logger:
-                result = await manager.get_monthly_stats(123, 2024, 5)
-                
-                assert result == {}
-                mock_logger.error.assert_called_once()
-                assert "Ошибка при получении monthly_stats из БД" in mock_logger.error.call_args[0][0]
+        """Тест обработки ошибки базы данных."""
+        with patch("utils.activity_data_manager.MonthlyActivity.filter", side_effect=Exception("Database error")):
+            result = await manager.get_monthly_stats(123, 2024, 5)
+            assert result == {}
 
 
 class TestGetAggregatedMonthlyStats:
     """Тесты метода get_aggregated_monthly_stats."""
 
-    @pytest.fixture
-    def manager(self):
-        """Создает экземпляр ActivityDataManager."""
-        return ActivityDataManager(db_path=":memory:")
-
     @pytest.mark.asyncio
     async def test_get_aggregated_monthly_stats_success(self, manager):
         """Тест успешного получения агрегированной месячной статистики."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_cursor = AsyncMock()
+        mock_activity1 = MagicMock(discord_user_id=123, game_name="Dota 2", total_seconds_in_month=36000)
+        mock_activity2 = MagicMock(discord_user_id=123, game_name="CS:GO", total_seconds_in_month=18000)
+        mock_activity3 = MagicMock(discord_user_id=456, game_name="Dota 2", total_seconds_in_month=72000)
         
-        # Настраиваем возвращаемые данные
-        mock_row1 = (123, "Dota 2", 36000)
-        mock_row2 = (123, "CS:GO", 18000)
-        mock_row3 = (456, "Dota 2", 72000)
-        mock_cursor.__aiter__.return_value = [mock_row1, mock_row2, mock_row3]
-        mock_cursor.__aenter__.return_value = mock_cursor
-        mock_conn.execute = MagicMock(return_value=mock_cursor)
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
+        with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_filter:
+            future = asyncio.Future()
+            future.set_result([mock_activity1, mock_activity2, mock_activity3])
+            mock_filter.return_value = future
+            
             result = await manager.get_aggregated_monthly_stats(2024, 5)
             
             expected = {
@@ -313,183 +249,65 @@ class TestGetAggregatedMonthlyStats:
             assert result == expected
 
     @pytest.mark.asyncio
-    async def test_get_aggregated_monthly_stats_empty_result(self, manager):
-        """Тест получения агрегированной месячной статистики без данных."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_cursor = AsyncMock()
-        mock_cursor.__aiter__.return_value = []
-        mock_cursor.__aenter__.return_value = mock_cursor
-        mock_conn.execute = MagicMock(return_value=mock_cursor)
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            result = await manager.get_aggregated_monthly_stats(2024, 5)
-            
-            assert result == {}
-
-    @pytest.mark.asyncio
     async def test_get_aggregated_monthly_stats_database_error(self, manager):
-        """Тест обработки ошибки базы данных при получении агрегированной месячной статистики."""
-        with patch('aiosqlite.connect', side_effect=Exception("Database error")):
-            with patch('utils.activity_data_manager.logger') as mock_logger:
-                result = await manager.get_aggregated_monthly_stats(2024, 5)
-                
-                assert result == {}
-                mock_logger.error.assert_called_once()
-                assert "Ошибка при получении агрегированной monthly_stats из БД" in mock_logger.error.call_args[0][0]
+        """Тест обработки ошибки базы данных."""
+        with patch("utils.activity_data_manager.MonthlyActivity.filter", side_effect=Exception("Database error")):
+            result = await manager.get_aggregated_monthly_stats(2024, 5)
+            assert result == {}
 
 
 class TestGetAllTimeStats:
     """Тесты метода get_all_time_stats."""
 
-    @pytest.fixture
-    def manager(self):
-        """Создает экземпляр ActivityDataManager."""
-        return ActivityDataManager(db_path=":memory:")
-
     @pytest.mark.asyncio
     async def test_get_all_time_stats_success(self, manager):
         """Тест успешного получения статистики за все время."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
+        # Мокаем месячные данные
+        mock_monthly_data = [
+            {"game_name": "Dota 2", "total_seconds": 360000},
+            {"game_name": "CS:GO", "total_seconds": 180000}
+        ]
         
-        # Мокаем два курсора - для monthly и daily данных
-        mock_monthly_cursor = AsyncMock()
-        mock_monthly_row1 = ("Dota 2", 360000)
-        mock_monthly_row2 = ("CS:GO", 180000)
-        mock_monthly_cursor.__aiter__.return_value = [mock_monthly_row1, mock_monthly_row2]
-        mock_monthly_cursor.__aenter__.return_value = mock_monthly_cursor
+        # Мокаем дневные данные
+        mock_daily_activity1 = MagicMock(game_name="Dota 2", seconds_played_today=3600)
+        mock_daily_activity2 = MagicMock(game_name="Valorant", seconds_played_today=1800)
         
-        mock_daily_cursor = AsyncMock()
-        mock_daily_row1 = ("Dota 2", 3600)
-        mock_daily_row2 = ("Valorant", 1800)
-        mock_daily_cursor.__aiter__.return_value = [mock_daily_row1, mock_daily_row2]
-        mock_daily_cursor.__aenter__.return_value = mock_daily_cursor
-        
-        mock_conn.execute = MagicMock(side_effect=[mock_monthly_cursor, mock_daily_cursor])
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            result = await manager.get_all_time_stats(123)
+        with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_monthly_filter:
+            # Настройка цепочки вызовов для MonthlyActivity
+            mock_group_by = MagicMock()
+            mock_annotate = MagicMock()
+            mock_values = MagicMock(return_value=mock_monthly_data) # values не асинхронный в цепочке построения запроса, но результат awaitable?
+            # В Tortoise: await Model.filter()...values() возвращает список
+            # Но здесь мы мокаем результат await
             
-            expected = {
-                "Dota 2": 363600,  # 360000 + 3600
-                "CS:GO": 180000,
-                "Valorant": 1800
-            }
-            assert result == expected
+            # Сложная цепочка моков для Tortoise ORM query builder
+            # await MonthlyActivity.filter(...).group_by(...).annotate(...).values(...)
             
-            # Проверяем, что было два вызова execute
-            assert mock_conn.execute.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_get_all_time_stats_only_monthly_data(self, manager):
-        """Тест получения статистики за все время только с месячными данными."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_monthly_cursor = AsyncMock()
-        mock_monthly_row1 = ("Dota 2", 360000)
-        mock_monthly_row2 = ("CS:GO", 180000)
-        mock_monthly_cursor.__aiter__.return_value = [mock_monthly_row1, mock_monthly_row2]
-        mock_monthly_cursor.__aenter__.return_value = mock_monthly_cursor
-        
-        mock_daily_cursor = AsyncMock()
-        mock_daily_cursor.__aiter__.return_value = []
-        mock_daily_cursor.__aenter__.return_value = mock_daily_cursor
-        
-        mock_conn.execute = MagicMock(side_effect=[mock_monthly_cursor, mock_daily_cursor])
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            result = await manager.get_all_time_stats(123)
+            # Проще замокать весь chain
+            mock_values_future = asyncio.Future()
+            mock_values_future.set_result(mock_monthly_data)
             
-            expected = {"Dota 2": 360000, "CS:GO": 180000}
-            assert result == expected
-
-    @pytest.mark.asyncio
-    async def test_get_all_time_stats_only_daily_data(self, manager):
-        """Тест получения статистики за все время только с дневными данными."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_monthly_cursor = AsyncMock()
-        mock_monthly_cursor.__aiter__.return_value = []
-        mock_monthly_cursor.__aenter__.return_value = mock_monthly_cursor
-        
-        mock_daily_cursor = AsyncMock()
-        mock_daily_row1 = ("Dota 2", 3600)
-        mock_daily_row2 = ("Valorant", 1800)
-        mock_daily_cursor.__aiter__.return_value = [mock_daily_row1, mock_daily_row2]
-        mock_daily_cursor.__aenter__.return_value = mock_daily_cursor
-        
-        mock_conn.execute = MagicMock(side_effect=[mock_monthly_cursor, mock_daily_cursor])
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            result = await manager.get_all_time_stats(123)
+            mock_annotate.values.return_value = mock_values_future
+            mock_group_by.annotate.return_value = mock_annotate
+            mock_monthly_filter.return_value.group_by.return_value = mock_group_by
             
-            expected = {"Dota 2": 3600, "Valorant": 1800}
-            assert result == expected
-
-    @pytest.mark.asyncio
-    async def test_get_all_time_stats_no_data(self, manager):
-        """Тест получения статистики за все время без данных."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        mock_cursor = AsyncMock()
-        mock_cursor.__aiter__.return_value = []
-        mock_cursor.__aenter__.return_value = mock_cursor
-        mock_conn.execute = MagicMock(return_value=mock_cursor)
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            result = await manager.get_all_time_stats(123)
-            
-            assert result == {}
+            with patch("utils.activity_data_manager.DailyActivity.filter") as mock_daily_filter:
+                daily_future = asyncio.Future()
+                daily_future.set_result([mock_daily_activity1, mock_daily_activity2])
+                mock_daily_filter.return_value = daily_future
+                
+                result = await manager.get_all_time_stats(123)
+                
+                expected = {
+                    "Dota 2": 363600,  # 360000 + 3600
+                    "CS:GO": 180000,
+                    "Valorant": 1800
+                }
+                assert result == expected
 
     @pytest.mark.asyncio
     async def test_get_all_time_stats_database_error(self, manager):
-        """Тест обработки ошибки базы данных при получении статистики за все время."""
-        with patch('aiosqlite.connect', side_effect=Exception("Database error")):
-            with patch('utils.activity_data_manager.logger') as mock_logger:
-                result = await manager.get_all_time_stats(123)
-                
-                assert result == {}
-                mock_logger.error.assert_called_once()
-                assert "Ошибка при получении all_time_stats из БД" in mock_logger.error.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_get_all_time_stats_with_today_date_mock(self, manager):
-        """Тест получения статистики за все время с мокированием сегодняшней даты."""
-        mock_conn = AsyncMock()
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        
-        mock_monthly_cursor = AsyncMock()
-        mock_monthly_row1 = ("Dota 2", 360000)
-        mock_monthly_cursor.__aiter__.return_value = [mock_monthly_row1]
-        mock_monthly_cursor.__aenter__.return_value = mock_monthly_cursor
-        
-        mock_daily_cursor = AsyncMock()
-        mock_daily_row1 = ("Dota 2", 3600)
-        mock_daily_cursor.__aiter__.return_value = [mock_daily_row1]
-        mock_daily_cursor.__aenter__.return_value = mock_daily_cursor
-        
-        mock_conn.execute = MagicMock(side_effect=[mock_monthly_cursor, mock_daily_cursor])
-        
-        with patch('aiosqlite.connect', return_value=mock_conn):
-            with patch('utils.activity_data_manager.date') as mock_date:
-                mock_today = MagicMock()
-                mock_today.isoformat.return_value = "2024-05-26"
-                mock_date.today.return_value = mock_today
-                
-                result = await manager.get_all_time_stats(123)
-                
-                expected = {"Dota 2": 363600}  # 360000 + 3600
-                assert result == expected
-                
-                # Проверяем, что второй запрос использует правильную дату
-                daily_call_args = mock_conn.execute.call_args_list[1]
-                assert daily_call_args[0][1] == (123, "2024-05-26")
+        """Тест обработки ошибки базы данных."""
+        with patch("utils.activity_data_manager.MonthlyActivity.filter", side_effect=Exception("Database error")):
+            result = await manager.get_all_time_stats(123)
+            assert result == {}

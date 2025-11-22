@@ -1,31 +1,30 @@
-"""Менеджер данных для отслеживания игровой активности пользователей с использованием SQLite."""
+"""Менеджер данных для отслеживания игровой активности пользователей с использованием Tortoise ORM."""
 
 import logging
 from collections import defaultdict
 from datetime import date
 
-import aiosqlite
+from tortoise.expressions import F
+from tortoise.functions import Sum
 
-from .database import DB_PATH
+from .models import DailyActivity, MonthlyActivity
 
 logger = logging.getLogger("bot.utils.activity_data_manager")
 
 
 class ActivityDataManager:
-    """Управляет данными об игровой активности пользователей с использованием SQLite."""
+    """Управляет данными об игровой активности пользователей с использованием Tortoise ORM."""
 
-    def __init__(self, db_path: str = str(DB_PATH)) -> None:
+    def __init__(self, db_path: str | None = None) -> None:
         """Инициализирует менеджер данных активности.
 
         Args:
-            db_path: Путь к файлу базы данных SQLite. По умолчанию используется DB_PATH.
+            db_path: Не используется в Tortoise ORM версии, оставлен для совместимости.
         """
-        self.db_path: str = db_path
-        # Данные в памяти больше не храним здесь, все идет через БД
-        logger.info(f"Инициализация ActivityDataManager с БД: {self.db_path}")
+        logger.info("Инициализация ActivityDataManager (Tortoise ORM)")
 
     async def update_activity(self, user_id: int, game_name: str, elapsed_seconds: int) -> None:
-        """Обновляет дневную статистику активности в БД SQLite.
+        """Обновляет дневную статистику активности в БД.
 
         Добавляет время к записи за текущий день или создает новую.
 
@@ -40,23 +39,36 @@ class ActivityDataManager:
         today_str = date.today().isoformat()  # Формат YYYY-MM-DD
 
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                await db.execute(
-                    """
-                    INSERT INTO daily_activity (
-                        discord_user_id, game_name, date, seconds_played_today
-                    )
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(discord_user_id, game_name, date) DO UPDATE SET
-                    seconds_played_today = seconds_played_today + excluded.seconds_played_today;
-                """,
-                    (user_id, game_name, today_str, elapsed_seconds),
+            # Используем update_or_create с F-выражением для атомарного обновления
+            # Но update_or_create не поддерживает F() в defaults при создании?
+            # Tortoise ORM update_or_create работает так:
+            # 1. Пытается найти запись по kwargs (кроме defaults)
+            # 2. Если нашел - обновляет полями из defaults
+            # 3. Если не нашел - создает с kwargs + defaults
+
+            # Проблема: нам нужно прибавить к существующему значению, если запись есть.
+            # F() работает в update(), но в update_or_create defaults это значения.
+
+            # Попробуем найти запись
+            activity = await DailyActivity.get_or_none(
+                discord_user_id=user_id, game_name=game_name, date=today_str
+            )
+
+            if activity:
+                activity.seconds_played_today = F("seconds_played_today") + elapsed_seconds
+                await activity.save()
+            else:
+                await DailyActivity.create(
+                    discord_user_id=user_id,
+                    game_name=game_name,
+                    date=today_str,
+                    seconds_played_today=elapsed_seconds
                 )
-                await db.commit()
-                logger.debug(
-                    f"Обновлена дневная активность в БД для {user_id} - {game_name} "
-                    f"({today_str}): +{elapsed_seconds} сек."
-                )
+
+            logger.debug(
+                f"Обновлена дневная активность в БД для {user_id} - {game_name} "
+                f"({today_str}): +{elapsed_seconds} сек."
+            )
         except Exception as e:
             logger.error(f"Ошибка при обновлении daily_activity в БД: {e}", exc_info=True)
 
@@ -73,18 +85,13 @@ class ActivityDataManager:
         target_date_str = target_date.isoformat()
         daily_stats: dict[int, dict[str, int]] = defaultdict(dict)
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                async with db.execute(
-                    """
-                    SELECT discord_user_id, game_name, seconds_played_today
-                    FROM daily_activity
-                    WHERE date = ? AND seconds_played_today > 0
-                """,
-                    (target_date_str,),
-                ) as cursor:
-                    async for row in cursor:
-                        user_id, game_name, seconds = row
-                        daily_stats[user_id][game_name] = seconds
+            activities = await DailyActivity.filter(
+                date=target_date_str, seconds_played_today__gt=0
+            )
+
+            for activity in activities:
+                daily_stats[activity.discord_user_id][activity.game_name] = activity.seconds_played_today
+
             logger.info(
                 f"Загружена дневная статистика за {target_date_str} из БД: "
                 f"{len(daily_stats)} пользователей."
@@ -110,68 +117,63 @@ class ActivityDataManager:
         target_date_str = target_date.isoformat()
         year = target_date.year
         month = target_date.month
-        success = False
+
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                # Начинаем транзакцию вручную
-                await db.execute("BEGIN")
-                try:
-                    # 1. Агрегируем и обновляем/вставляем в monthly_activity
-                    await db.execute(
-                        """
-                        INSERT INTO monthly_activity (
-                            discord_user_id, game_name, year, month, total_seconds_in_month
+            from tortoise.transactions import in_transaction
+
+            async with in_transaction():
+                # 1. Получаем данные для агрегации
+                # Tortoise ORM пока не поддерживает сложные INSERT INTO ... SELECT ... GROUP BY
+                # через ORM методы напрямую так же эффективно как raw SQL.
+                # Но мы можем сделать это в два шага: SELECT + (UPDATE/INSERT)
+
+                # Получаем сгруппированные данные за день
+                # Нам нужно сгруппировать по user_id и game_name и просуммировать секунды
+                # Но daily_activity уже уникальна по user_id, game_name, date.
+                # Так как мы фильтруем по одной дате, группировка не нужна, просто берем все записи.
+
+                daily_records = await DailyActivity.filter(
+                    date=target_date_str, seconds_played_today__gt=0
+                ).all()
+
+                for record in daily_records:
+                    # Обновляем или создаем запись в monthly_activity
+                    monthly_record = await MonthlyActivity.get_or_none(
+                        discord_user_id=record.discord_user_id,
+                        game_name=record.game_name,
+                        year=year,
+                        month=month
+                    )
+
+                    if monthly_record:
+                        monthly_record.total_seconds_in_month = F("total_seconds_in_month") + record.seconds_played_today
+                        await monthly_record.save()
+                    else:
+                        await MonthlyActivity.create(
+                            discord_user_id=record.discord_user_id,
+                            game_name=record.game_name,
+                            year=year,
+                            month=month,
+                            total_seconds_in_month=record.seconds_played_today
                         )
-                        SELECT
-                            discord_user_id,
-                            game_name,
-                            ?, ?,
-                            SUM(seconds_played_today)
-                        FROM daily_activity
-                        WHERE date = ? AND seconds_played_today > 0
-                        GROUP BY discord_user_id, game_name
-                        ON CONFLICT(discord_user_id, game_name, year, month) DO UPDATE SET
-                        total_seconds_in_month = total_seconds_in_month
-                        + excluded.total_seconds_in_month;
-                    """,
-                        (year, month, target_date_str),
-                    )
-                    logger.info(
-                        f"Данные за {target_date_str} агрегированы и добавлены в "
-                        f"monthly_activity за {year}-{month:02d}."
-                    )
 
-                    # 2. Удаляем обработанные записи из daily_activity
-                    await db.execute(
-                        "DELETE FROM daily_activity WHERE date = ?", (target_date_str,)
-                    )
-                    logger.info(f"Удалены записи из daily_activity за {target_date_str}.")
+                logger.info(
+                    f"Данные за {target_date_str} агрегированы и добавлены в "
+                    f"monthly_activity за {year}-{month:02d}."
+                )
 
-                    # Коммитим транзакцию
-                    await db.commit()
-                    success = True
-                    logger.info(
-                        f"Транзакция переноса данных за {target_date_str} успешно завершена."
-                    )
+                # 2. Удаляем обработанные записи из daily_activity
+                await DailyActivity.filter(date=target_date_str).delete()
+                logger.info(f"Удалены записи из daily_activity за {target_date_str}.")
 
-                except Exception as inner_e:
-                    # Если ошибка внутри транзакции, откатываем изменения
-                    logger.error(
-                        f"Ошибка внутри транзакции переноса данных за {target_date_str}, "
-                        f"откатываем: {inner_e}",
-                        exc_info=True,
-                    )
-                    await db.rollback()
-                    success = False
+                return True
 
-        except Exception as outer_e:
+        except Exception as e:
             logger.error(
-                f"Ошибка подключения к БД при переносе данных за {target_date_str}: {outer_e}",
+                f"Ошибка при переносе данных за {target_date_str}: {e}",
                 exc_info=True,
             )
-            success = False
-
-        return success
+            return False
 
     async def get_monthly_stats(self, user_id: int, year: int, month: int) -> dict[str, int]:
         """Получает статистику активности пользователя за указанный месяц и год из БД.
@@ -187,19 +189,16 @@ class ActivityDataManager:
         """
         user_stats: dict[str, int] = {}
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                async with db.execute(
-                    """
-                    SELECT game_name, total_seconds_in_month
-                    FROM monthly_activity
-                    WHERE discord_user_id = ? AND year = ? AND month = ?
-                    AND total_seconds_in_month > 0
-                """,
-                    (user_id, year, month),
-                ) as cursor:
-                    async for row in cursor:
-                        game_name, seconds = row
-                        user_stats[game_name] = seconds
+            activities = await MonthlyActivity.filter(
+                discord_user_id=user_id,
+                year=year,
+                month=month,
+                total_seconds_in_month__gt=0
+            )
+
+            for activity in activities:
+                user_stats[activity.game_name] = activity.total_seconds_in_month
+
             logger.debug(
                 f"Загружена месячная статистика для {user_id} за {year}-{month:02d}: "
                 f"{len(user_stats)} игр."
@@ -227,18 +226,15 @@ class ActivityDataManager:
         """
         monthly_stats: dict[int, dict[str, int]] = defaultdict(dict)
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                async with db.execute(
-                    """
-                    SELECT discord_user_id, game_name, total_seconds_in_month
-                    FROM monthly_activity
-                    WHERE year = ? AND month = ? AND total_seconds_in_month > 0
-                """,
-                    (year, month),
-                ) as cursor:
-                    async for row in cursor:
-                        user_id, game_name, seconds = row
-                        monthly_stats[user_id][game_name] = seconds
+            activities = await MonthlyActivity.filter(
+                year=year,
+                month=month,
+                total_seconds_in_month__gt=0
+            )
+
+            for activity in activities:
+                monthly_stats[activity.discord_user_id][activity.game_name] = activity.total_seconds_in_month
+
             logger.info(
                 f"Загружена агрегированная месячная статистика за {year}-{month:02d}: "
                 f"{len(monthly_stats)} пользователей."
@@ -264,37 +260,27 @@ class ActivityDataManager:
         """
         user_stats: dict[str, int] = defaultdict(int)
         try:
-            async with aiosqlite.connect(self.db_path) as db:
-                # Суммируем данные из monthly_activity
-                async with db.execute(
-                    """
-                    SELECT game_name, SUM(total_seconds_in_month) as total_seconds
-                    FROM monthly_activity
-                    WHERE discord_user_id = ? AND total_seconds_in_month > 0
-                    GROUP BY game_name
-                """,
-                    (user_id,),
-                ) as cursor:
-                    async for row in cursor:
-                        game_name, seconds = row
-                        user_stats[game_name] += seconds
-                        # Используем += на случай дублирования игры
-                        # (хотя GROUP BY должен это исключить)
+            # 1. Суммируем данные из monthly_activity
+            # Используем annotate для группировки и суммирования
+            monthly_sums = await MonthlyActivity.filter(
+                discord_user_id=user_id, total_seconds_in_month__gt=0
+            ).group_by("game_name").annotate(
+                total_seconds=Sum("total_seconds_in_month")
+            ).values("game_name", "total_seconds")
 
-                # Добавляем данные из daily_activity за СЕГОДНЯШНИЙ день,
-                # так как они еще не в monthly_activity
-                today_str = date.today().isoformat()
-                async with db.execute(
-                    """
-                    SELECT game_name, seconds_played_today
-                    FROM daily_activity
-                    WHERE discord_user_id = ? AND date = ? AND seconds_played_today > 0
-                """,
-                    (user_id, today_str),
-                ) as cursor:
-                    async for row in cursor:
-                        game_name, seconds = row
-                        user_stats[game_name] += seconds
+            for entry in monthly_sums:
+                user_stats[entry["game_name"]] += entry["total_seconds"]
+
+            # 2. Добавляем данные из daily_activity за СЕГОДНЯШНИЙ день
+            today_str = date.today().isoformat()
+            daily_activities = await DailyActivity.filter(
+                discord_user_id=user_id,
+                date=today_str,
+                seconds_played_today__gt=0
+            )
+
+            for activity in daily_activities:
+                user_stats[activity.game_name] += activity.seconds_played_today
 
             logger.debug(f"Загружена статистика за все время для {user_id}: {len(user_stats)} игр.")
             return dict(user_stats)
