@@ -53,9 +53,11 @@ WORKDIR /app
 # Install runtime system dependencies
 # ffmpeg is required for music functionality
 # git is required for self-update functionality
+# openssh-client is required for git pull via ssh
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy virtual environment from builder
