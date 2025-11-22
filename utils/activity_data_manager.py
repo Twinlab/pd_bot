@@ -62,7 +62,7 @@ class ActivityDataManager:
                     discord_user_id=user_id,
                     game_name=game_name,
                     date=today_str,
-                    seconds_played_today=elapsed_seconds
+                    seconds_played_today=elapsed_seconds,
                 )
 
             logger.debug(
@@ -90,7 +90,9 @@ class ActivityDataManager:
             )
 
             for activity in activities:
-                daily_stats[activity.discord_user_id][activity.game_name] = activity.seconds_played_today
+                daily_stats[activity.discord_user_id][activity.game_name] = (
+                    activity.seconds_played_today
+                )
 
             logger.info(
                 f"Загружена дневная статистика за {target_date_str} из БД: "
@@ -142,11 +144,13 @@ class ActivityDataManager:
                         discord_user_id=record.discord_user_id,
                         game_name=record.game_name,
                         year=year,
-                        month=month
+                        month=month,
                     )
 
                     if monthly_record:
-                        monthly_record.total_seconds_in_month = F("total_seconds_in_month") + record.seconds_played_today
+                        monthly_record.total_seconds_in_month = (
+                            F("total_seconds_in_month") + record.seconds_played_today
+                        )
                         await monthly_record.save()
                     else:
                         await MonthlyActivity.create(
@@ -154,7 +158,7 @@ class ActivityDataManager:
                             game_name=record.game_name,
                             year=year,
                             month=month,
-                            total_seconds_in_month=record.seconds_played_today
+                            total_seconds_in_month=record.seconds_played_today,
                         )
 
                 logger.info(
@@ -190,10 +194,7 @@ class ActivityDataManager:
         user_stats: dict[str, int] = {}
         try:
             activities = await MonthlyActivity.filter(
-                discord_user_id=user_id,
-                year=year,
-                month=month,
-                total_seconds_in_month__gt=0
+                discord_user_id=user_id, year=year, month=month, total_seconds_in_month__gt=0
             )
 
             for activity in activities:
@@ -227,13 +228,13 @@ class ActivityDataManager:
         monthly_stats: dict[int, dict[str, int]] = defaultdict(dict)
         try:
             activities = await MonthlyActivity.filter(
-                year=year,
-                month=month,
-                total_seconds_in_month__gt=0
+                year=year, month=month, total_seconds_in_month__gt=0
             )
 
             for activity in activities:
-                monthly_stats[activity.discord_user_id][activity.game_name] = activity.total_seconds_in_month
+                monthly_stats[activity.discord_user_id][activity.game_name] = (
+                    activity.total_seconds_in_month
+                )
 
             logger.info(
                 f"Загружена агрегированная месячная статистика за {year}-{month:02d}: "
@@ -262,11 +263,12 @@ class ActivityDataManager:
         try:
             # 1. Суммируем данные из monthly_activity
             # Используем annotate для группировки и суммирования
-            monthly_sums = await MonthlyActivity.filter(
-                discord_user_id=user_id, total_seconds_in_month__gt=0
-            ).group_by("game_name").annotate(
-                total_seconds=Sum("total_seconds_in_month")
-            ).values("game_name", "total_seconds")
+            monthly_sums = (
+                await MonthlyActivity.filter(discord_user_id=user_id, total_seconds_in_month__gt=0)
+                .group_by("game_name")
+                .annotate(total_seconds=Sum("total_seconds_in_month"))
+                .values("game_name", "total_seconds")
+            )
 
             for entry in monthly_sums:
                 user_stats[entry["game_name"]] += entry["total_seconds"]
@@ -274,9 +276,7 @@ class ActivityDataManager:
             # 2. Добавляем данные из daily_activity за СЕГОДНЯШНИЙ день
             today_str = date.today().isoformat()
             daily_activities = await DailyActivity.filter(
-                discord_user_id=user_id,
-                date=today_str,
-                seconds_played_today__gt=0
+                discord_user_id=user_id, date=today_str, seconds_played_today__gt=0
             )
 
             for activity in daily_activities:

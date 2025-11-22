@@ -186,8 +186,7 @@ class TwitchDataManager:
             await TwitchStreamer.filter(twitch_username=twitch_username).update(**update_data)
 
             logger.debug(
-                f"Обновлен статус стримера {twitch_username}: "
-                f"{'онлайн' if is_live else 'оффлайн'}"
+                f"Обновлен статус стримера {twitch_username}: {'онлайн' if is_live else 'оффлайн'}"
             )
             return True
         except Exception as e:
@@ -218,9 +217,9 @@ class TwitchDataManager:
             if stream_id:
                 update_data["last_stream_id"] = stream_id
 
-            await TwitchStreamer.filter(
-                twitch_username=twitch_username, guild_id=guild_id
-            ).update(**update_data)
+            await TwitchStreamer.filter(twitch_username=twitch_username, guild_id=guild_id).update(
+                **update_data
+            )
 
             if stream_id:
                 logger.debug(

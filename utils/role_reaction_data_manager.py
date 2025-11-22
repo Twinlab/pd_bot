@@ -138,9 +138,7 @@ class RoleReactionDataManager:
         """
         result = []
         try:
-            reactions = await RoleReaction.filter(guild_id=guild_id).order_by(
-                "message_id", "emoji"
-            )
+            reactions = await RoleReaction.filter(guild_id=guild_id).order_by("message_id", "emoji")
             for row in reactions:
                 result.append(
                     {

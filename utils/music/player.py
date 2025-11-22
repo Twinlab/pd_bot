@@ -124,6 +124,7 @@ class MusicPlayer:
                 settings = self.bot.settings
             else:
                 from config.settings import get_settings
+
                 settings = get_settings()
 
             logger.info(f"Подключение к голосовому каналу: {channel.name} ({channel.id})")

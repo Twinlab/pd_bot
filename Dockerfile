@@ -25,19 +25,29 @@ RUN pip install --upgrade pip setuptools wheel
 # Copy project files needed for installation
 COPY pyproject.toml .
 COPY README.md .
-# Create dummy files to satisfy build if needed, or just copy source
+
+# Create dummy files to satisfy build requirements for caching
+# This allows us to install dependencies without invalidating the cache when source code changes
+RUN mkdir -p cogs handlers utils config && \
+    touch cogs/__init__.py handlers/__init__.py utils/__init__.py config/__init__.py && \
+    touch main.py
+
+# Install dependencies into a virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install dependencies only (using the dummy files)
+RUN pip install .
+
+# Now copy the real source code
 COPY cogs/ cogs/
 COPY handlers/ handlers/
 COPY utils/ utils/
 COPY main.py .
 COPY config/ config/
 
-# Install dependencies into a virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-# Install the package in editable mode or just dependencies
-# We use .[dev] to install dev dependencies if needed, but for prod just .
+# Re-install the package to ensure any package-specific metadata is updated
+# This is fast because dependencies are already installed
 RUN pip install .
 
 # Stage 2: Runtime

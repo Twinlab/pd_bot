@@ -77,9 +77,7 @@ class LinksDataManager:
                 logger.info(f"Удалена привязка для {discord_user_id}: {steam_id}")
                 return True
             else:
-                logger.warning(
-                    f"Привязка для удаления не найдена: {discord_user_id} - {steam_id}"
-                )
+                logger.warning(f"Привязка для удаления не найдена: {discord_user_id} - {steam_id}")
                 return False
         except Exception as e:
             logger.error(f"Ошибка при удалении привязки для {discord_user_id}: {e}", exc_info=True)
@@ -212,9 +210,7 @@ class LinksDataManager:
             # Поэтому просто вернем количество попыток вставки
             inserted_count = len(links_to_insert)
 
-            logger.info(
-                f"Миграция привязок завершена. Обработано {inserted_count} записей."
-            )
+            logger.info(f"Миграция привязок завершена. Обработано {inserted_count} записей.")
             return inserted_count
 
         except Exception as e:
