@@ -1,11 +1,16 @@
 services:
   bot:
+    # Замените 'your-username' на ваше имя пользователя GitHub
+    # image: ghcr.io/your-username/pd_bot-1:latest
+    # Для локальной разработки можно оставить build: .
     build: .
     container_name: pd_bot
     restart: unless-stopped
     volumes:
-      - .:/app
-      - /app/.venv # Prevent overwriting venv with host's venv if it exists
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./assets:/app/assets
+      # .env файл пробрасывается автоматически через env_file
     env_file:
       - .env
     environment:
@@ -16,3 +21,18 @@ services:
         limits:
           cpus: '1.0'
           memory: 1G
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 30 --cleanup --label-enable
+    environment:
+      # Если репозиторий приватный, нужно добавить токен (PAT)
+      # - REPO_USER=your-github-username
+      # - REPO_PASS=your-github-token
+      - TZ=Europe/Moscow
