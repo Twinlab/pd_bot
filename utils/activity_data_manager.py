@@ -88,9 +88,9 @@ class ActivityDataManager:
             )
 
             for activity in activities:
-                daily_stats[activity.discord_user_id][
-                    activity.game_name
-                ] = activity.seconds_played_today
+                daily_stats[activity.discord_user_id][activity.game_name] = (
+                    activity.seconds_played_today
+                )
 
             logger.info(
                 f"Загружена дневная статистика за {target_date_str} из БД: "
@@ -228,9 +228,9 @@ class ActivityDataManager:
             )
 
             for activity in activities:
-                monthly_stats[activity.discord_user_id][
-                    activity.game_name
-                ] = activity.total_seconds_in_month
+                monthly_stats[activity.discord_user_id][activity.game_name] = (
+                    activity.total_seconds_in_month
+                )
 
             logger.info(
                 f"Загружена агрегированная месячная статистика за {year}-{month:02d}: "
