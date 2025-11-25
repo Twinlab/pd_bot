@@ -1,9 +1,8 @@
 services:
   bot:
-    # Замените 'your-username' на ваше имя пользователя GitHub
-    # image: ghcr.io/your-username/pd_bot-1:latest
-    # Для локальной разработки можно оставить build: .
-    build: .
+    image: ghcr.io/twinlab/pd_bot:latest
+    # Для локальной разработки можно раскомментировать build: .
+    # build: .
     container_name: pd_bot
     restart: unless-stopped
     volumes:
@@ -30,9 +29,10 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 30 --cleanup --label-enable
+    command: --interval 60 --cleanup --label-enable
+    env_file:
+      - .env
     environment:
-      # Если репозиторий приватный, нужно добавить токен (PAT)
-      # - REPO_USER=your-github-username
-      # - REPO_PASS=your-github-token
+      - REPO_USER=${REPO_USER}
+      - REPO_PASS=${REPO_PASS}
       - TZ=Europe/Moscow
