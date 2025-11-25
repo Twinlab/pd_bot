@@ -49,15 +49,13 @@ class ActivityDataManager:
             # Проблема: нам нужно прибавить к существующему значению, если запись есть.
             # F() работает в update(), но в update_or_create defaults это значения.
 
-            # Попробуем найти запись
-            activity = await DailyActivity.get_or_none(
+            # Пытаемся обновить существующую запись атомарно
+            updated_count = await DailyActivity.filter(
                 discord_user_id=user_id, game_name=game_name, date=today_str
-            )
+            ).update(seconds_played_today=F("seconds_played_today") + elapsed_seconds)
 
-            if activity:
-                activity.seconds_played_today = F("seconds_played_today") + elapsed_seconds
-                await activity.save(update_fields=["seconds_played_today"])
-            else:
+            # Если запись не найдена (updated_count == 0), создаем новую
+            if not updated_count:
                 await DailyActivity.create(
                     discord_user_id=user_id,
                     game_name=game_name,
@@ -90,9 +88,9 @@ class ActivityDataManager:
             )
 
             for activity in activities:
-                daily_stats[activity.discord_user_id][activity.game_name] = (
-                    activity.seconds_played_today
-                )
+                daily_stats[activity.discord_user_id][
+                    activity.game_name
+                ] = activity.seconds_played_today
 
             logger.info(
                 f"Загружена дневная статистика за {target_date_str} из БД: "
@@ -139,20 +137,18 @@ class ActivityDataManager:
                 ).all()
 
                 for record in daily_records:
-                    # Обновляем или создаем запись в monthly_activity
-                    monthly_record = await MonthlyActivity.get_or_none(
+                    # Обновляем или создаем запись в monthly_activity атомарно
+                    updated_count = await MonthlyActivity.filter(
                         discord_user_id=record.discord_user_id,
                         game_name=record.game_name,
                         year=year,
                         month=month,
+                    ).update(
+                        total_seconds_in_month=F("total_seconds_in_month")
+                        + record.seconds_played_today
                     )
 
-                    if monthly_record:
-                        monthly_record.total_seconds_in_month = (
-                            F("total_seconds_in_month") + record.seconds_played_today
-                        )
-                        await monthly_record.save(update_fields=["total_seconds_in_month"])
-                    else:
+                    if not updated_count:
                         await MonthlyActivity.create(
                             discord_user_id=record.discord_user_id,
                             game_name=record.game_name,
@@ -232,9 +228,9 @@ class ActivityDataManager:
             )
 
             for activity in activities:
-                monthly_stats[activity.discord_user_id][activity.game_name] = (
-                    activity.total_seconds_in_month
-                )
+                monthly_stats[activity.discord_user_id][
+                    activity.game_name
+                ] = activity.total_seconds_in_month
 
             logger.info(
                 f"Загружена агрегированная месячная статистика за {year}-{month:02d}: "

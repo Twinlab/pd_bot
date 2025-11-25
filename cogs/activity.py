@@ -369,12 +369,12 @@ class ActivityTracker(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка в before_periodic_save: {e}", exc_info=True)
 
-    @tasks.loop(time=time(hour=12, minute=0, tzinfo=pytz.timezone("Europe/Moscow")))  # 12:00 МСК
+    @tasks.loop(time=time(hour=9, minute=0, tzinfo=pytz.UTC))  # 12:00 МСК (09:00 UTC)
     async def monthly_report(self) -> None:
         """
         Выполняет автоматическую логику ежемесячного отчета.
 
-        Запускается в 12:00 по московскому времени 1-го числа каждого месяца.
+        Запускается в 12:00 по московскому времени (09:00 UTC) 1-го числа каждого месяца.
         Вызывает функцию run_automatic_monthly_report для генерации и отправки
         отчета об активности за предыдущий месяц.
         """
@@ -401,13 +401,13 @@ class ActivityTracker(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка в before_monthly_report: {e}", exc_info=True)
 
-    # Устанавливаем правильный часовой пояс для времени запуска
-    @tasks.loop(time=time(hour=0, minute=0, tzinfo=pytz.timezone("Europe/Moscow")))  # 00:00 МСК
+    # Устанавливаем правильный часовой пояс для времени запуска (UTC)
+    @tasks.loop(time=time(hour=21, minute=0, tzinfo=pytz.UTC))  # 00:00 МСК (21:00 UTC пред. дня)
     async def daily_report(self) -> None:
         """
         Выполняет автоматическую логику ежедневного отчета.
 
-        Запускается в 00:00 по московскому времени каждый день.
+        Запускается в 00:00 по московскому времени (21:00 UTC) каждый день.
         Вызывает функцию run_automatic_daily_report для генерации и отправки
         отчета об активности за предыдущий день, а также переноса данных
         из daily_activity в monthly_activity.
@@ -581,8 +581,8 @@ class ActivityTracker(commands.Cog):
                 items_per_page=get_settings().limits.activity_items_per_page,
             )  # type: ignore[arg-type]
             message = await ctx.send(
-                embed=view.get_current_embed(), view=view, ephemeral=True
-            )  # Статистика обычно персональная
+                embed=view.get_current_embed(), view=view, ephemeral=False
+            )  # Статистика теперь публичная
             view.message = message
 
             # Показываем текущую сессию, если смотрим текущий месяц
@@ -595,8 +595,8 @@ class ActivityTracker(commands.Cog):
                         f"🔴 **{target_user.display_name}** сейчас играет в **{game_name}** "
                         f"(текущая сессия: {format_time_short(current_session_seconds)})"
                     )
-                    # Отправляем отдельно и тоже эфемерно
-                    await ctx.send(current_info, ephemeral=True)
+                    # Отправляем отдельно
+                    await ctx.send(current_info, ephemeral=False)
 
         except Exception as e:
             logger.error(f"Ошибка при выполнении команды /mystats: {e}", exc_info=True)
@@ -643,7 +643,7 @@ class ActivityTracker(commands.Cog):
                 user=target_user,
                 items_per_page=get_settings().limits.activity_items_per_page,
             )  # type: ignore[arg-type]
-            message = await ctx.send(embed=view.get_current_embed(), view=view, ephemeral=True)
+            message = await ctx.send(embed=view.get_current_embed(), view=view, ephemeral=False)
             view.message = message
 
         except Exception as e:

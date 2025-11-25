@@ -31,12 +31,14 @@ class TestUpdateActivity:
     @pytest.mark.asyncio
     async def test_update_activity_success_create(self, manager):
         """Тест успешного создания новой записи активности."""
-        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = None
+        # Мокаем filter().update() чтобы он вернул 0 (запись не найдена)
+        with patch("utils.activity_data_manager.DailyActivity.filter") as mock_filter:
+            mock_filter.return_value.update = AsyncMock(return_value=0)
+            
             with patch("utils.activity_data_manager.DailyActivity.create", new_callable=AsyncMock) as mock_create:
                 await manager.update_activity(123, "Dota 2", 3600)
                 
-                mock_get.assert_called_once()
+                mock_filter.assert_called_once()
                 mock_create.assert_called_once()
                 args, kwargs = mock_create.call_args
                 assert kwargs["discord_user_id"] == 123
@@ -46,35 +48,34 @@ class TestUpdateActivity:
     @pytest.mark.asyncio
     async def test_update_activity_success_update(self, manager):
         """Тест успешного обновления существующей записи активности."""
-        mock_activity = MagicMock()
-        mock_activity.save = AsyncMock()
-        
-        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
-            mock_get.return_value = mock_activity
+        # Мокаем filter().update() чтобы он вернул 1 (запись обновлена)
+        with patch("utils.activity_data_manager.DailyActivity.filter") as mock_filter:
+            mock_filter.return_value.update = AsyncMock(return_value=1)
             
-            await manager.update_activity(123, "Dota 2", 3600)
-            
-            mock_get.assert_called_once()
-            mock_activity.save.assert_called_once()
+            with patch("utils.activity_data_manager.DailyActivity.create", new_callable=AsyncMock) as mock_create:
+                await manager.update_activity(123, "Dota 2", 3600)
+                
+                mock_filter.assert_called_once()
+                mock_create.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_activity_zero_seconds(self, manager):
         """Тест обновления активности с нулевым временем."""
-        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
+        with patch("utils.activity_data_manager.DailyActivity.filter") as mock_filter:
             await manager.update_activity(123, "Dota 2", 0)
-            mock_get.assert_not_called()
+            mock_filter.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_activity_negative_seconds(self, manager):
         """Тест обновления активности с отрицательным временем."""
-        with patch("utils.activity_data_manager.DailyActivity.get_or_none", new_callable=AsyncMock) as mock_get:
+        with patch("utils.activity_data_manager.DailyActivity.filter") as mock_filter:
             await manager.update_activity(123, "Dota 2", -100)
-            mock_get.assert_not_called()
+            mock_filter.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_activity_database_error(self, manager):
         """Тест обработки ошибки базы данных при обновлении активности."""
-        with patch("utils.activity_data_manager.DailyActivity.get_or_none", side_effect=Exception("Database error")):
+        with patch("utils.activity_data_manager.DailyActivity.filter", side_effect=Exception("Database error")):
             # Не должно выбрасывать исключение, а логировать ошибку
             await manager.update_activity(123, "Dota 2", 3600)
 
@@ -131,7 +132,7 @@ class TestTransferDailyToMonthly:
 
     @pytest.mark.asyncio
     async def test_transfer_daily_to_monthly_success(self, manager):
-        """Тест успешного переноса дневных данных в месячные."""
+        """Тест успешного переноса дневных данных в месячные (создание новой записи)."""
         mock_daily_record = MagicMock(
             discord_user_id=123,
             game_name="Dota 2",
@@ -145,13 +146,22 @@ class TestTransferDailyToMonthly:
         
         with patch("tortoise.transactions.in_transaction", return_value=mock_transaction):
             with patch("utils.activity_data_manager.DailyActivity.filter") as mock_daily_filter:
-                # Мокаем получение записей
-                mock_daily_filter.return_value.all = AsyncMock(return_value=[mock_daily_record])
-                # Мокаем удаление
-                mock_daily_filter.return_value.delete = AsyncMock()
+                # Мокаем получение записей (первый вызов filter)
+                # И удаление (второй вызов filter)
+                # Используем side_effect для разных возвращаемых значений
                 
-                with patch("utils.activity_data_manager.MonthlyActivity.get_or_none", new_callable=AsyncMock) as mock_monthly_get:
-                    mock_monthly_get.return_value = None
+                # Нам нужно замокать filter().all() и filter().delete()
+                # И filter().update() для MonthlyActivity
+                
+                mock_daily_queryset = MagicMock()
+                mock_daily_queryset.all = AsyncMock(return_value=[mock_daily_record])
+                mock_daily_queryset.delete = AsyncMock()
+                
+                mock_daily_filter.return_value = mock_daily_queryset
+
+                with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_monthly_filter:
+                    # Мокаем update, возвращаем 0 (запись не найдена)
+                    mock_monthly_filter.return_value.update = AsyncMock(return_value=0)
                     
                     with patch("utils.activity_data_manager.MonthlyActivity.create", new_callable=AsyncMock) as mock_monthly_create:
                         target_date = date(2024, 5, 26)
@@ -168,8 +178,6 @@ class TestTransferDailyToMonthly:
             game_name="Dota 2",
             seconds_played_today=3600
         )
-        mock_monthly_record = MagicMock()
-        mock_monthly_record.save = AsyncMock()
         
         mock_transaction = AsyncMock()
         mock_transaction.__aenter__ = AsyncMock()
@@ -177,17 +185,21 @@ class TestTransferDailyToMonthly:
         
         with patch("tortoise.transactions.in_transaction", return_value=mock_transaction):
             with patch("utils.activity_data_manager.DailyActivity.filter") as mock_daily_filter:
-                mock_daily_filter.return_value.all = AsyncMock(return_value=[mock_daily_record])
-                mock_daily_filter.return_value.delete = AsyncMock()
+                mock_daily_queryset = MagicMock()
+                mock_daily_queryset.all = AsyncMock(return_value=[mock_daily_record])
+                mock_daily_queryset.delete = AsyncMock()
+                mock_daily_filter.return_value = mock_daily_queryset
                 
-                with patch("utils.activity_data_manager.MonthlyActivity.get_or_none", new_callable=AsyncMock) as mock_monthly_get:
-                    mock_monthly_get.return_value = mock_monthly_record
+                with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_monthly_filter:
+                    # Мокаем update, возвращаем 1 (запись обновлена)
+                    mock_monthly_filter.return_value.update = AsyncMock(return_value=1)
                     
-                    target_date = date(2024, 5, 26)
-                    result = await manager.transfer_daily_to_monthly(target_date)
-                    
-                    assert result is True
-                    mock_monthly_record.save.assert_called_once()
+                    with patch("utils.activity_data_manager.MonthlyActivity.create", new_callable=AsyncMock) as mock_monthly_create:
+                        target_date = date(2024, 5, 26)
+                        result = await manager.transfer_daily_to_monthly(target_date)
+                        
+                        assert result is True
+                        mock_monthly_create.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_transfer_daily_to_monthly_error(self, manager):
