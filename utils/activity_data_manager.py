@@ -56,7 +56,7 @@ class ActivityDataManager:
 
             if activity:
                 activity.seconds_played_today = F("seconds_played_today") + elapsed_seconds
-                await activity.save()
+                await activity.save(update_fields=["seconds_played_today"])
             else:
                 await DailyActivity.create(
                     discord_user_id=user_id,
@@ -151,7 +151,7 @@ class ActivityDataManager:
                         monthly_record.total_seconds_in_month = (
                             F("total_seconds_in_month") + record.seconds_played_today
                         )
-                        await monthly_record.save()
+                        await monthly_record.save(update_fields=["total_seconds_in_month"])
                     else:
                         await MonthlyActivity.create(
                             discord_user_id=record.discord_user_id,
