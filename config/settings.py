@@ -1,6 +1,6 @@
 """Модели настроек бота на основе Pydantic."""
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     import discord
 
 
-class Environment(str, Enum):
+class Environment(StrEnum):
     """Окружения для запуска бота."""
 
     DEVELOPMENT = "development"
