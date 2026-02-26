@@ -408,17 +408,27 @@ class TestSendStreamNotification:
         assert embed.author.name == "TestStreamer начал(а) стрим!"
 
     @pytest.mark.asyncio
-    async def test_send_notification_bot_not_ready(self, twitch_cog: TwitchCog, mock_bot: commands.Bot):
-        mock_bot.is_ready = MagicMock(return_value=False) # Бот не готов
+    async def test_send_notification_empty_stream_data(self, twitch_cog: TwitchCog, mock_bot: commands.Bot):
+        """Проверяет, что пустой stream_data вызывает ранний возврат."""
         with patch("cogs.twitch.logger.error") as mock_logger_error:
             await twitch_cog.send_stream_notification(1, 301, "test", {})
+            mock_logger_error.assert_called_once()
+            assert "Неполные данные стрима" in mock_logger_error.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_send_notification_bot_not_ready(self, twitch_cog: TwitchCog, mock_bot: commands.Bot):
+        mock_bot.is_ready = MagicMock(return_value=False)
+        stream_data = {"title": "T", "user_name": "U", "thumbnail_url": "http://x/{width}x{height}", "game_name": "G", "viewer_count": 0}
+        with patch("cogs.twitch.logger.error") as mock_logger_error:
+            await twitch_cog.send_stream_notification(1, 301, "test", stream_data)
             mock_logger_error.assert_called_once_with("Бот не готов при попытке отправить уведомление о стриме test")
 
     @pytest.mark.asyncio
     async def test_send_notification_no_guilds(self, twitch_cog: TwitchCog, mock_bot: commands.Bot):
-        mock_bot.guilds = [] # Нет гильдий
+        mock_bot.guilds = []
+        stream_data = {"title": "T", "user_name": "U", "thumbnail_url": "http://x/{width}x{height}", "game_name": "G", "viewer_count": 0}
         with patch("cogs.twitch.logger.error") as mock_logger_error:
-            await twitch_cog.send_stream_notification(1, 301, "test", {})
+            await twitch_cog.send_stream_notification(1, 301, "test", stream_data)
             mock_logger_error.assert_called_once_with("Бот не подключен ни к одному серверу")
 
     @pytest.mark.asyncio
@@ -465,7 +475,7 @@ class TestCogCommandErrorHandling:
 
         # Случай, когда interaction.response.is_done() == False
         mock_interaction.response.is_done = MagicMock(return_value=False)
-        await twitch_cog.cog_command_error(mock_interaction, error)
+        await twitch_cog.cog_app_command_error(mock_interaction, error)
         mock_interaction.response.send_message.assert_called_once_with(
             f"Произошла ошибка: {str(original_error)}", ephemeral=True
         )
@@ -473,7 +483,7 @@ class TestCogCommandErrorHandling:
         # Случай, когда interaction.response.is_done() == True
         mock_interaction.response.send_message.reset_mock()
         mock_interaction.response.is_done = MagicMock(return_value=True)
-        await twitch_cog.cog_command_error(mock_interaction, error)
+        await twitch_cog.cog_app_command_error(mock_interaction, error)
         mock_interaction.followup.send.assert_called_once_with(
             f"Произошла ошибка: {str(original_error)}", ephemeral=True
         )
@@ -485,7 +495,7 @@ class TestCogCommandErrorHandling:
         mock_interaction.response.send_message.side_effect = discord.HTTPException(MagicMock(), "Failed to send error")
 
         with patch("cogs.twitch.logger.error") as mock_logger_error:
-            await twitch_cog.cog_command_error(mock_interaction, error)
+            await twitch_cog.cog_app_command_error(mock_interaction, error)
             # Проверяем, что была попытка залогировать ошибку отправки сообщения
             assert any("Не удалось отправить сообщение об ошибке пользователю" in call_args[0][0] for call_args in mock_logger_error.call_args_list)
 

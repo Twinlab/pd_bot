@@ -103,7 +103,7 @@ class TwitchAPI:
             return False
 
     async def _make_request(
-        self, endpoint: str, params: dict[str, Any] | None = None
+        self, endpoint: str, params: dict[str, Any] | None = None, *, _retry: bool = True
     ) -> dict[str, Any] | None:
         """
         Выполняет запрос к Twitch API с автоматическим обновлением токена.
@@ -136,11 +136,14 @@ class TwitchAPI:
                         return None
                     return cast(dict[str, Any], json_response)
                 elif response.status == 401:
-                    # Токен истек, получаем новый и повторяем запрос
-                    logger.warning("Токен доступа истек, получаем новый")
-                    self.access_token = None
-                    if await self.get_access_token():
-                        return await self._make_request(endpoint, params)
+                    # Токен истек, получаем новый и повторяем запрос (только одна попытка)
+                    if _retry:
+                        logger.warning("Токен доступа истек, получаем новый")
+                        self.access_token = None
+                        if await self.get_access_token():
+                            return await self._make_request(endpoint, params, _retry=False)
+                    else:
+                        logger.error("Повторная авторизация не удалась (401)")
                     return None
                 else:
                     error_text = await response.text()

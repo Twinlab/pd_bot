@@ -2,7 +2,7 @@
 
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml  # type: ignore
 from pydantic import BaseModel, Field
@@ -489,7 +489,7 @@ class BotSettings(BaseSettings):
         Returns:
             Экземпляр BotSettings с загруженными настройками
         """
-        yaml_data: dict[str, any] = {}  # type: ignore
+        yaml_data: dict[str, Any] = {}
         config_path = Path(config_file)
         if config_path.exists():
             try:

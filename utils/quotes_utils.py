@@ -117,6 +117,13 @@ def validate_folder_exists(folder_name: str) -> bool:
     folder_path = quotes_path / folder_name
     supported_extensions = get_supported_extensions()
 
+    # Защита от path traversal (например, "../../etc")
+    try:
+        folder_path.resolve().relative_to(quotes_path.resolve())
+    except ValueError:
+        logger.warning(f"Попытка path traversal: {folder_name}")
+        return False
+
     if not folder_path.exists() or not folder_path.is_dir():
         return False
 
@@ -416,25 +423,6 @@ class QuotesFolderSelect(discord.ui.Select):
         await interaction.response.defer()
 
         try:
-            # Создаем контекст для функции send_random_quote_image
-            # Используем interaction как псевдо-контекст
-            # Создаем псевдо-контекст для совместимости с send_random_quote_image
-            class PseudoContext:
-                def __init__(self, interaction: discord.Interaction) -> None:
-                    self.interaction = interaction
-
-                async def send(
-                    self,
-                    embed: discord.Embed | None = None,
-                    file: discord.File | None = None,
-                    ephemeral: bool = False,
-                ) -> discord.WebhookMessage:
-                    return await self.interaction.followup.send(
-                        embed=embed, file=file, ephemeral=ephemeral
-                    )
-
-            # Используем прямой вызов вместо псевдо-контекста
-
             # Получаем случайное изображение
             image_path = get_random_image_from_folder(selected_folder)
 

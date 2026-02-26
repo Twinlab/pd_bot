@@ -13,6 +13,7 @@ import logging
 
 from discord.ext import commands
 
+from config import get_settings
 from utils.error_handler import command_error_handler
 from utils.links_data_manager import LinksDataManager
 
@@ -58,10 +59,10 @@ class LinksCog(commands.Cog):
                 await ctx.author.send(message)
             except Exception:
                 logger.error("Не удалось отправить приватный ответ")
-            try:
-                await ctx.send(message)
-            except Exception:
-                logger.error("Не удалось отправить ответ вообще")
+                try:
+                    await ctx.send(message)
+                except Exception:
+                    logger.error("Не удалось отправить ответ вообще")
 
     @commands.hybrid_command(description="Привязать аккаунт Dota 2")
     @command_error_handler
@@ -85,8 +86,12 @@ class LinksCog(commands.Cog):
             await self.send_response(ctx, f"Аккаунт Dota 2 с ID {player_id} уже привязан.")
             return
 
-        if len(current_links) >= 5:
-            await self.send_response(ctx, "Вы достигли лимита в 5 привязанных аккаунтов.")
+        settings = get_settings()
+        max_links = settings.limits.links_max_per_user
+        if len(current_links) >= max_links:
+            await self.send_response(
+                ctx, f"Вы достигли лимита в {max_links} привязанных аккаунтов."
+            )
             return
 
         # Добавляем привязку через менеджер

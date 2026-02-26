@@ -207,7 +207,7 @@ class TwitchCog(commands.Cog):
                         f"ОБНАРУЖЕН НОВЫЙ СТРИМ: Стример {username} начал стрим: "
                         f"{stream_data['title']}"
                         if stream_data
-                        else "Нет данных о стриме"
+                        else f"ОБНАРУЖЕН НОВЫЙ СТРИМ: Стример {username} — нет данных о стриме"
                     )
 
                     # Обновляем статус в БД
@@ -271,6 +271,15 @@ class TwitchCog(commands.Cog):
         """
         try:
             logger.info(f"НАЧАЛО: Отправка уведомления о стриме {username} в канал {channel_id}")
+
+            # Проверяем наличие необходимых ключей в stream_data
+            required_keys = ["title", "user_name", "thumbnail_url", "game_name", "viewer_count"]
+            if not stream_data or not all(key in stream_data for key in required_keys):
+                logger.error(
+                    f"Неполные данные стрима для {username}: "
+                    f"отсутствуют ключи {set(required_keys) - set(stream_data or {})}"
+                )
+                return
 
             # Проверяем, что бот готов
             if not self.bot.is_ready():
@@ -690,10 +699,10 @@ class TwitchCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-    async def cog_command_error(self, interaction: discord.Interaction, error: Exception) -> None:
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
         """Обрабатывает ошибки app_commands для этого кога."""
-        # Заметка: commands.Cog.cog_command_error не вызывается для app_commands
-        # Этот метод нужно будет вызывать вручную или использовать discord.py 2.0 error handling
         original_error = getattr(error, "original", error)
         cmd_name = interaction.command.name if interaction.command else "N/A"
         logger.error(

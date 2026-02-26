@@ -68,6 +68,7 @@ class Events(commands.Cog):
             bot: Экземпляр бота Discord.
         """
         self.bot: commands.Bot = bot
+        self._synced: bool = False
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.
@@ -86,14 +87,16 @@ class Events(commands.Cog):
         logger.info(f"Бот {self.bot.user.name} (ID: {self.bot.user.id}) готов к работе.")
         logger.info(f"Версия discord.py: {discord.__version__}")
 
-        # Синхронизация slash-команд
-        logger.info("Синхронизация slash-команд...")
-        try:
-            synced = await self.bot.tree.sync()
-            command_names = [cmd.name for cmd in synced]
-            logger.info(f"Синхронизировано {len(synced)} команд: {', '.join(command_names)}")
-        except Exception as e:
-            logger.error(f"Не удалось синхронизировать команды: {e}")
+        # Синхронизация slash-команд (только один раз, on_ready вызывается при каждом reconnect)
+        if not self._synced:
+            logger.info("Синхронизация slash-команд...")
+            try:
+                synced = await self.bot.tree.sync()
+                command_names = [cmd.name for cmd in synced]
+                logger.info(f"Синхронизировано {len(synced)} команд: {', '.join(command_names)}")
+                self._synced = True
+            except Exception as e:
+                logger.error(f"Не удалось синхронизировать команды: {e}")
 
         # Установка статуса
         await self.bot.change_presence(activity=discord.Game(name="Делаю милые вещи и пью чай"))
@@ -182,7 +185,7 @@ class Events(commands.Cog):
                             "запускаем автоотключение..."
                         )
                         # Передаем плеер, гильдию и голосовой канал
-                        await auto_disconnect(player, member.guild, before.channel)
+                        asyncio.create_task(auto_disconnect(player, member.guild, before.channel))
         except Exception as e:
             logger.error(f"Ошибка в on_voice_state_update: {e}", exc_info=True)
 

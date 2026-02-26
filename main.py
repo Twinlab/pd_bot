@@ -75,7 +75,7 @@ def initialize_bot() -> MyBot:
         settings.bot_token == "test_token_here" and "pytest" not in sys.modules
     ):
         logger.critical("Токен бота (BOT_TOKEN) не найден в .env! Запуск невозможен.")
-        exit()
+        sys.exit(1)
 
     # Создание экземпляра бота с префиксом из конфига
     bot_instance: MyBot = MyBot(command_prefix=settings.prefix, intents=intents)
@@ -165,6 +165,8 @@ async def main() -> None:
     except Exception as e:
         logger.critical(f"Не удалось запустить бота: {e}")
     finally:
+        if not bot.is_closed():
+            await bot.close()
         await close_database()
 
 
