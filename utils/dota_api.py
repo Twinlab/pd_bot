@@ -16,6 +16,24 @@ logger = logging.getLogger("bot.utils.dota_api")
 
 CACHE_TTL = 300  # 5 минут
 
+_session: aiohttp.ClientSession | None = None
+
+
+def _get_session() -> aiohttp.ClientSession:
+    """Возвращает переиспользуемую сессию aiohttp, создавая при необходимости."""
+    global _session
+    if _session is None or _session.closed:
+        _session = aiohttp.ClientSession()
+    return _session
+
+
+async def close_session() -> None:
+    """Закрывает модульную сессию aiohttp."""
+    global _session
+    if _session and not _session.closed:
+        await _session.close()
+    _session = None
+
 
 async def get_cached_response(key: str) -> dict[str, Any] | None:
     """Получает данные из кэша БД, если они актуальны."""
@@ -69,32 +87,32 @@ async def query_api(
     request_headers["User-Agent"] = "STRATZ_API"
 
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url,
-                json={"query": query, "variables": variables},
-                headers=request_headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as response:
-                if response.status != 200:
-                    logger.error(f"HTTP ошибка: {response.status}")
-                    return None
+        session = _get_session()
+        async with session.post(
+            url,
+            json={"query": query, "variables": variables},
+            headers=request_headers,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as response:
+            if response.status != 200:
+                logger.error(f"HTTP ошибка: {response.status}")
+                return None
 
-                json_data = await response.json()
+            json_data = await response.json()
 
-                if "errors" in json_data:
-                    logger.error(f"Ошибки GraphQL: {json_data['errors']}")
-                    return None
+            if "errors" in json_data:
+                logger.error(f"Ошибки GraphQL: {json_data['errors']}")
+                return None
 
-                data = json_data.get("data")
-                if not data:
-                    return None
+            data = json_data.get("data")
+            if not data:
+                return None
 
-                # 3. Сохранение в кэш
-                if cache_key:
-                    await save_to_cache(cache_key, data)
+            # 3. Сохранение в кэш
+            if cache_key:
+                await save_to_cache(cache_key, data)
 
-                return data
+            return data
 
     except Exception as e:
         logger.error(f"Ошибка API: {e}")

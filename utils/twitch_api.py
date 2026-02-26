@@ -42,6 +42,12 @@ class TwitchAPI:
         self.auth_url: str = "https://id.twitch.tv/oauth2/token"
         self.session: aiohttp.ClientSession | None = None
 
+    def _ensure_session(self) -> aiohttp.ClientSession:
+        """Гарантирует наличие открытой сессии."""
+        if self.session is None or self.session.closed:
+            self.session = aiohttp.ClientSession()
+        return self.session
+
     async def initialize(self) -> None:
         """
         Инициализирует сессию и получает токен доступа.
@@ -49,7 +55,7 @@ class TwitchAPI:
         Создает новую сессию aiohttp и запрашивает токен доступа у Twitch API.
         Этот метод должен быть вызван перед использованием других методов класса.
         """
-        self.session = aiohttp.ClientSession()
+        self._ensure_session()
         await self.get_access_token()
 
     async def close(self) -> None:
@@ -59,9 +65,9 @@ class TwitchAPI:
         Освобождает ресурсы, связанные с сессией aiohttp.
         Этот метод должен быть вызван при завершении работы с API.
         """
-        if self.session:
+        if self.session and not self.session.closed:
             await self.session.close()
-            self.session = None
+        self.session = None
 
     async def get_access_token(self) -> bool:
         """
@@ -75,8 +81,7 @@ class TwitchAPI:
             return True
 
         try:
-            if not self.session:
-                self.session = aiohttp.ClientSession()
+            self._ensure_session()
 
             params = {
                 "client_id": self.client_id,
@@ -122,8 +127,7 @@ class TwitchAPI:
         headers = {"Client-ID": self.client_id, "Authorization": f"Bearer {self.access_token}"}
 
         try:
-            if not self.session:
-                self.session = aiohttp.ClientSession()
+            self._ensure_session()
 
             async with self.session.get(url, headers=headers, params=params) as response:
                 if response.status == 200:

@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import utils.dota_api as dota_api_module
 from utils.dota_api import (
+    close_session,
     fetch_items_data,
     get_cached_response,
     query_api,
@@ -15,6 +17,13 @@ from utils.dota_api import (
 
 class TestDotaAPI:
     """Тесты для функций взаимодействия с API Dota 2."""
+
+    @pytest.fixture(autouse=True)
+    def reset_session(self):
+        """Сбрасывает модульную сессию между тестами."""
+        dota_api_module._session = None
+        yield
+        dota_api_module._session = None
 
     @pytest.mark.asyncio
     async def test_get_cached_response_found(self):
@@ -63,20 +72,65 @@ class TestDotaAPI:
         mock_response.status = 200
         mock_response.json.return_value = {"data": {"hero": "Pudge"}}
 
-        mock_session = MagicMock() # MagicMock, так как __aenter__ должен быть awaitable
-        mock_session.__aenter__.return_value = mock_session
-        mock_session.__aexit__.return_value = None
-        
-        # post возвращает контекстный менеджер, а не корутину
+        mock_session = MagicMock()
+        mock_session.closed = False
+
+        # post возвращает контекстный менеджер
         mock_post_cm = MagicMock()
         mock_post_cm.__aenter__.return_value = mock_response
         mock_post_cm.__aexit__.return_value = None
-        
+
         mock_session.post.return_value = mock_post_cm
 
-        with patch("aiohttp.ClientSession", return_value=mock_session):
+        with patch("utils.dota_api.aiohttp.ClientSession", return_value=mock_session):
             result = await query_api("query", "url", {})
             assert result == {"hero": "Pudge"}
+
+    @pytest.mark.asyncio
+    async def test_query_api_reuses_session(self):
+        """Тест переиспользования сессии между запросами."""
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json.return_value = {"data": {"hero": "Pudge"}}
+
+        mock_session = MagicMock()
+        mock_session.closed = False
+
+        mock_post_cm = MagicMock()
+        mock_post_cm.__aenter__.return_value = mock_response
+        mock_post_cm.__aexit__.return_value = None
+
+        mock_session.post.return_value = mock_post_cm
+
+        with patch("utils.dota_api.aiohttp.ClientSession", return_value=mock_session) as mock_cls:
+            await query_api("query1", "url", {})
+            await query_api("query2", "url", {})
+            # Сессия создаётся только один раз
+            mock_cls.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_close_session(self):
+        """Тест закрытия модульной сессии."""
+        mock_session = MagicMock()
+        mock_session.closed = False
+        mock_session.close = AsyncMock()
+        dota_api_module._session = mock_session
+
+        await close_session()
+
+        mock_session.close.assert_called_once()
+        assert dota_api_module._session is None
+
+    @pytest.mark.asyncio
+    async def test_close_session_already_closed(self):
+        """Тест закрытия уже закрытой сессии."""
+        mock_session = MagicMock()
+        mock_session.closed = True
+        dota_api_module._session = mock_session
+
+        await close_session()
+
+        assert dota_api_module._session is None
 
     @pytest.mark.asyncio
     async def test_query_api_with_retry_success(self):

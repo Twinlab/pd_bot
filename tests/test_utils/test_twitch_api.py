@@ -22,6 +22,7 @@ class TestTwitchAPI:
     def mock_session(self) -> MagicMock:
         """Создает мок сессии aiohttp."""
         session = MagicMock(spec=aiohttp.ClientSession)
+        session.closed = False
         session.close = AsyncMock()
         return session
 
@@ -144,6 +145,7 @@ class TestTwitchAPI:
     async def test_get_access_token_creates_session_if_none(self, twitch_api: TwitchAPI) -> None:
         """Тестирует создание сессии если она не существует."""
         mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session.closed = False
         mock_response = MagicMock()
         mock_response.status = 200
         mock_response.json = AsyncMock(
@@ -160,6 +162,32 @@ class TestTwitchAPI:
 
             assert result is True
             assert twitch_api.session == mock_session
+
+    @pytest.mark.asyncio
+    async def test_ensure_session_recreates_closed_session(self, twitch_api: TwitchAPI) -> None:
+        """Тестирует пересоздание сессии если она закрыта."""
+        old_session = MagicMock(spec=aiohttp.ClientSession)
+        old_session.closed = True
+        twitch_api.session = old_session
+
+        new_session = MagicMock(spec=aiohttp.ClientSession)
+        new_session.closed = False
+
+        with patch("aiohttp.ClientSession", return_value=new_session):
+            result = twitch_api._ensure_session()
+
+            assert result == new_session
+            assert twitch_api.session == new_session
+
+    def test_ensure_session_reuses_open_session(self, twitch_api: TwitchAPI) -> None:
+        """Тестирует переиспользование открытой сессии."""
+        existing_session = MagicMock(spec=aiohttp.ClientSession)
+        existing_session.closed = False
+        twitch_api.session = existing_session
+
+        result = twitch_api._ensure_session()
+
+        assert result == existing_session
 
     @pytest.mark.asyncio
     async def test_make_request_no_token(self, twitch_api: TwitchAPI) -> None:
@@ -492,25 +520,26 @@ class TestTwitchAPIIntegration:
     async def test_full_workflow_success(self) -> None:
         """Тестирует полный рабочий процесс: инициализация -> запрос -> закрытие."""
         api = TwitchAPI("test_id", "test_secret")
-        
+
         # Мокаем все HTTP запросы
         mock_session = MagicMock(spec=aiohttp.ClientSession)
+        mock_session.closed = False
         mock_session.close = AsyncMock()
-        
+
         # Мок для получения токена
         token_response = MagicMock()
         token_response.status = 200
         token_response.json = AsyncMock(return_value={"access_token": "token", "expires_in": 3600})
         token_response.__aenter__ = AsyncMock(return_value=token_response)
         token_response.__aexit__ = AsyncMock(return_value=None)
-        
+
         # Мок для запроса пользователей
         users_response = MagicMock()
         users_response.status = 200
         users_response.json = AsyncMock(return_value={"data": [{"id": "123", "login": "test"}]})
         users_response.__aenter__ = AsyncMock(return_value=users_response)
         users_response.__aexit__ = AsyncMock(return_value=None)
-        
+
         mock_session.post.return_value = token_response
         mock_session.get.return_value = users_response
 
@@ -519,11 +548,11 @@ class TestTwitchAPIIntegration:
             await api.initialize()
             assert api.session == mock_session
             assert api.access_token == "token"
-            
+
             # Запрос пользователей
             users = await api.get_users(["test"])
             assert users == [{"id": "123", "login": "test"}]
-            
+
             # Закрытие
             await api.close()
             mock_session.close.assert_called_once()

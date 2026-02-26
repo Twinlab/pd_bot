@@ -167,6 +167,9 @@ async def main() -> None:
     finally:
         if not bot.is_closed():
             await bot.close()
+        from utils.dota_api import close_session
+
+        await close_session()
         await close_database()
 
 

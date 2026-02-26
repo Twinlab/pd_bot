@@ -46,6 +46,11 @@ dev = [
     "types-pytz",
 ]
 
+docs = [
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py313"
