@@ -150,6 +150,49 @@ class ActivityTracker(commands.Cog):
             )
         logger.info("Ког ActivityTracker выгружен.")
 
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: discord.Member) -> None:
+        """Очищает активную сессию пользователя, покинувшего сервер.
+
+        При выходе участника из сервера Discord не генерирует on_presence_update,
+        поэтому активная сессия может остаться в памяти и накапливать фиктивное время.
+        """
+        if member.bot:
+            return
+
+        user_id = member.id
+
+        # Проверяем, есть ли у пользователя активная сессия
+        if user_id not in self.current_activities:
+            return
+
+        game_name, start_time = self.current_activities[user_id]
+        now_utc = datetime.now(pytz.UTC)
+        elapsed_seconds = int((now_utc - start_time).total_seconds())
+
+        # Удаляем сессию из памяти
+        del self.current_activities[user_id]
+
+        # Записываем валидную часть в БД
+        settings = get_settings()
+        min_threshold = settings.timeouts.activity_min_record
+        max_threshold = settings.timeouts.activity_max_record
+
+        if min_threshold <= elapsed_seconds < max_threshold:
+            logger.info(
+                f"Пользователь {member.name} ({user_id}) покинул сервер. "
+                f"Сохраняем сессию {game_name} ({elapsed_seconds} сек) в БД."
+            )
+            asyncio.create_task(
+                self.data_manager.update_activity(user_id, game_name, elapsed_seconds)
+            )
+        else:
+            logger.info(
+                f"Пользователь {member.name} ({user_id}) покинул сервер. "
+                f"Сессия {game_name} ({elapsed_seconds} сек) не записана "
+                f"(вне допустимого диапазона)."
+            )
+
     # --- Логика обновления активности (остается в коге,
     # т.к. работает с self.current_activities) ---
     async def update_current_activities(self, final_save: bool = False) -> None:
@@ -168,6 +211,28 @@ class ActivityTracker(commands.Cog):
         if not self.current_activities:
             logger.debug("update_current_activities: Нет активных сессий для обновления.")
             return  # Нечего обновлять
+
+        # Удаляем сессии пользователей, которых нет на сервере
+        # (страховка на случай, если on_member_remove был пропущен)
+        guild = self.bot.guilds[0] if self.bot.guilds else None
+        stale_user_ids = []
+        if guild is not None:
+            for user_id in self.current_activities:
+                if guild.get_member(user_id) is None:
+                    stale_user_ids.append(user_id)
+
+        for user_id in stale_user_ids:
+            game_name, _ = self.current_activities.pop(user_id)
+            logger.warning(
+                f"Удалена устаревшая сессия для {user_id} ({game_name}): "
+                f"пользователь не найден на сервере."
+            )
+
+        if not self.current_activities:
+            logger.debug(
+                "update_current_activities: Все сессии были устаревшими, нечего обновлять."
+            )
+            return
 
         logger.debug(
             f"update_current_activities: Обновление "

@@ -60,6 +60,13 @@ def mock_bot():
     settings.limits.update_output_max_length = 1900
 
     bot.settings = settings
+
+    # По умолчанию бот на одном сервере, где все пользователи "найдены"
+    # (нужно для stale session cleanup в update_current_activities)
+    default_guild = MagicMock(spec=discord.Guild)
+    default_guild.get_member = MagicMock(return_value=MagicMock())
+    bot.guilds = [default_guild]
+
     return bot
 
 
