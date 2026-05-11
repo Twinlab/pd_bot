@@ -6,6 +6,12 @@
 !/data/.gitkeep
 !/downloads/.gitkeep
 
+# Lavalink скачивает jar-плагины при старте; конфиг application.yml храним в репо,
+# а сами артефакты — нет.
+/lavalink/plugins/*
+!/lavalink/plugins/.gitkeep
+/lavalink/logs/
+
 # Исключаем временные файлы
 *.tmp
 *.temp

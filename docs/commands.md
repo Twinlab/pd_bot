@@ -69,17 +69,71 @@ anime:
 
 ## Музыка (`cogs/music.py`)
 
+Базируется на **Lavalink v4** (отдельный JVM-контейнер) и Python-клиенте **wavelink 3.x**. Подробности развёртывания см. в [Деплое](deployment.md).
+
 | Команда | Описание |
 |---------|----------|
-| `/play <query>` | Воспроизведение по URL или поиску |
-| `/skip` | Пропуск текущего трека |
-| `/stop` | Остановка и отключение от канала |
+| `/play <query>` | URL (YouTube/Spotify/Apple Music/SoundCloud/Bandcamp/Twitch/Vimeo) или текстовый поиск (по умолчанию через YouTube Music) |
+| `/skip` | Пропустить текущий трек (заказчик трека или админ) |
+| `/stop` | Остановить и покинуть канал (только админ) |
 | `/pause` | Пауза |
-| `/resume` | Возобновление |
-| `/queue` | Очередь воспроизведения |
-| `/volume <0-200>` | Громкость |
+| `/resume` | Возобновить |
+| `/queue [page]` (`/q`) | Постраничная очередь с кнопками `◀ 🔄 ▶` |
+| `/nowplaying` (`/np`) | Текущий трек с обложкой и метаданными |
+| `/remove <index>` | Удалить трек из очереди (заказчик или админ) |
+| `/clear` | Очистить очередь (только админ) |
+| `/loop <off\|track\|queue>` | Режим повтора |
+| `/shuffle` | Перемешать очередь |
+| `/volume <0-200>` | Громкость (только админ) |
+| `/seek <MM:SS\|HH:MM:SS\|секунды>` | Перемотать текущий трек |
 
-Сообщение "Сейчас играет" содержит кнопки управления (пауза, пропуск, стоп, очередь). Бот автоматически покидает канал, если остаётся один.
+Все команды — гибридные: работают и как `/slash`, и с префиксом `!`.
+
+Сообщение "Сейчас играет" содержит кнопки управления (▶/⏸, ⏭, ⏹, 🔁, 🔀, 📜). Бот автоматически покидает канал, если остаётся один или простаивает без музыки (`music.voice.inactive_timeout` секунд).
+
+### Поддерживаемые источники
+
+| Источник | Через | Заметки |
+|----------|-------|---------|
+| YouTube / YouTube Music | `youtube-source` плагин Lavalink | OAuth с burner-аккаунтом для обхода bot-detection (см. деплой) |
+| Spotify | LavaSrc плагин | Метаданные через Spotify API → стрим через YouTube. Требует `SPOTIFY_CLIENT_ID/SECRET` |
+| Apple Music, Deezer, Yandex Music | LavaSrc плагин | По умолчанию выключены в `lavalink/application.yml` — включить при необходимости |
+| SoundCloud, Bandcamp, Twitch, Vimeo, Nico | стандартные source-ы Lavalink | Работают «из коробки» |
+
+### Поиск по тексту
+
+`/play Imagine Dragons Believer` → wavelink делает `ytmsearch:` запрос, возвращает топ-10. Бот показывает Select-меню — выбираете нужный трек, он встаёт в очередь.
+
+Альтернативные префиксы (продвинутое использование, можно передать в `/play`):
+
+- `spsearch:queen bohemian` — поиск в Spotify
+- `scsearch:queen bohemian` — поиск в SoundCloud
+- `ytsearch:queen bohemian` — обычный YouTube (по умолчанию используется YouTube Music)
+
+### Права доступа
+
+- **Админ сервера**: всё.
+- **Заказчик текущего трека**: pause/resume/skip/loop/shuffle/seek/remove (только свои треки).
+- **Прочие в том же VC**: nowplaying, queue.
+- **Не в VC**: ничего, кроме просмотра nowplaying/queue.
+
+### Настройка
+
+```yaml
+music:
+  lavalink:
+    secure: false              # https/wss для удалённой ноды за TLS-прокси
+    identifier: "MAIN"
+    search_limit: 10           # сколько результатов в Select-меню
+    default_volume: 50         # стартовая громкость
+    max_volume: 200            # верхняя граница /volume
+    queue_page_size: 10        # треков на странице /queue
+  voice:
+    connection_timeout: 30.0
+    inactive_timeout: 300      # сек простоя до автодисконнекта
+```
+
+Host/port/password Lavalink-ноды берутся из `.env`: `LAVALINK_HOST`, `LAVALINK_PORT`, `LAVALINK_SERVER_PASSWORD`.
 
 ## Twitch (`cogs/twitch.py`)
 

@@ -1,52 +1,23 @@
-"""Конфигурационный файл для музыкального модуля.
+"""Конфигурация музыкального модуля.
 
-Содержит настройки логгера, пути, цвета для эмбедов,
-опции для yt-dlp и FFmpeg, а также загрузку URL прокси-сервера.
+Содержит палитру цветов для эмбедов и общий логгер для всех файлов модуля.
+Параметры подключения к Lavalink читаются напрямую из ``config.get_settings()``
+в момент использования — это позволяет переопределять их в тестах без
+перезагрузки модуля.
 """
 
 import logging
-from pathlib import Path
 
 from config import get_settings
 
-# --- Логгер для конфигурационного модуля музыки ---
-logger = logging.getLogger("bot.utils.music.config")
+logger = logging.getLogger("bot.music")
 
-settings = get_settings()
-
-# --- Константы и конфигурация ---
-DOWNLOADS_DIR = Path(settings.music.downloads_dir)
-DOWNLOADS_DIR.mkdir(exist_ok=True)
-
-# Цвета для Embeds
+# Цвета берём один раз — они не меняются между рестартами.
+_settings = get_settings()
 COLORS = {
-    "DEFAULT": settings.get_discord_color("default"),
-    "ERROR": settings.get_discord_color("error"),
-    "SUCCESS": settings.get_discord_color("success"),
-    "INFO": settings.get_discord_color("info"),
-    "WARNING": settings.get_discord_color("warning"),
-}
-
-# Загрузка PROXY_URL из новой системы настроек
-PROXY_URL = settings.proxy_url
-
-# Опции для yt-dlp
-YDL_OPTS_BASE = {
-    "format": "bestaudio[ext=webm]/bestaudio/best",
-    "outtmpl": str(DOWNLOADS_DIR / "%(extractor)s-%(id)s-%(title)s.%(ext)s"),
-    "restrictfilenames": True,
-    "noplaylist": True,
-    "nocheckcertificate": True,
-    "ignoreerrors": False,
-    "quiet": True,
-    "no_warnings": True,
-    "default_search": "ytsearch",
-    "source_address": "0.0.0.0",
-    "proxy": PROXY_URL,
-}
-
-# Опции FFmpeg
-FFMPEG_OPTIONS = {
-    "before_options": "",
-    "options": settings.music.ffmpeg_options,
+    "DEFAULT": _settings.get_discord_color("default"),
+    "ERROR": _settings.get_discord_color("error"),
+    "SUCCESS": _settings.get_discord_color("success"),
+    "INFO": _settings.get_discord_color("info"),
+    "WARNING": _settings.get_discord_color("warning"),
 }

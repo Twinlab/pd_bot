@@ -1,379 +1,730 @@
-"""Ког для управления воспроизведением музыки в Discord."""
+"""Ког для управления музыкальным плеером на базе Lavalink + wavelink.
 
-import asyncio
+Содержит hybrid-команды (slash + префикс) play/skip/stop/pause/resume/queue/
+nowplaying/remove/clear/loop/shuffle/volume/seek и слушатели событий wavelink
+для синхронизации now-playing сообщения с реальным состоянием воспроизведения.
+"""
+
+from __future__ import annotations
+
 import logging
+import re
 
 import discord
+import wavelink
+from discord import app_commands
 from discord.ext import commands
 
-from utils.music import COLORS, MusicPlayer, SearchView, create_embed, search_youtube
+from utils.error_handler import command_error_handler, safe_send, safe_send_error
+from utils.music import (
+    COLORS,
+    MusicPlayer,
+    PlayerControlView,
+    QueueView,
+    SearchView,
+    added_playlist_embed,
+    added_to_queue_embed,
+    close_nodes,
+    create_embed,
+    format_duration,
+    now_playing_embed,
+    queue_embed,
+    setup_node,
+)
 
-# Создаем логгер с иерархическим именем, как в других когах
 logger = logging.getLogger("bot.cogs.music")
 
+_URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+_TIMESTAMP_RE = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})$")
 
-class MusicCog(commands.Cog, name="Music"):  # type: ignore
-    """Управляет воспроизведением музыки.
 
-    Предоставляет команды для поиска, добавления в очередь, воспроизведения и управления треками.
-    """
+class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
+    """Управляет воспроизведением музыки через Lavalink-ноду."""
 
     def __init__(self, bot: commands.Bot) -> None:
-        """Инициализирует музыкальный ког.
-
-        Args:
-            bot: Экземпляр discord.ext.commands.Bot.
-        """
+        """Сохраняет ссылку на бота. Подключение к Lavalink происходит в :meth:`cog_load`."""
         self.bot: commands.Bot = bot
-        self.player: MusicPlayer = MusicPlayer(bot)
-        logger.info("Музыкальный модуль инициализирован.")
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    async def cog_load(self) -> None:
+        """Запускает фоновое подключение к Lavalink-ноде.
+
+        ``setup_node`` ставит коннект в asyncio.Task и возвращает управление
+        мгновенно — поэтому если Lavalink ещё не поднят (например, его только
+        что добавили в docker-compose и нода стартует параллельно), бот не
+        зависнет на старте, а музыкальные команды просто будут ругаться
+        "нет ноды" до тех пор, пока ws-handshake не пройдёт.
+        """
+        await setup_node(self.bot)
 
     async def cog_unload(self) -> None:
-        """Вызывается при выгрузке кога.
+        """Отключает плеер от голосового канала и закрывает Lavalink-ноду."""
+        for guild in self.bot.guilds:
+            vc = guild.voice_client
+            if isinstance(vc, MusicPlayer):
+                try:
+                    await vc.disconnect()
+                except Exception:  # pragma: no cover
+                    pass
+        await close_nodes()
 
-        Отключает плеер.
-        """
-        logger.info("Выгрузка музыкального модуля...")
-        if self.player:
-            await self.player.disconnect()
-        logger.info("Музыкальный модуль выгружен.")
+    # ------------------------------------------------------------------
+    # Wavelink event listeners
+    # ------------------------------------------------------------------
+
+    @commands.Cog.listener()
+    async def on_wavelink_node_ready(self, payload: wavelink.NodeReadyEventPayload) -> None:
+        """Логирует успешное подключение к Lavalink."""
+        logger.info(
+            "Lavalink-нода %s готова (resumed=%s, session_id=%s).",
+            payload.node.identifier,
+            payload.resumed,
+            payload.session_id,
+        )
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_start(self, payload: wavelink.TrackStartEventPayload) -> None:
+        """Отправляет/обновляет сообщение "Сейчас играет" при старте трека."""
+        player = payload.player
+        if not isinstance(player, MusicPlayer) or player.text_channel is None:
+            return
+
+        embed = now_playing_embed(player)
+        view = PlayerControlView(player)
+
+        old_msg = player.now_playing_message
+        if old_msg is not None:
+            try:
+                await old_msg.edit(embed=embed, view=view)
+                return
+            except (discord.NotFound, discord.HTTPException):
+                player.now_playing_message = None
+
+        try:
+            player.now_playing_message = await player.text_channel.send(embed=embed, view=view)
+        except discord.HTTPException as exc:
+            logger.warning("Не удалось отправить now-playing сообщение: %s", exc)
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_end(self, payload: wavelink.TrackEndEventPayload) -> None:
+        """При завершении трека: если очередь пуста — снимает кнопки."""
+        player = payload.player
+        if not isinstance(player, MusicPlayer):
+            return
+        # Wavelink сам подхватит следующий трек из player.queue, мы только
+        # очищаем кнопки если очередь пуста и нового трека не будет.
+        if player.queue.is_empty and player.current is None:
+            if player.now_playing_message is not None:
+                try:
+                    await player.now_playing_message.edit(view=None)
+                except discord.HTTPException:
+                    pass
+
+    @commands.Cog.listener()
+    async def on_wavelink_track_exception(
+        self, payload: wavelink.TrackExceptionEventPayload
+    ) -> None:
+        """Логирует ошибку Lavalink при воспроизведении и сообщает в чат."""
+        player = payload.player
+        logger.error(
+            "Ошибка воспроизведения трека: %s (severity=%s, cause=%s)",
+            payload.exception,
+            getattr(payload.exception, "severity", "?"),
+            getattr(payload.exception, "cause", "?"),
+        )
+        if isinstance(player, MusicPlayer) and player.text_channel is not None:
+            try:
+                await player.text_channel.send(
+                    embed=create_embed(
+                        "❌ Ошибка воспроизведения",
+                        f"Lavalink не смог проиграть трек: `{payload.exception}`. "
+                        "Перехожу к следующему.",
+                        COLORS["ERROR"],
+                    )
+                )
+            except discord.HTTPException:
+                pass
+
+    @commands.Cog.listener()
+    async def on_wavelink_inactive_player(self, player: wavelink.Player) -> None:
+        """Wavelink сигналит, что плеер простаивает дольше ``inactive_timeout``."""
+        if not isinstance(player, MusicPlayer):
+            return
+        logger.info(
+            "Плеер простаивает в канале %s — отключаемся.",
+            player.channel.name if player.channel else "?",
+        )
+        if player.text_channel is not None:
+            try:
+                await player.text_channel.send(
+                    embed=create_embed(
+                        "💤 Автоотключение",
+                        "Бот покинул канал из-за неактивности.",
+                        COLORS["INFO"],
+                    )
+                )
+            except discord.HTTPException:
+                pass
+        await player.disconnect()
 
     @commands.Cog.listener()
     async def on_voice_state_update(
-        self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState
+        self,
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState,
     ) -> None:
-        """Событие, отслеживающее изменения состояния голосового канала участников.
+        """Если бот остался один в голосовом канале — отключаемся."""
+        if member.bot:
+            return
+        guild = member.guild
+        vc = guild.voice_client
+        if not isinstance(vc, MusicPlayer) or vc.channel is None:
+            return
+        if before.channel != vc.channel and after.channel != vc.channel:
+            return  # событие не про канал бота
+        humans = [m for m in vc.channel.members if not m.bot]
+        if humans:
+            return
+        logger.info("Бот остался один в %s — отключаемся.", vc.channel.name)
+        await vc.disconnect()
 
-        Если бот остается один в голосовом канале, он автоматически отключается.
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
 
-        Args:
-            member: Участник, чье состояние изменилось.
-            before: Состояние голосового канала до изменения.
-            after: Состояние голосового канала после изменения.
+    async def _ensure_player(
+        self,
+        ctx: commands.Context,
+    ) -> MusicPlayer | None:
+        """Гарантирует, что бот подключён к голосовому каналу пользователя.
+
+        Подключается, если ещё не подключён. Перемещается, если пользователь
+        в другом канале. Возвращает текущий :class:`MusicPlayer` или ``None``
+        с уведомлением в чат при ошибке.
         """
-        if member.bot:  # Игнорируем изменения состояния других ботов
-            return
+        if not isinstance(ctx.author, discord.Member):
+            await safe_send_error(ctx, "Эта команда доступна только на сервере.")
+            return None
 
-        vc = self.player.voice_client
-        if not vc or not vc.is_connected():  # Если бот не в голосовом канале, ничего не делаем
-            return
-
-        # Проверяем, был ли участник в том же канале, что и бот, и вышел ли он,
-        # или если бот остался один после того, как кто-то вышел из его канала.
-        # Условие before.channel == vc.channel означает, что событие связано с каналом бота.
-        if (
-            before.channel == vc.channel
-            and after.channel != vc.channel
-            or (
-                before.channel == vc.channel
-                and after.channel == vc.channel
-                and len(vc.channel.members) == 1
-                and vc.channel.members[0] == self.bot.user
+        user_voice = ctx.author.voice
+        if user_voice is None or user_voice.channel is None:
+            await safe_send_error(
+                ctx, "Вы должны быть в голосовом канале, чтобы использовать эту команду."
             )
-        ):
-            # Небольшая задержка, чтобы убедиться, что состояние канала стабилизировалось
-            # await asyncio.sleep(1) # Удалено, т.к. может быть излишним и приводить к задержкам.
-            # Если будут проблемы с преждевременным выходом, можно вернуть с комментарием.
+            return None
 
-            # Повторно получаем voice_client, так как он мог измениться
-            current_vc = self.player.voice_client
-            if not current_vc or not current_vc.is_connected():
-                return
+        target_channel = user_voice.channel
+        if not isinstance(target_channel, discord.VoiceChannel):
+            await safe_send_error(ctx, "Бот поддерживает только обычные голосовые каналы.")
+            return None
 
-            # Проверяем количество "живых" пользователей в текущем канале бота
-            human_members = [m for m in current_vc.channel.members if not m.bot]
-            if not human_members:
-                logger.info(f"Бот остался один в канале '{current_vc.channel.name}'. Отключаемся.")
-                await self.player.disconnect()
+        player = ctx.guild.voice_client if ctx.guild else None
+        if isinstance(player, MusicPlayer):
+            if player.channel != target_channel:
+                await player.move_to(target_channel)
+            return player
 
-    async def _ensure_voice(self, interaction: discord.Interaction) -> bool:
-        """Проверяет, находится ли пользователь, вызвавший команду, в голосовом канале.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-
-        Returns:
-            True, если пользователь в голосовом канале, иначе False.
-        """
-        if (
-            not isinstance(interaction.user, discord.Member)
-            or not interaction.user.voice
-            or not interaction.user.voice.channel
-        ):
-            message = "Вы должны быть в голосовом канале, чтобы использовать эту команду!"
-            if interaction.response.is_done():
-                await interaction.followup.send(message, ephemeral=False)
-            else:
-                await interaction.response.send_message(message, ephemeral=False)
-            return False
-        return True
-
-    async def _connect_or_move(self, interaction: discord.Interaction) -> bool:
-        """Подключает бота к голосовому каналу пользователя или перемещает его.
-
-        Также устанавливает текстовый канал для плеера, если он уже подключен к другому каналу.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-
-        Returns:
-            True, если подключение/перемещение успешно, иначе False.
-        """
-        if (
-            not interaction.user.voice or not interaction.user.voice.channel
-        ):  # Дополнительная проверка
-            # _ensure_voice должен был это покрыть, но для надежности
-            await interaction.response.send_message(
-                "Не удалось определить ваш голосовой канал.", ephemeral=False
-            )
-            return False
-
-        user_channel = interaction.user.voice.channel
-        if not await self.player.connect(user_channel):
-            await interaction.response.send_message(
-                f"Не удалось подключиться или переместиться в канал '{user_channel.name}'.",
-                ephemeral=False,
-            )
-            return False
-
-        # Устанавливаем текстовый канал для сообщений плеера, если он еще не установлен
-        if not self.player.text_channel and interaction.channel:
-            if isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
-                self.player.text_channel = interaction.channel
-                logger.info(
-                    f"Текстовый канал плеера установлен: #{interaction.channel.name} "
-                    f"({interaction.channel.id})"
-                )
-            else:
-                # Логируем, если канал не текстовый, но не прерываем операцию
-                logger.warning(
-                    f"Канал взаимодействия '{interaction.channel.name}' "
-                    f"(тип: {type(interaction.channel)}) не является TextChannel или Thread. "
-                    "Сообщения плеера могут не отображаться."
-                )
-        return True
-
-    @discord.app_commands.command(
-        name="play", description="Воспроизвести музыку по ссылке или поисковому запросу."
-    )
-    @discord.app_commands.describe(
-        query="Ссылка (YouTube, SoundCloud, etc.) или текст для поиска на YouTube"
-    )
-    async def play(self, interaction: discord.Interaction, query: str) -> None:
-        """Воспроизводит музыку по URL-ссылке или выполняет поиск на YouTube по текстовому запросу.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-            query: URL-ссылка на трек или поисковый запрос для YouTube.
-        """
-        await interaction.response.defer(thinking=True, ephemeral=False)
-        if not await self._ensure_voice(interaction):
-            await interaction.edit_original_response(content="Вы должны быть в голосовом канале!")
-            return
-        if not await self._connect_or_move(interaction):
-            await interaction.edit_original_response(
-                content="Не удалось подключиться к голосовому каналу."
-            )
-            return
-        if query.startswith(("http://", "https://")):
-            await interaction.edit_original_response(content="🔗 Добавляем трек по ссылке...")
-            await self.player.queue_track(query, interaction.user, interaction)
-        else:
-            await interaction.edit_original_response(content=f"🔍 Ищем '{query}' на YouTube...")
-            search_results = await search_youtube(query)
-            if not search_results:
-                await interaction.edit_original_response(
-                    content=None,
-                    embed=create_embed(
-                        "❌ Поиск не дал результатов",
-                        f"Не найдено треков по запросу: `{query}`",
-                        COLORS["ERROR"],
-                    ),
-                )
-                return
-            search_view = SearchView(self.player, interaction, search_results)
-            embed = create_embed(
-                f"🔍 Результаты поиска для '{query}'", "Выберите трек из списка ниже:"
-            )
-            await interaction.edit_original_response(content=None, embed=embed, view=search_view)
-
-    @discord.app_commands.command(name="skip", description="Пропустить текущий трек.")
-    async def skip(self, interaction: discord.Interaction) -> None:
-        """Пропускает текущий воспроизводимый трек и запускает следующий из очереди, если он есть.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-        """
-        if (
-            not self.player.voice_client
-            or not interaction.user.voice
-            or (
-                self.player.voice_client
-                and interaction.user.voice.channel != self.player.voice_client.channel
-            )
-        ):
-            await interaction.response.send_message(
-                "Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False
-            )
-            return
-
-        # Только заказавший трек или админ может скипать
-        requester = (
-            getattr(self.player.current_track, "requester", None)
-            if getattr(self.player, "current_track", None)
-            else None
-        )
-        is_admin = interaction.user.guild_permissions.administrator
-        if not is_admin and requester and requester.id != interaction.user.id:
-            await interaction.response.send_message(
-                "Пропустить трек может только администратор или тот, кто заказал этот трек.",
-                ephemeral=False,
-            )
-            return
-
-        await self.player.skip(interaction)
-
-    @discord.app_commands.command(
-        name="stop", description="Остановить воспроизведение и покинуть канал."
-    )
-    async def stop(self, interaction: discord.Interaction) -> None:
-        """Останавливает музыку, очищает очередь и отключает бота.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-        """
-        if (
-            not self.player.voice_client
-            or not interaction.user.voice
-            or interaction.user.voice.channel != self.player.voice_client.channel
-        ):
-            await interaction.response.send_message(
-                "Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False
-            )
-            return
-
-        # Только администратор может останавливать музыку
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "Остановить музыку может только администратор.", ephemeral=False
-            )
-            return
-
-        await self.player.stop(interaction)
-
-    @discord.app_commands.command(name="pause", description="Приостановить воспроизведение.")
-    async def pause(self, interaction: discord.Interaction) -> None:
-        """Приостанавливает воспроизведение текущего трека.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-        """
-        if (
-            not self.player.voice_client
-            or not interaction.user.voice
-            or interaction.user.voice.channel != self.player.voice_client.channel
-        ):
-            await interaction.response.send_message(
-                "Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False
-            )
-            return
-
-        # Только заказавший трек или админ может паузить
-        requester = (
-            getattr(self.player.current_track, "requester", None)
-            if getattr(self.player, "current_track", None)
-            else None
-        )
-        is_admin = interaction.user.guild_permissions.administrator
-        if not is_admin and requester and requester.id != interaction.user.id:
-            await interaction.response.send_message(
-                "Поставить на паузу может только администратор или тот, кто заказал этот трек.",
-                ephemeral=False,
-            )
-            return
-
-        await self.player.pause(interaction)
-
-    @discord.app_commands.command(name="resume", description="Возобновить воспроизведение.")
-    async def resume(self, interaction: discord.Interaction) -> None:
-        """Возобновляет воспроизведение приостановленного трека.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-        """
-        if (
-            not self.player.voice_client
-            or not interaction.user.voice
-            or interaction.user.voice.channel != self.player.voice_client.channel
-        ):
-            await interaction.response.send_message(
-                "Вы должны быть в том же голосовом канале, что и бот!", ephemeral=False
-            )
-            return
-        await self.player.resume(interaction)
-
-    @discord.app_commands.command(name="queue", description="Показать очередь воспроизведения.")
-    async def queue(self, interaction: discord.Interaction) -> None:
-        """Показывает текущую очередь воспроизведения, включая играющий трек.
-
-        Args:
-            interaction: Взаимодействие, инициировавшее команду.
-        """
-        await self.player.show_queue(interaction)
-
-    async def cog_app_command_error(
-        self, interaction: discord.Interaction, error: discord.app_commands.AppCommandError
-    ) -> None:
-        """Обрабатывает ошибки, возникающие при выполнении команд приложения в этом коге.
-
-        Args:
-            interaction: Взаимодействие, где произошла ошибка.
-            error: Объект ошибки.
-        """
-        logger.error(
-            f"Ошибка в музыкальной команде "
-            f"'{interaction.command.name if interaction.command else 'неизвестно'}': {error}",
-            exc_info=True,
-        )
-        error_message = f"Произошла ошибка при выполнении команды: `{error}`"
-        if isinstance(error, discord.app_commands.CheckFailure):
-            error_message = "У вас нет прав для выполнения этой команды."
-        elif isinstance(error, discord.app_commands.CommandInvokeError):
-            original = error.original
-            if isinstance(original, asyncio.TimeoutError):
-                error_message = (
-                    "Превышено время ожидания ответа от сервера. Пожалуйста, попробуйте еще раз."
-                )
-            elif "Cannot connect to host" in str(original):
-                error_message = (
-                    "Не удалось подключиться к серверу YouTube. Проверьте ваше интернет-соединение."
-                )
-            elif "HTTP Error 403" in str(original):
-                error_message = (
-                    "Доступ к ресурсу запрещен. Возможно, видео недоступно в вашем регионе."
-                )
-            elif "HTTP Error 404" in str(original):
-                error_message = "Ресурс не найден. Возможно, видео было удалено."
-            else:
-                error_message = f"Произошла внутренняя ошибка: `{original}`"
-        elif isinstance(error, discord.app_commands.CommandNotFound):
-            error_message = "Команда не найдена. Используйте /help для просмотра доступных команд."
-        elif isinstance(error, discord.app_commands.MissingPermissions):
-            error_message = "У бота недостаточно прав для выполнения этой команды."
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send(error_message, ephemeral=False)
-            else:
-                await interaction.response.send_message(error_message, ephemeral=False)
-        except Exception as e:
-            logger.error(f"Не удалось отправить сообщение об ошибке: {e}")
+            player = await target_channel.connect(cls=MusicPlayer, self_deaf=True)
+        except discord.ClientException as exc:
+            await safe_send_error(ctx, f"Не удалось подключиться к каналу: {exc}")
+            return None
+        except Exception as exc:
+            logger.error("Ошибка при подключении к VC: %s", exc, exc_info=True)
+            await safe_send_error(ctx, "Не удалось подключиться к голосовому каналу.")
+            return None
+
+        # Сохраняем текстовый канал, чтобы события могли слать сюда now-playing.
+        if isinstance(ctx.channel, (discord.TextChannel, discord.Thread)):
+            player.text_channel = ctx.channel
+
+        # Применяем настройки по умолчанию.
+        settings = getattr(self.bot, "settings", None)
+        if settings is None:
+            from config import get_settings
+
+            settings = get_settings()
+        default_vol = settings.music.lavalink.default_volume
+        if player.volume != default_vol:
+            await player.set_volume(default_vol)
+        # включаем рекомендации по умолчанию выключено: некоторые источники
+        # выдают шум; AutoPlay можно включать отдельной командой при желании.
+        player.autoplay = wavelink.AutoPlayMode.partial
+        return player
+
+    def _require_same_voice(self, ctx: commands.Context) -> MusicPlayer | None:
+        """Проверяет что вызывающий находится в том же VC, что и бот."""
+        player = ctx.guild.voice_client if ctx.guild else None
+        if not isinstance(player, MusicPlayer) or player.channel is None:
+            return None
+        if not isinstance(ctx.author, discord.Member) or ctx.author.voice is None:
+            return None
+        if ctx.author.voice.channel != player.channel:
+            return None
+        return player
+
+    async def _enqueue(
+        self,
+        player: MusicPlayer,
+        track: wavelink.Playable,
+        requester: discord.Member,
+    ) -> int:
+        """Добавляет один трек в очередь и возвращает позицию (1-based)."""
+        MusicPlayer.assign_requester(track, requester)
+        position = len(player.queue) + (0 if player.playing else 1)
+        await player.queue.put_wait(track)
+        if not player.playing:
+            next_track = player.queue.get()
+            await player.play(next_track)
+        return max(1, position)
+
+    async def _enqueue_selected_track(
+        self,
+        interaction: discord.Interaction,
+        track: wavelink.Playable,
+        requester: discord.Member,
+    ) -> None:
+        """Колбэк для ``SearchView`` — добавляет выбранный трек в очередь."""
+        player = interaction.guild.voice_client if interaction.guild else None
+        if not isinstance(player, MusicPlayer):
+            await interaction.response.send_message(
+                "Сначала бот должен подключиться к голосовому каналу (/play <ссылка>).",
+                ephemeral=True,
+            )
+            return
+        position = await self._enqueue(player, track, requester)
+        embed = added_to_queue_embed(track, position, player)
+        await interaction.response.edit_message(content=None, embed=embed, view=None)
+
+    # ------------------------------------------------------------------
+    # Commands
+    # ------------------------------------------------------------------
+
+    @commands.hybrid_command(
+        name="play",
+        description="Воспроизвести трек или плейлист по ссылке либо текстовому запросу.",
+    )
+    @app_commands.describe(
+        query="Ссылка (YouTube/Spotify/SoundCloud/Apple Music) или текст для поиска"
+    )
+    @command_error_handler
+    async def play(self, ctx: commands.Context, *, query: str) -> None:
+        """Добавляет трек в очередь и запускает воспроизведение, если нужно.
+
+        Поддерживает прямые ссылки на YouTube, Spotify, Apple Music, SoundCloud,
+        Bandcamp, Twitch, Vimeo, а также текстовый поиск (по умолчанию через
+        YouTube Music). Для плейлистов добавляет все треки.
+        """
+        await ctx.defer()
+
+        player = await self._ensure_player(ctx)
+        if player is None:
+            return
+        if isinstance(ctx.channel, (discord.TextChannel, discord.Thread)):
+            player.text_channel = ctx.channel
+
+        is_url = bool(_URL_RE.match(query.strip()))
+        try:
+            results: wavelink.Search = await wavelink.Playable.search(query)
+        except wavelink.LavalinkLoadException as exc:
+            await safe_send_error(ctx, f"Lavalink не смог загрузить запрос: `{exc}`")
+            return
+
+        if not results:
+            await safe_send_error(ctx, f"Ничего не найдено по запросу: `{query}`")
+            return
+
+        requester = ctx.author
+        if not isinstance(requester, discord.Member):
+            await safe_send_error(ctx, "Не удалось определить участника.")
+            return
+
+        # Плейлист — добавляем все треки целиком.
+        if isinstance(results, wavelink.Playlist):
+            for track in results.tracks:
+                MusicPlayer.assign_requester(track, requester)
+            added = await player.queue.put_wait(results)
+            if not player.playing:
+                next_track = player.queue.get()
+                await player.play(next_track)
+            await safe_send(ctx, embed=added_playlist_embed(results, added, player))
+            return
+
+        # URL на один трек — добавляем сразу первый результат.
+        if is_url:
+            track = results[0]
+            position = await self._enqueue(player, track, requester)
+            await safe_send(ctx, embed=added_to_queue_embed(track, position, player))
+            return
+
+        # Текстовый поиск — показываем меню выбора.
+        from config import get_settings
+
+        limit = get_settings().music.lavalink.search_limit
+        top_results = results[:limit]
+        if len(top_results) == 1:
+            # Единственный результат — добавляем без меню.
+            track = top_results[0]
+            position = await self._enqueue(player, track, requester)
+            await safe_send(ctx, embed=added_to_queue_embed(track, position, player))
+            return
+
+        view = SearchView(self, top_results, requester)
+        await safe_send(
+            ctx,
+            embed=create_embed(
+                f"🔍 Результаты поиска: «{query}»",
+                f"Выберите трек из топ-{len(top_results)} результатов:",
+                COLORS["DEFAULT"],
+            ),
+        )
+        # safe_send уже отправил эмбед; теперь добавляем view отдельным
+        # followup-сообщением (View нельзя добавить ретроактивно).
+        if ctx.interaction:
+            await ctx.interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await ctx.send(view=view)
+
+    @commands.hybrid_command(name="skip", description="Пропустить текущий трек.")
+    @command_error_handler
+    async def skip(self, ctx: commands.Context) -> None:
+        """Пропускает текущий трек (требует прав заказчика или админа)."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if player.current is None:
+            await safe_send_error(ctx, "Сейчас ничего не играет.")
+            return
+        if not isinstance(ctx.author, discord.Member) or not player.can_control(ctx.author):
+            await safe_send_error(
+                ctx,
+                "Пропустить трек может только администратор или тот, кто заказал этот трек.",
+            )
+            return
+        title = player.current.title
+        await player.skip(force=True)
+        await safe_send(
+            ctx,
+            embed=create_embed("⏭️ Трек пропущен", f"Пропущено: **{title}**", COLORS["INFO"]),
+        )
+
+    @commands.hybrid_command(
+        name="stop",
+        description="Остановить воспроизведение, очистить очередь и покинуть канал.",
+    )
+    @command_error_handler
+    async def stop(self, ctx: commands.Context) -> None:
+        """Останавливает воспроизведение и отключается (только админ)."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if not isinstance(ctx.author, discord.Member) or not player.can_control(
+            ctx.author, admin_only=True
+        ):
+            await safe_send_error(ctx, "Остановить воспроизведение может только администратор.")
+            return
+        player.queue.clear()
+        await player.disconnect()
+        await safe_send(
+            ctx,
+            embed=create_embed(
+                "⏹️ Остановлено",
+                "Воспроизведение остановлено, очередь очищена, бот покинул канал.",
+                COLORS["INFO"],
+            ),
+        )
+
+    @commands.hybrid_command(name="pause", description="Приостановить воспроизведение.")
+    @command_error_handler
+    async def pause(self, ctx: commands.Context) -> None:
+        """Ставит воспроизведение на паузу."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if player.current is None:
+            await safe_send_error(ctx, "Сейчас ничего не играет.")
+            return
+        if player.paused:
+            await safe_send_error(ctx, "Воспроизведение уже на паузе.")
+            return
+        if not isinstance(ctx.author, discord.Member) or not player.can_control(ctx.author):
+            await safe_send_error(
+                ctx,
+                "Поставить на паузу может только администратор или тот, кто заказал этот трек.",
+            )
+            return
+        await player.pause(True)
+        await safe_send(ctx, embed=create_embed("⏸️ Пауза", "", COLORS["INFO"]))
+
+    @commands.hybrid_command(name="resume", description="Возобновить воспроизведение.")
+    @command_error_handler
+    async def resume(self, ctx: commands.Context) -> None:
+        """Снимает с паузы."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if not player.paused:
+            await safe_send_error(ctx, "Воспроизведение не на паузе.")
+            return
+        await player.pause(False)
+        await safe_send(ctx, embed=create_embed("▶️ Продолжаем", "", COLORS["SUCCESS"]))
+
+    @commands.hybrid_command(
+        name="queue", aliases=["q"], description="Показать очередь воспроизведения."
+    )
+    @app_commands.describe(page="Номер страницы (по 10 треков на странице)")
+    @command_error_handler
+    async def queue(self, ctx: commands.Context, page: int = 1) -> None:
+        """Показывает текущую очередь с пагинацией."""
+        player = ctx.guild.voice_client if ctx.guild else None
+        if not isinstance(player, MusicPlayer):
+            await safe_send_error(ctx, "Сейчас ничего не играет.")
+            return
+        if player.current is None and len(player.queue) == 0:
+            await safe_send(
+                ctx,
+                embed=create_embed(
+                    "ℹ️ Очередь пуста",
+                    "Используйте `/play <запрос>` чтобы добавить трек.",
+                    COLORS["INFO"],
+                ),
+            )
+            return
+        from config import get_settings
+
+        page_size = get_settings().music.lavalink.queue_page_size
+        embed = queue_embed(player, page=page, page_size=page_size)
+        view = QueueView(player, page=page, page_size=page_size)
+        await safe_send(ctx, embed=embed)
+        if ctx.interaction:
+            await ctx.interaction.followup.send(view=view, ephemeral=True)
+        else:
+            await ctx.send(view=view)
+
+    @commands.hybrid_command(
+        name="nowplaying", aliases=["np"], description="Показать текущий трек."
+    )
+    @command_error_handler
+    async def nowplaying(self, ctx: commands.Context) -> None:
+        """Отправляет актуальный now-playing эмбед."""
+        player = ctx.guild.voice_client if ctx.guild else None
+        if not isinstance(player, MusicPlayer) or player.current is None:
+            await safe_send_error(ctx, "Сейчас ничего не играет.")
+            return
+        await safe_send(ctx, embed=now_playing_embed(player))
+
+    @commands.hybrid_command(
+        name="remove",
+        description="Убрать трек из очереди по его номеру (см. /queue).",
+    )
+    @app_commands.describe(index="Номер трека в очереди (начиная с 1)")
+    @command_error_handler
+    async def remove(self, ctx: commands.Context, index: int) -> None:
+        """Удаляет трек из очереди (требует прав заказчика или админа)."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if index < 1 or index > len(player.queue):
+            await safe_send_error(ctx, f"Неверный номер. В очереди {len(player.queue)} трек(ов).")
+            return
+        target = player.queue.peek(index - 1)
+        is_admin = isinstance(ctx.author, discord.Member) and (
+            ctx.author.guild_permissions.administrator
+        )
+        if not is_admin:
+            requester_id = MusicPlayer.get_requester_id(target)
+            if requester_id != ctx.author.id:
+                await safe_send_error(
+                    ctx,
+                    "Убрать трек может только администратор или тот, кто его заказал.",
+                )
+                return
+        player.queue.delete(index - 1)
+        await safe_send(
+            ctx,
+            embed=create_embed(
+                "🗑️ Трек убран",
+                f"Удалено из очереди: **{target.title}**",
+                COLORS["INFO"],
+            ),
+        )
+
+    @commands.hybrid_command(name="clear", description="Очистить очередь.")
+    @command_error_handler
+    async def clear(self, ctx: commands.Context) -> None:
+        """Очищает очередь (только админ)."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if (
+            not isinstance(ctx.author, discord.Member)
+            or not ctx.author.guild_permissions.administrator
+        ):
+            await safe_send_error(ctx, "Очистить очередь может только администратор.")
+            return
+        count = len(player.queue)
+        player.queue.clear()
+        await safe_send(
+            ctx,
+            embed=create_embed(
+                "🗑️ Очередь очищена",
+                f"Убрано треков: **{count}**",
+                COLORS["INFO"],
+            ),
+        )
+
+    @commands.hybrid_command(name="loop", description="Сменить режим повтора (off/track/queue).")
+    @app_commands.describe(mode="Режим: off — выключить, track — повторять трек, queue — очередь")
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="off — выключить", value="off"),
+            app_commands.Choice(name="track — повторять трек", value="track"),
+            app_commands.Choice(name="queue — повторять очередь", value="queue"),
+        ]
+    )
+    @command_error_handler
+    async def loop(self, ctx: commands.Context, mode: str = "off") -> None:
+        """Устанавливает режим повтора (off/track/queue)."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if not isinstance(ctx.author, discord.Member) or not player.can_control(ctx.author):
+            await safe_send_error(
+                ctx,
+                "Сменить режим повтора может только администратор или заказчик текущего трека.",
+            )
+            return
+        mapping = {
+            "off": (wavelink.QueueMode.normal, "Повтор выключен"),
+            "track": (wavelink.QueueMode.loop, "Повтор: текущий трек"),
+            "queue": (wavelink.QueueMode.loop_all, "Повтор: вся очередь"),
+        }
+        if mode not in mapping:
+            await safe_send_error(ctx, "Допустимые режимы: `off`, `track`, `queue`.")
+            return
+        new_mode, label = mapping[mode]
+        player.queue.mode = new_mode
+        await safe_send(ctx, embed=create_embed(f"🔁 {label}", "", COLORS["INFO"]))
+
+    @commands.hybrid_command(name="shuffle", description="Перемешать очередь.")
+    @command_error_handler
+    async def shuffle(self, ctx: commands.Context) -> None:
+        """Перемешивает оставшуюся очередь."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if not isinstance(ctx.author, discord.Member) or not player.can_control(ctx.author):
+            await safe_send_error(
+                ctx,
+                "Перемешать очередь может только администратор или заказчик текущего трека.",
+            )
+            return
+        if len(player.queue) < 2:
+            await safe_send_error(ctx, "В очереди слишком мало треков для перемешивания.")
+            return
+        player.queue.shuffle()
+        await safe_send(
+            ctx,
+            embed=create_embed(
+                "🔀 Перемешано",
+                f"Очередь из {len(player.queue)} треков перемешана.",
+                COLORS["SUCCESS"],
+            ),
+        )
+
+    @commands.hybrid_command(name="volume", description="Установить громкость (0-200).")
+    @app_commands.describe(value="Громкость 0-200% (по умолчанию максимум 200%)")
+    @command_error_handler
+    async def volume(self, ctx: commands.Context, value: int) -> None:
+        """Меняет громкость плеера (только админ)."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if (
+            not isinstance(ctx.author, discord.Member)
+            or not ctx.author.guild_permissions.administrator
+        ):
+            await safe_send_error(ctx, "Изменить громкость может только администратор.")
+            return
+        from config import get_settings
+
+        max_vol = get_settings().music.lavalink.max_volume
+        if value < 0 or value > max_vol:
+            await safe_send_error(ctx, f"Громкость должна быть в диапазоне 0–{max_vol}.")
+            return
+        await player.set_volume(value)
+        await safe_send(
+            ctx,
+            embed=create_embed(f"🔊 Громкость: {value}%", "", COLORS["INFO"]),
+        )
+
+    @commands.hybrid_command(name="seek", description="Перемотать трек на указанную позицию.")
+    @app_commands.describe(position="Позиция в формате MM:SS или HH:MM:SS, либо число секунд")
+    @command_error_handler
+    async def seek(self, ctx: commands.Context, position: str) -> None:
+        """Перематывает текущий трек на указанную позицию."""
+        player = self._require_same_voice(ctx)
+        if player is None:
+            await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")
+            return
+        if player.current is None or not player.playing:
+            await safe_send_error(ctx, "Сейчас ничего не играет.")
+            return
+        if not isinstance(ctx.author, discord.Member) or not player.can_control(ctx.author):
+            await safe_send_error(
+                ctx,
+                "Перематывать может только администратор или заказчик трека.",
+            )
+            return
+
+        seconds = self._parse_seek(position)
+        if seconds is None:
+            await safe_send_error(ctx, "Не могу разобрать позицию. Примеры: `1:23`, `0:42`, `90`.")
+            return
+        if player.current.length is not None and seconds * 1000 >= player.current.length:
+            await safe_send_error(ctx, "Указанная позиция больше длительности трека.")
+            return
+        await player.seek(seconds * 1000)
+        await safe_send(
+            ctx,
+            embed=create_embed(
+                "⏩ Перемотано",
+                f"Текущая позиция: `{format_duration(seconds * 1000)}`",
+                COLORS["INFO"],
+            ),
+        )
+
+    @staticmethod
+    def _parse_seek(value: str) -> int | None:
+        """Парсит ``"1:23"`` / ``"01:02:03"`` / ``"90"`` в число секунд."""
+        value = value.strip()
+        if value.isdigit():
+            return int(value)
+        match = _TIMESTAMP_RE.match(value)
+        if not match:
+            return None
+        hours = int(match.group(1) or 0)
+        minutes = int(match.group(2))
+        seconds = int(match.group(3))
+        if minutes >= 60 or seconds >= 60:
+            return None
+        return hours * 3600 + minutes * 60 + seconds
 
 
 async def setup(bot: commands.Bot) -> None:
-    """Добавляет MusicCog к боту.
-
-    Args:
-        bot: Экземпляр discord.ext.commands.Bot.
-    """
+    """Регистрирует :class:`MusicCog` у бота."""
     await bot.add_cog(MusicCog(bot))
-    logger.info("Музыкальный модуль (MusicCog) добавлен к боту.")
+    logger.info("Музыкальный ког подключён (Lavalink + wavelink).")

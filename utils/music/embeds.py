@@ -1,43 +1,50 @@
-"""Вспомогательные функции для создания и форматирования discord.Embed объектов и длительности.
+"""Утилиты для создания Discord-эмбедов музыкального модуля.
 
-Используются в музыкальном модуле.
+Все эмбеды описывают текущее состояние плеера и используют единый стиль:
+обложка справа, длительности в формате ``MM:SS`` или ``HH:MM:SS``.
 """
 
-from typing import Any  # Оставляем только используемые типы
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import discord
 
 from .config import COLORS
 
+if TYPE_CHECKING:
+    import wavelink
+
 
 def create_embed(
-    title: str, description: str = "", color: discord.Color | None = None, **kwargs: Any
+    title: str,
+    description: str = "",
+    color: discord.Color | None = None,
+    **kwargs: Any,
 ) -> discord.Embed:
-    """Создает и возвращает объект discord.Embed с заданными параметрами.
+    """Создаёт и возвращает объект :class:`discord.Embed` с заданными параметрами.
 
     Args:
         title: Заголовок эмбеда.
         description: Описание эмбеда.
-        color: Цвет эмбеда. По умолчанию используется COLORS['DEFAULT'].
-        **kwargs: Дополнительные параметры для настройки эмбеда:
-            thumbnail (str): URL для миниатюры.
-            footer (str): Текст для футера.
-            image (str): URL для изображения.
-            author (dict | str): Информация об авторе. Если dict, ожидаются ключи
-                'name', 'icon_url', 'url'. Если str, используется как имя автора.
-            fields (List[Tuple[str, str, bool]]): Список полей для добавления.
-                Каждое поле - кортеж (name, value, inline).
-            Любые другие kwargs будут добавлены как обычные поля
-                (name=key, value=value, inline=True).
+        color: Цвет эмбеда. По умолчанию — ``COLORS['DEFAULT']``.
+        **kwargs: Опциональные параметры:
+            - ``thumbnail`` (``str``): URL миниатюры справа.
+            - ``image`` (``str``): URL большого изображения снизу.
+            - ``footer`` (``str``): Текст футера.
+            - ``author`` (``dict`` | ``str``): Информация об авторе.
+                Если ``dict`` — ожидаются ключи ``name``, ``icon_url``, ``url``.
+            - ``fields`` (``list[tuple[str, str, bool]]``): Список полей
+                ``(name, value, inline)``.
+            - Любые остальные kwargs добавляются как inline-поля.
+
     Returns:
-        Сконфигурированный объект discord.Embed.
+        Сконфигурированный эмбед.
     """
     final_color = color if color is not None else COLORS["DEFAULT"]
-    embed = discord.Embed(
-        title=title, description=description, color=final_color
-    )  # Используем final_color
+    embed = discord.Embed(title=title, description=description, color=final_color)
     for name, value in kwargs.items():
-        if value is None:  # Пропускаем только None значения
+        if value is None:
             continue
         if name == "thumbnail" and isinstance(value, str):
             embed.set_thumbnail(url=value)
@@ -49,10 +56,8 @@ def create_embed(
             if isinstance(value, dict):
                 embed.set_author(
                     name=str(value.get("name", "")),
-                    icon_url=(
-                        value.get("icon_url") if isinstance(value.get("icon_url"), str) else None
-                    ),
-                    url=value.get("url") if isinstance(value.get("url"), str) else None,
+                    icon_url=value.get("icon_url"),
+                    url=value.get("url"),
                 )
             elif isinstance(value, str):
                 embed.set_author(name=value)
@@ -72,30 +77,202 @@ def create_embed(
     return embed
 
 
-def format_duration(duration: int | None = None) -> str:
-    """Форматирует секунды в MM:SS или HH:MM:SS.
+def format_duration(milliseconds: int | float | None) -> str:
+    """Форматирует длительность из миллисекунд в строку ``MM:SS`` или ``HH:MM:SS``.
+
+    Wavelink хранит длительность треков именно в миллисекундах, поэтому новая
+    подпись принимает миллисекунды (старая принимала секунды — это разница с
+    предыдущей версией модуля).
 
     Args:
-        duration: Длительность в секундах (может быть int, float или строкой,
-            которую можно преобразовать в число).
-            Если None, возвращает символ бесконечности.
+        milliseconds: Длительность в миллисекундах. ``None`` означает прямую
+            трансляцию (livestream).
 
     Returns:
-        Отформатированная строка времени в формате MM:SS или HH:MM:SS.
-        Возвращает "∞" для None, "00:00" для нулевых или отрицательных значений,
-        и "?:??" при ошибке преобразования.
+        Строка длительности. ``"LIVE"`` для прямых трансляций (``None``),
+        ``"00:00"`` для нулевых/отрицательных значений,
+        ``"?:??"`` при ошибке преобразования.
     """
-    if duration is None:
-        return "∞"
+    if milliseconds is None:
+        return "LIVE"
     try:
-        duration = int(float(duration))
-        if duration <= 0:
+        total_seconds = int(float(milliseconds) // 1000)
+        if total_seconds <= 0:
             return "00:00"
-        minutes, seconds = divmod(duration, 60)
+        minutes, seconds = divmod(total_seconds, 60)
         hours, minutes = divmod(minutes, 60)
         if hours > 0:
             return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
-        else:
-            return f"{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
     except (ValueError, TypeError):
         return "?:??"
+
+
+def _track_source_label(track: wavelink.Playable) -> str:
+    """Возвращает человекочитаемое название источника трека."""
+    source = (track.source or "").lower()
+    return {
+        "youtube": "YouTube",
+        "youtubemusic": "YT Music",
+        "soundcloud": "SoundCloud",
+        "spotify": "Spotify",
+        "applemusic": "Apple Music",
+        "deezer": "Deezer",
+        "yandexmusic": "Yandex Music",
+        "bandcamp": "Bandcamp",
+        "twitch": "Twitch",
+        "vimeo": "Vimeo",
+        "http": "HTTP",
+    }.get(source, source.title() or "Unknown")
+
+
+def _requester_mention(track: wavelink.Playable, guild: discord.Guild | None) -> str:
+    """Возвращает упоминание пользователя, заказавшего трек, либо ``"—"``."""
+    requester_id: int | None = getattr(track.extras, "requester_id", None)
+    if requester_id is None or guild is None:
+        return "—"
+    member = guild.get_member(int(requester_id))
+    return member.mention if member else f"<@{requester_id}>"
+
+
+def now_playing_embed(player: wavelink.Player) -> discord.Embed:
+    """Эмбед "Сейчас играет" с обложкой и метаданными текущего трека."""
+    track = player.current
+    if track is None:
+        return create_embed(
+            "⏹️ Сейчас ничего не играет",
+            "Используйте `/play <запрос>` чтобы добавить трек.",
+            COLORS["INFO"],
+        )
+
+    state_emoji = "⏸️" if player.paused else "▶️"
+    title = f"{state_emoji} Сейчас играет"
+    description = f"**[{track.title}]({track.uri or 'https://discord.com'})**"
+    if track.author:
+        description += f"\n_{track.author}_"
+
+    fields: list[tuple[str, str, bool]] = [
+        ("Длительность", format_duration(track.length), True),
+        ("Источник", _track_source_label(track), True),
+        ("Заказал", _requester_mention(track, player.guild), True),
+    ]
+    if len(player.queue) > 0:
+        next_track = player.queue.peek(0)
+        fields.append(
+            (
+                "Следующий",
+                f"[{next_track.title}]({next_track.uri or 'https://discord.com'})",
+                False,
+            )
+        )
+
+    return create_embed(
+        title,
+        description,
+        COLORS["DEFAULT"],
+        thumbnail=track.artwork,
+        fields=fields,
+        footer=_footer_for_player(player),
+    )
+
+
+def added_to_queue_embed(
+    track: wavelink.Playable,
+    position: int,
+    player: wavelink.Player,
+) -> discord.Embed:
+    """Эмбед-ответ на ``/play`` — подтверждение добавления трека."""
+    return create_embed(
+        "✅ Добавлено в очередь",
+        f"**[{track.title}]({track.uri or 'https://discord.com'})**",
+        COLORS["SUCCESS"],
+        thumbnail=track.artwork,
+        fields=[
+            ("Длительность", format_duration(track.length), True),
+            ("Позиция", str(position), True),
+            ("Заказал", _requester_mention(track, player.guild), True),
+        ],
+    )
+
+
+def added_playlist_embed(
+    playlist: wavelink.Playlist,
+    added: int,
+    player: wavelink.Player,
+) -> discord.Embed:
+    """Эмбед-ответ на загрузку плейлиста через ``/play``."""
+    first = playlist.tracks[0] if playlist.tracks else None
+    return create_embed(
+        "🎶 Плейлист добавлен",
+        f"**{playlist.name}** — {added} трек(ов)",
+        COLORS["SUCCESS"],
+        thumbnail=first.artwork if first else None,
+        fields=[
+            ("Заказал", _requester_mention(first, player.guild) if first else "—", True),
+            ("В очереди всего", str(len(player.queue)), True),
+        ],
+    )
+
+
+def queue_embed(
+    player: wavelink.Player,
+    page: int,
+    page_size: int,
+) -> discord.Embed:
+    """Эмбед страницы очереди (используется ``QueueView``)."""
+    tracks = list(player.queue)
+    total = len(tracks)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * page_size
+    end = start + page_size
+    chunk = tracks[start:end]
+
+    description_lines: list[str] = []
+    if player.current is not None:
+        state_emoji = "⏸️" if player.paused else "▶️"
+        description_lines.append(
+            f"{state_emoji} **Сейчас:** [{player.current.title}]"
+            f"({player.current.uri or 'https://discord.com'}) "
+            f"`{format_duration(player.current.length)}`"
+        )
+        description_lines.append("")
+
+    if not chunk:
+        description_lines.append("_Очередь пуста._")
+    else:
+        description_lines.append("**В очереди:**")
+        for idx, track in enumerate(chunk, start=start + 1):
+            description_lines.append(
+                f"`{idx}.` [{track.title}]"
+                f"({track.uri or 'https://discord.com'}) "
+                f"`{format_duration(track.length)}`"
+            )
+
+    total_ms = sum(int(t.length or 0) for t in tracks)
+    if player.current and player.current.length:
+        total_ms += int(player.current.length)
+
+    return create_embed(
+        "🎵 Очередь воспроизведения",
+        "\n".join(description_lines),
+        COLORS["DEFAULT"],
+        footer=(
+            f"Страница {page}/{total_pages} · "
+            f"всего треков: {total + (1 if player.current else 0)} · "
+            f"общая длительность: {format_duration(total_ms)}"
+        ),
+    )
+
+
+def _footer_for_player(player: wavelink.Player) -> str:
+    """Текст футера для now-playing: режим повтора, громкость, длина очереди."""
+    import wavelink as _wl
+
+    mode_labels = {
+        _wl.QueueMode.normal: "повтор: выкл",
+        _wl.QueueMode.loop: "повтор: трек",
+        _wl.QueueMode.loop_all: "повтор: очередь",
+    }
+    mode_text = mode_labels.get(player.queue.mode, "повтор: ?")
+    return f"{mode_text} · громкость: {player.volume}% · в очереди: {len(player.queue)}"

@@ -85,19 +85,19 @@ anime:
     evening_minute: 0
 
 music:
-  downloads_dir: "downloads"
-  ffmpeg_options: "-vn -loglevel warning -hide_banner -filter:a volume=0.5"
-
-  yt_dlp:
-    audio_quality: "192"
-    audio_codec: "mp3"
-    search_limit: 10
-    socket_timeout: 5
-    retries: 1
-    geo_bypass_country: "RU"
+  lavalink:
+    # host / port / password подставляются из .env (LAVALINK_HOST, LAVALINK_PORT,
+    # LAVALINK_SERVER_PASSWORD). Здесь указаны только параметры поведения плеера.
+    secure: false
+    identifier: "MAIN"
+    search_limit: 10        # Сколько результатов показывать в /play <текст>
+    default_volume: 50      # Громкость по умолчанию для нового плеера (0-1000)
+    max_volume: 200         # Верхняя граница для команды /volume
+    queue_page_size: 10     # Сколько треков на странице /queue
 
   voice:
     connection_timeout: 30.0
+    inactive_timeout: 300   # Сколько секунд бот ждёт без музыки перед автодисконнектом
 
 giveaway:
   min_duration: 10

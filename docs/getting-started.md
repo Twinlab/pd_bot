@@ -2,8 +2,8 @@
 
 ## Требования
 
-- Docker и Docker Compose
-- Для локальной разработки: Python 3.13+, FFmpeg
+- Docker и Docker Compose v2 (на продакшен-VM)
+- Для разработки: Python 3.13+ (только для прогонки тестов/линта — сам бот локально не запускается, см. [Деплой](deployment.md))
 
 ## Конфигурация
 
@@ -24,35 +24,40 @@
 
     - `BOT_TOKEN` — токен Discord бота
     - `STRATZ_API_KEY` — API ключ для Dota 2 (Stratz)
-    - `TWITCH_CLIENT_ID` и `TWITCH_CLIENT_SECRET` — (опционально) для Twitch уведомлений
+    - `LAVALINK_SERVER_PASSWORD` — случайный пароль для Lavalink (`openssl rand -hex 32`)
+    - `YOUTUBE_REFRESH_TOKEN` — OAuth refresh от burner-аккаунта Google (см. [Деплой → YouTube OAuth](deployment.md#youtube-oauth--bot-detection))
+    - `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` — (опционально) для Twitch уведомлений
+    - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — (опционально) для Spotify-ссылок
 
 3. **При необходимости отредактируйте `config/bot_settings.yaml`:**
 
-    - ID каналов, таймауты и другие параметры
+    - ID каналов, таймауты, параметры Lavalink (search_limit, default_volume и т.д.)
 
 !!! warning "Важно"
     Не добавляйте файлы `.env` и `data/bot_data.db` в Git.
 
 ## Запуск
 
-### Docker (рекомендуется)
+### Продакшен (на VM)
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
+
+Стартует три сервиса: `lavalink` (JVM-нода), `bot` (Python) и `watchtower` (авто-апдейт). Подробности — в [Деплое](deployment.md).
 
 ### Локальная разработка
 
+Бот **не запускается локально**. Локально только тесты, линт и тайпчек:
+
 ```bash
-# Создать виртуальное окружение
 python -m venv .venv
 source .venv/bin/activate
-
-# Установить зависимости
 pip install -e ".[dev]"
 
-# Запустить бота
-python main.py
+pytest                          # тесты
+ruff check . && ruff format .   # линт
+mypy .                          # тайпчек
 ```
 
 ## Разработка

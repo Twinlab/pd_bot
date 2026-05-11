@@ -1,0 +1,156 @@
+# Конфигурация Lavalink v4 для PD Bot.
+# Документация: https://lavalink.dev/configuration/index.html
+# Переменные ${VAR} читаются из окружения контейнера (через docker-compose env_file).
+
+server:
+  port: 2333
+  address: 0.0.0.0
+  http2:
+    enabled: false
+
+lavalink:
+  # Подгружаемые при старте плагины. Версии актуальны на май 2026.
+  # Lavalink скачивает jar-ы в /opt/Lavalink/plugins при первом запуске и кеширует на volume.
+  plugins:
+    # YouTube источник через несколько InnerTube-клиентов — обход bot-detection.
+    # https://github.com/lavalink-devs/youtube-source
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
+      repository: "https://maven.lavalink.dev/releases"
+      snapshot: false
+
+    # Spotify / Apple Music / Deezer / Yandex Music метаданные → стримы через YouTube.
+    # https://github.com/topi314/LavaSrc
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.1"
+      repository: "https://maven.lavalink.dev/releases"
+      snapshot: false
+
+  server:
+    # Пароль для WebSocket / REST подключения бота к ноде.
+    # Берём из env-переменной LAVALINK_SERVER_PASSWORD; дефолт — "youshallnotpass" (поменяй в проде!).
+    password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
+
+    sources:
+      # ВАЖНО: встроенный YouTube источник Lavalink устарел и не работает с современным YouTube.
+      # Все YouTube-запросы идут через плагин youtube-source ниже.
+      youtube: false
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      nico: true
+      http: false   # не нужно — закрываем потенциальный SSRF вектор
+      local: false
+
+    filters:
+      volume: true
+      equalizer: true
+      karaoke: true
+      timescale: true
+      tremolo: true
+      vibrato: true
+      distortion: true
+      rotation: true
+      channelMix: true
+      lowPass: true
+
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: LOW
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+    gc-warnings: true
+
+# ============================================================================
+# Конфигурация плагинов
+# ============================================================================
+plugins:
+  # ---------------------------------------------------------------------------
+  # youtube-source — главный источник аудио + защита от bot-detection.
+  # ---------------------------------------------------------------------------
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+
+    # Клиенты YouTube InnerTube, опрашиваемые по порядку. Если первый отвечает 403/captcha,
+    # плагин автоматически переходит к следующему. Список оптимизирован под май 2026:
+    #   MUSIC          — для ytmsearch: (поиск в YT Music)
+    #   ANDROID_VR     — Opus, полный функционал, минимально режется YouTube'ом
+    #   WEB            — Opus, поддерживает poToken; основной fallback
+    #   WEBEMBEDDED    — Opus, ограниченный age-restriction; ещё fallback
+    #   TVHTML5_SIMPLY — Opus, заменил выпиленный TVHTML5_EMBEDDED
+    # НЕ включаем: ANDROID (heavily restricted), IOS (без Opus, лишний транскод).
+    clients:
+      - MUSIC
+      - ANDROID_VR
+      - WEB
+      - WEBEMBEDDED
+      - TVHTML5_SIMPLY
+
+    # OAuth-интеграция с burner-аккаунтом Google — основной механизм обхода bot-detection.
+    # Первый запуск без refreshToken: Lavalink напечатает в логах URL device-flow
+    # (https://www.google.com/device) и код. Зайди в браузере под BURNER-аккаунтом (не основным!),
+    # вводи код, дай разрешение — refresh token появится в логах. Скопируй его в .env как
+    # YOUTUBE_REFRESH_TOKEN=... и перезапусти контейнер. Дальше всё едет автоматом.
+    oauth:
+      enabled: true
+      refreshToken: "${YOUTUBE_REFRESH_TOKEN:}"
+      # skipInitialization: true   # раскомментируй если хочешь чтобы Lavalink не блокировался
+                                   # на ожидании OAuth-флоу при отсутствии токена
+
+    # poToken (Proof-of-Origin Token) — резервный механизм для клиентов WEB/WEBEMBEDDED,
+    # на случай если OAuth откажет. Получается через iv-org/youtube-trusted-session-generator.
+    # См. docs/deployment.md.
+    # pot:
+    #   token: "${YOUTUBE_PO_TOKEN:}"
+    #   visitorData: "${YOUTUBE_VISITOR_DATA:}"
+
+  # ---------------------------------------------------------------------------
+  # LavaSrc — Spotify / Apple Music / Deezer / Yandex Music.
+  # ---------------------------------------------------------------------------
+  lavasrc:
+    providers:
+      - "ytsearch:\"%ISRC%\""    # сначала ищем по ISRC если есть
+      - "ytsearch:%QUERY%"        # затем по названию
+
+    sources:
+      spotify: true
+      applemusic: false
+      deezer: false
+      yandexmusic: false
+      flowerytts: false
+      youtube: false              # дублирование с youtube-source не нужно
+
+    spotify:
+      clientId: "${SPOTIFY_CLIENT_ID:}"
+      clientSecret: "${SPOTIFY_CLIENT_SECRET:}"
+      countryCode: "RU"
+      playlistLoadLimit: 6
+      albumLoadLimit: 6
+      resolveArtistsInSearch: true
+      localFiles: false
+
+logging:
+  file:
+    path: ./logs/
+  level:
+    root: INFO
+    lavalink: INFO
+    # Чтобы видеть OAuth device-flow URL и код в логах при первом запуске:
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
+  request:
+    enabled: true
+    includeClientInfo: true
+    includeHeaders: false
+    includeQueryString: true
+    includePayload: false
+  logback:
+    rollingpolicy:
+      max-file-size: 100MB
+      max-history: 7

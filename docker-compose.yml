@@ -1,10 +1,57 @@
 services:
+  lavalink:
+    # Официальный образ Lavalink v4 (alpine, Java 21).
+    # Документация: https://lavalink.dev/getting-started/docker.html
+    image: ghcr.io/lavalink-devs/lavalink:4-alpine
+    container_name: pd_bot_lavalink
+    restart: unless-stopped
+    # Порт наружу НЕ публикуется — общение только внутри docker-сети.
+    expose:
+      - "2333"
+    environment:
+      # Spring Boot читает _JAVA_OPTIONS для JVM-флагов.
+      - _JAVA_OPTIONS=-Xmx512m -Xms128m
+      - TZ=Europe/Moscow
+      # Lavalink Spring Boot подхватывает эти ENV из .env через env_file.
+      - LAVALINK_SERVER_PASSWORD=${LAVALINK_SERVER_PASSWORD:-youshallnotpass}
+      - YOUTUBE_REFRESH_TOKEN=${YOUTUBE_REFRESH_TOKEN:-}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+    env_file:
+      - .env
+    volumes:
+      # Конфиг (read-only внутри контейнера).
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      # Плагины и логи — persistent.
+      - ./lavalink/plugins:/opt/Lavalink/plugins
+      - ./lavalink/logs:/opt/Lavalink/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:2333/version || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 768M
+    networks:
+      - pd_bot_net
+    # Watchtower тоже обновляет Lavalink, чтобы получать свежие версии плагинов
+    # при апгрейде образа. Минор-версии плагинов цепляются по координатам Maven.
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   bot:
     image: ghcr.io/twinlab/pd_bot:latest
     # Для локальной разработки можно раскомментировать build: .
     # build: .
     container_name: pd_bot
     restart: unless-stopped
+    depends_on:
+      lavalink:
+        condition: service_healthy
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
@@ -15,11 +62,17 @@ services:
     environment:
       - BOT_ENVIRONMENT=production
       - TZ=Europe/Moscow
+      # Передаём боту координаты Lavalink-ноды.
+      - LAVALINK_HOST=${LAVALINK_HOST:-lavalink}
+      - LAVALINK_PORT=${LAVALINK_PORT:-2333}
+      - LAVALINK_SERVER_PASSWORD=${LAVALINK_SERVER_PASSWORD:-youshallnotpass}
     deploy:
       resources:
         limits:
           cpus: '1.0'
           memory: 1G
+    networks:
+      - pd_bot_net
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
@@ -36,3 +89,10 @@ services:
       - REPO_USER=${REPO_USER}
       - REPO_PASS=${REPO_PASS}
       - TZ=Europe/Moscow
+    networks:
+      - pd_bot_net
+
+networks:
+  pd_bot_net:
+    name: pd_bot_net
+    driver: bridge

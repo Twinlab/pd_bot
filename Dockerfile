@@ -61,11 +61,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Install runtime system dependencies
-# ffmpeg is required for music functionality
 # git is required for self-update functionality
 # openssh-client is required for git pull via ssh
+# (ffmpeg больше не нужен — транскодированием занимается Lavalink-сервис)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
     git \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
@@ -77,7 +76,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY . .
 
 # Create necessary directories for data persistence
-RUN mkdir -p data logs downloads assets
+RUN mkdir -p data logs assets
 
 # Create a non-root user for security
 RUN useradd -m -u 1000 botuser && \

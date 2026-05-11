@@ -1,602 +1,181 @@
-"""Тесты для кога MusicCog."""
+"""Тесты :class:`cogs.music.MusicCog`.
 
-import asyncio
-import logging  # Добавляем импорт logging
-from collections import deque
+Фокусируемся на чистых утилитах (``_parse_seek``), правах доступа
+(``_require_same_voice``) и базовых проверках команд. Глубокая интеграция с
+wavelink не покрывается — это уже e2e и требует реального Lavalink.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+import wavelink
 from discord.ext import commands
 
-# Импортируем тестируемые модули
 from cogs.music import MusicCog
-from utils.music.embeds import create_embed, format_duration
-from utils.music.player import MusicPlayer, Track
-
-# Инициализируем логгер
-logger = logging.getLogger(__name__)
-
-# --- Фикстуры для асинхронного тестирования ---
+from utils.music.player import MusicPlayer
 
 
 @pytest.fixture
-def event_loop():
-    """Создает и настраивает event loop для тестов."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
-
-
-# --- Фикстуры ---
-
-
+def cog() -> MusicCog:
+    """Голый ког с моком бота."""
+    bot = MagicMock(spec=commands.Bot)
+    return MusicCog(bot)
 
 
 @pytest.fixture
-def mock_voice_client():
-    """Создает мок для голосового клиента Discord."""
-    voice_client = MagicMock(spec=discord.VoiceClient)
-    voice_client.is_connected.return_value = True
-    voice_client.is_playing.return_value = False
-    voice_client.channel = MagicMock(spec=discord.VoiceChannel)
-    voice_client.channel.name = "Test Voice Channel"
-    voice_client.channel.id = 123456789
-    voice_client.channel.members = []
-    voice_client.play = MagicMock()
-    voice_client.stop = MagicMock()
-    voice_client.pause = MagicMock()
-    voice_client.resume = MagicMock()
-    voice_client.disconnect = AsyncMock()
-    voice_client.move_to = AsyncMock()
-    return voice_client
+def mock_player() -> MusicPlayer:
+    """Минимальный MusicPlayer для проверок."""
+    player = MusicPlayer.__new__(MusicPlayer)
+    player.text_channel = None
+    player.now_playing_message = None
 
+    type(player).current = property(lambda self: None)  # type: ignore[assignment]
+    type(player).playing = property(lambda self: False)  # type: ignore[assignment]
+    type(player).paused = property(lambda self: False)  # type: ignore[assignment]
+    type(player).connected = property(lambda self: True)  # type: ignore[assignment]
 
-@pytest.fixture
-def mock_text_channel():
-    """Создает мок для текстового канала Discord."""
-    channel = MagicMock(spec=discord.TextChannel)
-    channel.id = 987654321
-    channel.name = "test-music"
-    channel.send = AsyncMock()
-    channel.guild = MagicMock(spec=discord.Guild)
-    return channel
+    channel = MagicMock(spec=discord.VoiceChannel)
+    channel.name = "Voice"
+    type(player).channel = property(lambda self, _c=channel: _c)  # type: ignore[assignment]
 
-
-@pytest.fixture
-def mock_member():
-    """Создает мок для участника сервера."""
-    member = MagicMock(spec=discord.Member)
-    member.id = 1
-    member.name = "TestUser"
-    member.mention = "<@1>"
-    member.bot = False
-    member.voice = MagicMock()
-    member.voice.channel = MagicMock(spec=discord.VoiceChannel)
-    member.voice.channel.name = "Test Voice Channel"
-    member.voice.channel.id = 123456789
-    member.voice.channel.members = []
-    member.guild = MagicMock(spec=discord.Guild)
-    return member
-
-
-@pytest.fixture
-def mock_interaction(mock_member, mock_text_channel):
-    """Создает мок для взаимодействия Discord."""
-    interaction = MagicMock(spec=discord.Interaction)
-    interaction.user = mock_member
-    interaction.channel = mock_text_channel
-    interaction.response = MagicMock()
-    interaction.response.send_message = AsyncMock()
-    interaction.response.edit_message = AsyncMock()
-    interaction.response.defer = AsyncMock()
-    interaction.response.is_done = MagicMock(return_value=False)
-    interaction.followup = MagicMock()
-    interaction.followup.send = AsyncMock()
-    interaction.edit_original_response = AsyncMock()
-    return interaction
-
-
-@pytest.fixture
-def mock_track_info():
-    """Создает мок информации о треке."""
-    return {
-        "id": "test_id",
-        "title": "Test Track",
-        "webpage_url": "https://www.youtube.com/watch?v=test_id",
-        "duration": 180,  # 3 минуты
-        "thumbnail": "https://example.com/thumbnail.jpg",
-        "uploader": "Test Uploader",
-        "uploader_url": "https://www.youtube.com/channel/test_channel",
-        "extractor_key": "Youtube",
-        "url": "https://example.com/stream.mp3",  # URL для потока
-    }
-
-
-@pytest.fixture
-def mock_track(mock_track_info, mock_member):
-    """Создает реальный объект Track для тестов."""
-    return Track(mock_track_info, mock_member)
-
-
-@pytest.fixture
-def mock_music_player(mock_bot, mock_voice_client, mock_track, mock_text_channel):
-    """Создает мок для MusicPlayer."""
-    player = MagicMock(spec=MusicPlayer)
-    player.bot = mock_bot
-    player.voice_client = mock_voice_client
-    player.current_track = mock_track
-    player.is_playing = True
-    player.is_paused = False
-    player.queue = deque()
-    player.connect = AsyncMock(return_value=True)
-    player.disconnect = AsyncMock()
-    player.queue_track = AsyncMock()
-    # Добавляем side_effect для команд, чтобы они считались вызванными
-    player.skip = AsyncMock(side_effect=lambda *a, **kw: None)
-    player.stop = AsyncMock(side_effect=lambda *a, **kw: None)
-    player.pause = AsyncMock(side_effect=lambda *a, **kw: None)
-    player.resume = AsyncMock(side_effect=lambda *a, **kw: None)
-    player.show_queue = AsyncMock()
-    player._cleanup_task = MagicMock()
-    player._cleanup_task.cancel = MagicMock()
-    player.text_channel = mock_text_channel  # Добавляем text_channel
+    queue = MagicMock(spec=wavelink.Queue)
+    queue.__len__ = lambda self: 0
+    queue.is_empty = True
+    queue.mode = wavelink.QueueMode.normal
+    player.queue = queue
     return player
 
 
-@pytest.fixture
-async def music_cog(mock_bot, mock_music_player):
-    """Создает экземпляр MusicCog с моком MusicPlayer."""
-    # Патчим MusicPlayer внутри кога
-    with patch("cogs.music.MusicPlayer", return_value=mock_music_player):
-        cog = MusicCog(mock_bot)
-        cog.player = mock_music_player  # Явно устанавливаем мок
-        yield cog
-
-
-# --- Тесты для вспомогательных функций ---
-
-
-def test_format_duration():
-    """Тестирует функцию format_duration."""
-    # Тест для None
-    assert format_duration(None) == "∞"
-
-    # Тест для отрицательного значения
-    assert format_duration(-10) == "00:00"
-
-    # Тест для нуля
-    assert format_duration(0) == "00:00"
-
-    # Тест для секунд
-    assert format_duration(45) == "00:45"
-
-    # Тест для минут и секунд
-    assert format_duration(125) == "02:05"
-
-    # Тест для часов, минут и секунд
-    assert format_duration(3661) == "01:01:01"
-
-    # Тест для некорректного значения
-    assert format_duration("invalid") == "?:??"  # type: ignore[arg-type]
-
-
-def test_create_embed():
-    """Тестирует функцию create_embed."""
-    # Базовый тест
-    embed = create_embed("Test Title", "Test Description")
-    assert embed.title == "Test Title"
-    assert embed.description == "Test Description"
-
-    # Тест с thumbnail
-    embed = create_embed("Test Title", thumbnail="https://example.com/image.jpg")
-    assert embed.thumbnail.url == "https://example.com/image.jpg"
-
-    # Тест с footer
-    embed = create_embed("Test Title", footer="Test Footer")
-    assert embed.footer.text == "Test Footer"
-
-    # Тест с полями
-    embed = create_embed(
-        "Test Title", fields=[("Field 1", "Value 1", True), ("Field 2", "Value 2", False)]
+class TestParseSeek:
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("0", 0),
+            ("90", 90),
+            ("1:23", 83),
+            ("01:23", 83),
+            ("00:30", 30),
+            ("1:02:03", 3723),
+            ("0:00:01", 1),
+        ],
     )
-    assert len(embed.fields) == 2
-    assert embed.fields[0].name == "Field 1"
-    assert embed.fields[0].value == "Value 1"
-    assert embed.fields[0].inline is True
-    assert embed.fields[1].name == "Field 2"
-    assert embed.fields[1].value == "Value 2"
-    assert embed.fields[1].inline is False
+    def test_valid_inputs(self, value: str, expected: int) -> None:
+        assert MusicCog._parse_seek(value) == expected
 
-
-# --- Тесты для класса Track ---
-
-
-def test_track_initialization(mock_track, mock_member, mock_track_info):
-    """Тестирует инициализацию класса Track."""
-    assert mock_track.url == mock_track_info["webpage_url"]
-    assert mock_track.title == mock_track_info["title"]
-    assert mock_track.duration == mock_track_info["duration"]
-    assert mock_track.thumbnail == mock_track_info["thumbnail"]
-    assert mock_track.uploader == mock_track_info["uploader"]
-    assert mock_track.uploader_url == mock_track_info["uploader_url"]
-    assert mock_track.requester == mock_member
-    assert mock_track.id == mock_track_info["id"]
-    assert mock_track.extractor == mock_track_info["extractor_key"].lower()
-    # filepath не всегда устанавливается в конструкторе Track, поэтому не проверяем
-
-
-def test_track_str_representation(mock_track):
-    """Тестирует строковое представление трека."""
-    expected = f"**{mock_track.title}** ({format_duration(mock_track.duration)})"
-    assert str(mock_track) == expected
-
-
-def test_track_to_embed_field(mock_track):
-    """Тестирует метод to_embed_field."""
-    # Без индекса
-    name, value, inline = mock_track.to_embed_field()
-    assert name == mock_track.title
-    assert f"{format_duration(mock_track.duration)}" in value
-    assert mock_track.requester.mention in value
-    assert mock_track.uploader in value
-    assert inline is False
-
-    # С индексом
-    name, value, inline = mock_track.to_embed_field(index=1)
-    assert name.startswith("`1.` ")
-    assert name.endswith(mock_track.title)
-
-
-# --- Тесты для MusicCog ---
-
-
-@pytest.mark.asyncio
-async def test_cog_initialization(music_cog, mock_bot):
-    """Тестирует инициализацию кога."""
-    assert music_cog.bot is mock_bot
-    assert music_cog.player is not None
-
-
-@pytest.mark.asyncio
-async def test_cog_unload(music_cog):
-    """Тестирует выгрузку кога."""
-    await music_cog.cog_unload()
-    music_cog.player.disconnect.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_on_voice_state_update_bot_user(music_cog, mock_member):
-    """Тестирует обработку изменения голосового состояния для бота."""
-    # Устанавливаем mock_member как бота
-    mock_member.bot = True
-    before = MagicMock(spec=discord.VoiceState)
-    after = MagicMock(spec=discord.VoiceState)
-
-    await music_cog.on_voice_state_update(mock_member, before, after)
-
-    # Проверяем, что ничего не происходит для ботов
-    music_cog.player.disconnect.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_on_voice_state_update_no_voice_client(music_cog, mock_member):
-    """Тестирует обработку изменения голосового состояния без голосового клиента."""
-    # Устанавливаем voice_client как None
-    music_cog.player.voice_client = None
-    before = MagicMock(spec=discord.VoiceState)
-    after = MagicMock(spec=discord.VoiceState)
-
-    await music_cog.on_voice_state_update(mock_member, before, after)
-
-    # Проверяем, что ничего не происходит без голосового клиента
-    music_cog.player.disconnect.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_on_voice_state_update_user_leaves_empty_channel(
-    music_cog, mock_member, mock_voice_client
-):
-    """Тестирует отключение бота, когда пользователь покидает канал и бот остается один."""
-    # Устанавливаем voice_client
-    music_cog.player.voice_client = mock_voice_client
-
-    # Настраиваем before и after
-    before = MagicMock(spec=discord.VoiceState)
-    before.channel = mock_voice_client.channel
-    after = MagicMock(spec=discord.VoiceState)
-    after.channel = None  # Пользователь покинул канал
-
-    # Устанавливаем пустой список участников в канале (только боты)
-    bot_member = MagicMock(spec=discord.Member)
-    bot_member.bot = True
-    mock_voice_client.channel.members = [bot_member]
-
-    # Патчим asyncio.sleep, чтобы не ждать
-    with patch("asyncio.sleep", new_callable=AsyncMock):
-        await music_cog.on_voice_state_update(mock_member, before, after)
-
-    # Проверяем, что disconnect был вызван
-    music_cog.player.disconnect.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_ensure_voice_success(music_cog, mock_interaction):
-    """Тестирует успешную проверку голосового канала."""
-    result = await music_cog._ensure_voice(mock_interaction)
-    assert result is True
-    mock_interaction.response.send_message.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_ensure_voice_failure(music_cog, mock_interaction):
-    """Тестирует неудачную проверку голосового канала."""
-    # Устанавливаем отсутствие голосового канала
-    mock_interaction.user.voice = None
-
-    result = await music_cog._ensure_voice(mock_interaction)
-    assert result is False
-    mock_interaction.response.send_message.assert_awaited_once()
-    assert (
-        "Вы должны быть в голосовом канале"
-        in mock_interaction.response.send_message.call_args.args[0]
+    @pytest.mark.parametrize(
+        "value",
+        ["", "abc", "1:60", "1:23:60", "1:2:3:4", "-5"],
     )
+    def test_invalid_inputs_return_none(self, value: str) -> None:
+        assert MusicCog._parse_seek(value) is None
 
 
-@pytest.mark.asyncio
-async def test_connect_or_move_success(music_cog, mock_interaction, mock_text_channel):
-    """Тестирует успешное подключение к голосовому каналу."""
-    # Устанавливаем успешное подключение
-    music_cog.player.connect.return_value = True
+class TestRequireSameVoice:
+    def _make_ctx(
+        self,
+        *,
+        in_voice: bool = True,
+        voice_channel: object | None = None,
+        guild_voice_client: object | None = None,
+    ) -> MagicMock:
+        ctx = MagicMock(spec=commands.Context)
+        guild = MagicMock(spec=discord.Guild)
+        guild.voice_client = guild_voice_client
+        ctx.guild = guild
+        member = MagicMock(spec=discord.Member)
+        if in_voice:
+            member.voice = MagicMock(spec=discord.VoiceState)
+            member.voice.channel = voice_channel
+        else:
+            member.voice = None
+        ctx.author = member
+        return ctx
 
-    result = await music_cog._connect_or_move(mock_interaction)
-    assert result is True
-    music_cog.player.connect.assert_awaited_once_with(mock_interaction.user.voice.channel)
+    def test_returns_none_when_no_voice_client(self, cog: MusicCog) -> None:
+        ctx = self._make_ctx(guild_voice_client=None)
+        assert cog._require_same_voice(ctx) is None
 
-    # Проверяем установку текстового канала
-    assert music_cog.player.text_channel == mock_text_channel
+    def test_returns_none_when_user_not_in_voice(
+        self, cog: MusicCog, mock_player: MusicPlayer
+    ) -> None:
+        ctx = self._make_ctx(in_voice=False, guild_voice_client=mock_player)
+        assert cog._require_same_voice(ctx) is None
 
+    def test_returns_none_when_different_channel(
+        self, cog: MusicCog, mock_player: MusicPlayer
+    ) -> None:
+        other_channel = MagicMock(spec=discord.VoiceChannel)
+        ctx = self._make_ctx(voice_channel=other_channel, guild_voice_client=mock_player)
+        assert cog._require_same_voice(ctx) is None
 
-@pytest.mark.asyncio
-async def test_connect_or_move_failure(music_cog, mock_interaction):
-    """Тестирует неудачное подключение к голосовому каналу."""
-    # Устанавливаем неудачное подключение
-    music_cog.player.connect.return_value = False
-
-    result = await music_cog._connect_or_move(mock_interaction)
-    assert result is False
-    music_cog.player.connect.assert_awaited_once_with(mock_interaction.user.voice.channel)
-    mock_interaction.response.send_message.assert_awaited_once()
-    assert "Не удалось подключиться" in mock_interaction.response.send_message.call_args.args[0]
-
-
-# --- Тесты для команд MusicCog ---
-
-
-@pytest.mark.asyncio
-async def test_play_command_with_url(music_cog, mock_interaction):
-    """Тестирует команду /play с URL."""
-    # Мокаем _ensure_voice и _connect_or_move
-    music_cog._ensure_voice = AsyncMock(return_value=True)
-    music_cog._connect_or_move = AsyncMock(return_value=True)
-
-    # URL для теста
-    test_url = "https://www.youtube.com/watch?v=test_id"
-
-    # Вызываем команду через .callback
-    await music_cog.play.callback(music_cog, mock_interaction, query=test_url)
-
-    # Проверяем вызовы
-    mock_interaction.response.defer.assert_awaited_once()
-    music_cog._ensure_voice.assert_awaited_once_with(mock_interaction)
-    music_cog._connect_or_move.assert_awaited_once_with(mock_interaction)
-    mock_interaction.edit_original_response.assert_awaited_once()
-    # Проверяем, что edit_original_response был вызван с нужным embed или content
-    call_args = mock_interaction.edit_original_response.call_args
-    content = ""
-    if call_args.args:
-        content = call_args.args[0]
-    elif "content" in call_args.kwargs:
-        content = call_args.kwargs["content"]
-    assert "Добавляем трек по ссылке" in content or "Добавляем" in content
-    music_cog.player.queue_track.assert_awaited_once_with(
-        test_url, mock_interaction.user, mock_interaction
-    )
+    def test_returns_player_when_same_channel(
+        self, cog: MusicCog, mock_player: MusicPlayer
+    ) -> None:
+        # Канал у player и user — один и тот же
+        same_channel = mock_player.channel
+        ctx = self._make_ctx(voice_channel=same_channel, guild_voice_client=mock_player)
+        assert cog._require_same_voice(ctx) is mock_player
 
 
-@pytest.mark.asyncio
-async def test_play_command_with_search(music_cog, mock_interaction):
-    """Тестирует команду /play с поисковым запросом."""
-    # Мокаем _ensure_voice и _connect_or_move
-    music_cog._ensure_voice = AsyncMock(return_value=True)
-    music_cog._connect_or_move = AsyncMock(return_value=True)
+class TestCommandsGuardErrors:
+    """Команды без подходящего плеера должны вежливо отказывать."""
 
-    # Мокаем search_youtube
-    search_results = [{"title": "Test Result", "uploader": "Test Uploader", "duration": 180, "url": "http://example.com/vid"}]
-    with patch("cogs.music.search_youtube", new_callable=AsyncMock) as mock_search:
-        mock_search.return_value = search_results
+    @staticmethod
+    def _raw_callback(hybrid_cmd: commands.HybridCommand) -> object:
+        """Возвращает исходную функцию команды (минуя ``@command_error_handler``).
 
-        # Мокаем SearchView
-        with patch("cogs.music.SearchView") as MockSearchView:
-            mock_view = MagicMock()
-            MockSearchView.return_value = mock_view
+        ``commands.hybrid_command`` хранит wrapped-функцию в ``.callback``;
+        ``command_error_handler`` использует ``functools.wraps`` и кладёт
+        исходную функцию в ``__wrapped__``.
+        """
+        wrapped = hybrid_cmd.callback
+        return getattr(wrapped, "__wrapped__", wrapped)
 
-            # Поисковый запрос для теста
-            test_query = "test search query"
+    async def test_skip_without_player_sends_error(self, cog: MusicCog) -> None:
+        ctx = MagicMock(spec=commands.Context)
+        ctx.guild = MagicMock(spec=discord.Guild)
+        ctx.guild.voice_client = None
+        ctx.author = MagicMock(spec=discord.Member)
+        ctx.author.voice = None
 
-            # Вызываем команду через .callback
-            await music_cog.play.callback(music_cog, mock_interaction, query=test_query)
+        with patch("cogs.music.safe_send_error", new=AsyncMock()) as mock_err:
+            await self._raw_callback(cog.skip)(cog, ctx)
+            mock_err.assert_called_once()
 
-            # Проверяем вызовы
-            mock_interaction.response.defer.assert_awaited_once()
-            music_cog._ensure_voice.assert_awaited_once_with(mock_interaction)
-            music_cog._connect_or_move.assert_awaited_once_with(mock_interaction)
-            # Проверяем, что edit_original_response был вызван дважды:
-            # сначала с "Ищем", потом с embed/view
-            assert mock_interaction.edit_original_response.await_count >= 2
-            last_call = mock_interaction.edit_original_response.call_args
-            # Проверяем наличие контента (не используется в тесте)
-            if last_call.args:
-                pass
-            elif "content" in last_call.kwargs:
-                pass
-            # Проверяем, что хотя бы один вызов был с embed/view
-            found_embed = any(
-                "embed" in call.kwargs or "view" in call.kwargs
-                for call in mock_interaction.edit_original_response.call_args_list
-            )
-            assert found_embed
-            mock_search.assert_awaited_once_with(test_query)
-            MockSearchView.assert_called_once_with(
-                music_cog.player, mock_interaction, search_results
-            )
+    async def test_nowplaying_without_player_sends_error(self, cog: MusicCog) -> None:
+        ctx = MagicMock(spec=commands.Context)
+        ctx.guild = MagicMock(spec=discord.Guild)
+        ctx.guild.voice_client = None
 
+        with patch("cogs.music.safe_send_error", new=AsyncMock()) as mock_err:
+            await self._raw_callback(cog.nowplaying)(cog, ctx)
+            mock_err.assert_called_once()
 
-@pytest.mark.asyncio
-async def test_play_command_search_no_results(music_cog, mock_interaction):
-    """Тестирует команду /play с поисковым запросом без результатов."""
-    # Мокаем _ensure_voice и _connect_or_move
-    music_cog._ensure_voice = AsyncMock(return_value=True)
-    music_cog._connect_or_move = AsyncMock(return_value=True)
+    async def test_seek_rejects_invalid_position(
+        self, cog: MusicCog, mock_player: MusicPlayer
+    ) -> None:
+        # Сделаем плеер играющим, но с невалидным значением position
+        track = SimpleNamespace(length=120_000)
+        type(mock_player).current = property(lambda self: track)  # type: ignore[assignment]
+        type(mock_player).playing = property(lambda self: True)  # type: ignore[assignment]
 
-    # Мокаем search_youtube без результатов
-    with patch("cogs.music.search_youtube", new_callable=AsyncMock) as mock_search:
-        mock_search.return_value = None
+        ctx = MagicMock(spec=commands.Context)
+        guild = MagicMock(spec=discord.Guild)
+        guild.voice_client = mock_player
+        ctx.guild = guild
+        member = MagicMock(spec=discord.Member)
+        member.voice = MagicMock()
+        member.voice.channel = mock_player.channel
+        member.guild_permissions = MagicMock()
+        member.guild_permissions.administrator = True
+        ctx.author = member
 
-        # Мокаем create_embed
-        with patch("cogs.music.create_embed") as mock_create_embed:
-            mock_embed = MagicMock()
-            mock_create_embed.return_value = mock_embed
-
-            # Поисковый запрос для теста
-            test_query = "test search query"
-
-            # Вызываем команду через .callback
-            await music_cog.play.callback(music_cog, mock_interaction, query=test_query)
-
-            # Проверяем вызовы
-            # Проверяем, что edit_original_response был вызван дважды:
-            # сначала с "Ищем", потом с embed
-            assert mock_interaction.edit_original_response.await_count >= 2
-            mock_create_embed.assert_called_once()
-            found_embed = any(
-                "embed" in call.kwargs and call.kwargs["embed"] == mock_embed
-                for call in mock_interaction.edit_original_response.call_args_list
-            )
-            assert found_embed
-
-
-@pytest.mark.asyncio
-async def test_skip_command(music_cog, mock_interaction, mock_voice_client, mock_music_player):
-    """Тестирует команду /skip."""
-    # Устанавливаем voice_client
-    music_cog.player.voice_client = mock_voice_client
-
-    # Гарантируем, что interaction.user.voice.channel == player.voice_client.channel
-    mock_interaction.user.voice.channel = mock_voice_client.channel
-
-    logger.debug(f"[DEBUG] id(mock_music_player)={id(mock_music_player)}")
-
-    # Вызываем команду через .callback
-    await music_cog.skip.callback(music_cog, mock_interaction)
-
-    # Проверяем вызов skip
-    assert music_cog.player.skip.called
-
-
-@pytest.mark.asyncio
-async def test_stop_command(music_cog, mock_interaction, mock_voice_client):
-    """Тестирует команду /stop."""
-    # Устанавливаем voice_client
-    music_cog.player.voice_client = mock_voice_client
-    mock_interaction.user.voice.channel = mock_voice_client.channel
-
-    # Вызываем команду через .callback
-    await music_cog.stop.callback(music_cog, mock_interaction)
-
-    # Проверяем вызов stop
-    assert music_cog.player.stop.called
-
-
-@pytest.mark.asyncio
-async def test_pause_command(music_cog, mock_interaction, mock_voice_client):
-    """Тестирует команду /pause."""
-    # Устанавливаем voice_client
-    music_cog.player.voice_client = mock_voice_client
-    mock_interaction.user.voice.channel = mock_voice_client.channel
-
-    # Вызываем команду через .callback
-    await music_cog.pause.callback(music_cog, mock_interaction)
-
-    # Проверяем вызов pause
-    assert music_cog.player.pause.called
-
-
-@pytest.mark.asyncio
-async def test_resume_command(music_cog, mock_interaction, mock_voice_client):
-    """Тестирует команду /resume."""
-    # Устанавливаем voice_client
-    music_cog.player.voice_client = mock_voice_client
-    mock_interaction.user.voice.channel = mock_voice_client.channel
-
-    # Вызываем команду через .callback
-    await music_cog.resume.callback(music_cog, mock_interaction)
-
-    # Проверяем вызов resume
-    assert music_cog.player.resume.called
-
-
-@pytest.mark.asyncio
-async def test_queue_command(music_cog, mock_interaction):
-    """Тестирует команду /queue."""
-    # Вызываем команду через .callback
-    await music_cog.queue.callback(music_cog, mock_interaction)
-
-    # Проверяем вызов show_queue
-    music_cog.player.show_queue.assert_awaited_once_with(mock_interaction)
-
-
-# --- Тесты для обработки ошибок ---
-
-
-@pytest.mark.asyncio
-async def test_cog_app_command_error_check_failure(music_cog, mock_interaction):
-    """Тестирует обработку ошибки CheckFailure."""
-    error = discord.app_commands.CheckFailure()
-    mock_interaction.command = MagicMock()
-    mock_interaction.command.name = "test_command"
-
-    await music_cog.cog_app_command_error(mock_interaction, error)
-
-    mock_interaction.response.send_message.assert_awaited_once()
-    assert "У вас нет прав" in mock_interaction.response.send_message.call_args.args[0]
-
-
-@pytest.mark.asyncio
-async def test_cog_app_command_error_timeout(music_cog, mock_interaction):
-    """Тестирует обработку ошибки TimeoutError."""
-    original_error = asyncio.TimeoutError()
-    # Исправленный вызов: первый аргумент - команда, второй - ошибка
-    error = discord.app_commands.CommandInvokeError(MagicMock(), original_error)
-    mock_interaction.command = MagicMock()
-    mock_interaction.command.name = "test_command"
-
-    await music_cog.cog_app_command_error(mock_interaction, error)
-
-    mock_interaction.response.send_message.assert_awaited_once()
-    assert "Превышено время ожидания" in mock_interaction.response.send_message.call_args.args[0]
-
-
-@pytest.mark.asyncio
-async def test_cog_app_command_error_after_response(music_cog, mock_interaction):
-    """Тестирует обработку ошибки после отправки ответа."""
-    error = Exception("Test error")
-    mock_interaction.command = MagicMock()
-    mock_interaction.command.name = "test_command"
-    mock_interaction.response.is_done.return_value = True
-
-    await music_cog.cog_app_command_error(mock_interaction, error)
-
-    mock_interaction.followup.send.assert_awaited_once()
-    assert "Произошла ошибка" in mock_interaction.followup.send.call_args.args[0]
+        with patch("cogs.music.safe_send_error", new=AsyncMock()) as mock_err:
+            await self._raw_callback(cog.seek)(cog, ctx, "broken-value")
+            mock_err.assert_called_once()
+            args, _ = mock_err.call_args
+            assert "позицию" in args[1].lower() or "разобрать" in args[1].lower()

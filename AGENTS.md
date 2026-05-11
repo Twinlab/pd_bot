@@ -1,27 +1,35 @@
 # PD Bot — AGENTS.md
 
-Multifunctional Discord bot built with Python 3.13+ and `discord.py`. Features Dota 2 stats (Stratz GraphQL), music player (yt-dlp + FFmpeg), activity tracking, anime art posting, Twitch notifications, role reactions, top-reactions leaderboard and fun commands. **Single-guild design** — never iterate over `bot.guilds`.
+Multifunctional Discord bot built with Python 3.13+ and `discord.py`. Features Dota 2 stats (Stratz GraphQL), music player (Lavalink v4 + wavelink 3.x), activity tracking, anime art posting, Twitch notifications, role reactions, top-reactions leaderboard and fun commands. **Single-guild design** — never iterate over `bot.guilds`.
 
 ## Tech Stack
 
 - **Runtime**: Python 3.13+
-- **Framework**: `discord.py` with hybrid commands (`!` prefix + `/` slash)
+- **Framework**: `discord.py[voice] >= 2.7` (with the `davey` E2EE library for the new Voice Gateway)
 - **Config**: Pydantic v2 + `pydantic-settings` (`.env` + `config/bot_settings.yaml`)
 - **DB**: SQLite via Tortoise ORM (+ aerich for migrations)
-- **Audio**: yt-dlp + FFmpeg + PyNaCl
+- **Audio**: Lavalink v4 (separate JVM container) + `wavelink 3.x` Python client; plugins `youtube-source 1.18.x` (OAuth + multi-client bot-detection bypass) and `LavaSrc 4.x` (Spotify/Apple Music/Deezer/Yandex)
 - **Lint/Format**: Ruff (line-length 100, double quotes)
 - **Type-check**: mypy (strict-ish; see `pyproject.toml` overrides)
 - **Tests**: pytest + pytest-asyncio (`asyncio_mode = "auto"`) + freezegun
-- **Deployment**: Docker → GHCR → Watchtower auto-pull on `main`
+- **Deployment**: Docker → GHCR → Watchtower auto-pull on `main`. Production бот живёт **на отдельной облачной VM** (см. ниже).
 
 ## Environment Setup
 
-The project uses a virtualenv at `.venv/`. **Always run commands through `.venv/bin/...` or activate the env first.**
+**Deployment topology.** Боевой бот живёт в Docker-контейнере на отдельной **облачной VM**. CI собирает образ → пушит в GHCR → Watchtower на VM подтягивает `:latest` каждые 60 секунд после мерджа в `main`. Локальная машина разработчика **не используется** для запуска бота — только для тестов, линта, тайпчека и code-review.
+
+Поэтому:
+- **Не нужно** делать `python main.py` локально (нет прод-токенов, нет Lavalink-сервиса, нет голосовых соединений с Discord).
+- **Не нужно** реинсталлить зависимости после каждого изменения `pyproject.toml` — они подтянутся в следующем Docker build. Локальный `.venv` обновляется только когда нужно прогнать mypy/pytest на новых API.
+- **Не нужно** запускать `docker compose up` локально, если только не воспроизводишь конкретный баг в контейнере.
+
+Локальный `.venv/` существует только для линта/тестов:
 
 ```bash
-.venv/bin/pip install -e ".[dev]"     # install with dev extras
-cp .env.example .env                   # then fill BOT_TOKEN, STRATZ_API_KEY, etc.
-.venv/bin/python main.py               # run the bot locally
+.venv/bin/pip install -e ".[dev]"      # один раз при клоне / при обновлении dev-deps
+.venv/bin/pytest tests/...             # тесты
+.venv/bin/ruff check .                 # линт
+.venv/bin/mypy .                       # тайпчек
 ```
 
 ## Commands
@@ -55,8 +63,9 @@ Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
 - `handlers/` — non-cog extensions: `events.py` (on_ready, presence, voice), `message_handler.py`
 - `config/` — `bot_settings.yaml` + `settings.py` (Pydantic models). Access via `bot.settings` or `get_settings()`
 - `utils/` — shared logic; `*_data_manager.py` files own CRUD per module
-  - `utils/music/` — modular player (player.py, ui.py, embeds.py, yt_integration.py, config.py)
-  - `utils/activity/` — activity tracking (views.py, reports.py, helpers.py)
+ - `utils/music/` — modular wavelink wrapper (`player.py` with `MusicPlayer` subclass + `setup_node`, `ui.py`, `embeds.py`, `config.py`)
+ - `lavalink/` — Lavalink server config (`application.yml`) and plugin volume mount-point; the JVM container is defined in `docker-compose.yml`
+ - `utils/activity/` — activity tracking (views.py, reports.py, helpers.py)
   - `utils/dota_api.py` + `dota_match_utils.py` + `dota_utils.py` — Stratz GraphQL with in-memory + disk cache
   - `utils/models.py` — Tortoise ORM models; `utils/schemas.py` — Pydantic DTOs; `utils/database.py` — DB init
   - `utils/error_handler.py` — `@command_error_handler`, `safe_send()`, `safe_send_error()`
@@ -73,6 +82,7 @@ Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
 - **Decorators**: wrap every command with `@command_error_handler` from `utils/error_handler.py`
 - **Replies**: use `safe_send()` / `safe_send_error()` — never raw `ctx.send` for user-visible errors
 - **Logging**: hierarchical `logging.getLogger("bot.<subsystem>")` (e.g. `bot.music`, `bot.dota`, `bot.cogs.activity`). For `utils/music/*` import the shared logger from `utils/music/config.py`. **Never use `print()`**
+- **Wavelink usage**: stick to wavelink 3.x conventions — `await wavelink.Playable.search(query)` for resolution, `wavelink.Pool.connect(...)` for nodes, event listeners via `@commands.Cog.listener()` (`on_wavelink_track_start`, `on_wavelink_inactive_player`, etc.). Use our `MusicPlayer` subclass (`utils/music/player.py`) instead of bare `wavelink.Player` so the now-playing message and requester attribution work consistently.
 - **Single guild**: do not write multi-guild logic, do not iterate `bot.guilds`
 - **Imports**: stdlib → third-party → local, separated by blank lines (Ruff/isort enforced)
 
@@ -131,7 +141,11 @@ Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
 ## Secrets
 
 - Real secrets live only in `.env` (gitignored) and the production server's environment
-- `.env.example` documents the required keys: `BOT_TOKEN`, `STRATZ_API_KEY`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `BOT_PREFIX`, `BOT_ENVIRONMENT`, `PROXY_URL`, `REPO_USER`, `REPO_PASS`
+- `.env.example` documents the required keys: `BOT_TOKEN`, `STRATZ_API_KEY`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `BOT_PREFIX`, `BOT_ENVIRONMENT`, `PROXY_URL`, `REPO_USER`, `REPO_PASS`, `LAVALINK_HOST`, `LAVALINK_PORT`, `LAVALINK_SERVER_PASSWORD`, `YOUTUBE_REFRESH_TOKEN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`
+- Lavalink-секреты:
+    - `LAVALINK_SERVER_PASSWORD` — случайная строка; пароль для подключения бота к ноде (`openssl rand -hex 32`)
+    - `YOUTUBE_REFRESH_TOKEN` — OAuth refresh token от **burner-аккаунта Google** (не основной!); получается через device-flow при первом запуске Lavalink (см. `docs/deployment.md`)
+    - `SPOTIFY_CLIENT_ID/SECRET` — опционально, для распознавания Spotify-ссылок (заводится на https://developer.spotify.com/dashboard)
 - **Never** commit `.env`, hardcode tokens, or print secret values in logs
 
 ## When stuck

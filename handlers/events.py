@@ -1,57 +1,18 @@
-"""Ког для обработки основных событий Discord и управления жизненным циклом бота."""
+"""Ког для обработки основных событий Discord и управления жизненным циклом бота.
 
-import asyncio
+Музыкальная логика (авто-дисконнект из пустого канала, очистка плеера) больше
+**не** живёт в этом файле — её взял на себя ``cogs/music.py`` через слушатели
+``on_wavelink_inactive_player`` и ``on_voice_state_update``. Здесь остался
+только общий жизненный цикл бота: ``on_ready``, прощание с покинувшими сервер
+участниками и глобальный обработчик ошибок префиксных команд.
+"""
+
 import logging
 
 import discord
-from discord.ext import commands  # Явно перезаписываем импорт
+from discord.ext import commands
 
-# Определяем logger до его использования
 logger = logging.getLogger("bot.handlers.events")
-
-# Импорты для музыки
-try:
-    # Импортируем MusicPlayer из правильного модуля
-    from utils.music import MusicPlayer
-
-    # Определяем функции для работы с музыкой
-    async def cleanup_player(player: MusicPlayer, guild_name: str) -> None:
-        """Очищает плеер после отключения.
-
-        Args:
-            player: Экземпляр музыкального плеера.
-            guild_name: Название гильдии, для которой очищается плеер.
-        """
-        if player:
-            await player.cleanup(clear_queue=True)
-            logger.info(f"Плеер очищен для гильдии {guild_name}")
-
-    async def auto_disconnect(
-        player: MusicPlayer, guild: discord.Guild, voice_channel: discord.VoiceChannel
-    ) -> None:
-        """Автоматически отключает бота после периода неактивности.
-
-        Args:
-            player: Экземпляр музыкального плеера.
-            guild: Гильдия, в которой находится бот.
-            voice_channel: Голосовой канал, из которого нужно отключиться.
-        """
-        logger.info(f"Запущено автоотключение для {guild.name} из канала {voice_channel.name}")
-        await asyncio.sleep(180)  # 3 минуты ожидания
-
-        # Проверяем, что бот все еще в том же канале и канал пуст
-        voice_client = guild.voice_client
-        if voice_client and voice_client.channel == voice_channel:
-            if len(voice_client.channel.members) == 1:  # Только бот в канале
-                logger.info(f"Автоотключение из {voice_channel.name} после периода неактивности")
-                await player.disconnect()
-
-except ImportError:
-    # Используем # type: ignore для обхода проблем с типизацией в случае ImportError
-    cleanup_player = None  # type: ignore
-    auto_disconnect = None  # type: ignore
-    MusicPlayer = None  # type: ignore  # Определяем как None, если импорт не удался
-    logger.warning("Модули для работы с музыкой не найдены")
 
 
 class Events(commands.Cog):
@@ -130,64 +91,6 @@ class Events(commands.Cog):
                 await channel.send(f"**{member.name}** ббак")
         except Exception as e:
             logger.error(f"Ошибка в on_member_remove: {e}")
-
-    # Возвращаем старую логику on_voice_state_update
-    @commands.Cog.listener()
-    async def on_voice_state_update(
-        self, member: discord.Member, before: discord.VoiceState, after: discord.VoiceState
-    ) -> None:
-        """Событие: вызывается при изменении голосового состояния участника.
-
-        Используется для автоматического отключения музыкального бота.
-
-        Args:
-            member: Участник, чье голосовое состояние изменилось.
-            before: Голосовое состояние до изменения.
-            after: Голосовое состояние после изменения.
-        """
-        try:
-            if before.channel == after.channel:
-                return  # Игнорируем смену состояния без смены канала
-
-            # Получаем плеер из кога Music (предполагаем, что он там один)
-            music_cog = self.bot.get_cog("Music")
-            player = getattr(music_cog, "player", None) if music_cog else None
-
-            # Проверяем, доступны ли функции и плеер
-            if cleanup_player is None or auto_disconnect is None or MusicPlayer is None:
-                # logger.warning(
-                #     "Функции cleanup_player/auto_disconnect или класс MusicPlayer недоступны."
-                # ) # Убрано, т.к. может спамить
-                return
-            if not isinstance(player, MusicPlayer):  # Проверяем, что плеер действительно есть
-                # logger.warning("Экземпляр плеера не найден в коге Music.") # Убрано
-                return
-
-            # Если сам бот был отключен от канала
-            if member.id == self.bot.user.id and before.channel and not after.channel:
-                logger.info(f"Бот был отключен от канала {before.channel.name}")
-                # Передаем плеер и имя гильдии
-                await cleanup_player(player, member.guild.name)
-                return
-
-            # Если пользователь (не бот) покинул голосовой канал, в котором находится бот
-            if before.channel and not member.bot:
-                voice_client = member.guild.voice_client
-                if voice_client and voice_client.channel == before.channel:
-                    await asyncio.sleep(1)  # Даем время на обновление списка участников
-                    # Перепроверяем voice_client и количество участников
-                    voice_client = member.guild.voice_client
-                    if (
-                        voice_client and len(voice_client.channel.members) == 1
-                    ):  # Если остался только бот
-                        logger.info(
-                            f"Последний пользователь покинул канал {before.channel.name}, "
-                            "запускаем автоотключение..."
-                        )
-                        # Передаем плеер, гильдию и голосовой канал
-                        asyncio.create_task(auto_disconnect(player, member.guild, before.channel))
-        except Exception as e:
-            logger.error(f"Ошибка в on_voice_state_update: {e}", exc_info=True)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:

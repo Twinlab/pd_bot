@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml  # type: ignore
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
 if TYPE_CHECKING:
@@ -178,45 +178,54 @@ class MusicVoiceConfig(BaseModel):
     """Конфигурация голосового подключения для музыки.
 
     Attributes:
-        connection_timeout: Таймаут подключения к голосовому каналу в секундах
+        connection_timeout: Таймаут подключения к голосовому каналу (секунды)
+        inactive_timeout: Сколько секунд бот ждёт в пустом канале/без музыки
+            прежде чем автоматически отключиться
     """
 
     connection_timeout: float = 30.0
+    inactive_timeout: int = 300
 
 
-class YtDlpConfig(BaseModel):
-    """Конфигурация yt-dlp для музыкального модуля.
+class LavalinkConfig(BaseModel):
+    """Конфигурация подключения к Lavalink-ноде.
+
+    Хост, порт и пароль обычно приходят из переменных окружения
+    (`LAVALINK_HOST`, `LAVALINK_PORT`, `LAVALINK_SERVER_PASSWORD`),
+    но имеют разумные дефолты для разработки.
 
     Attributes:
-        audio_quality: Качество аудио для постобработки
-        audio_codec: Предпочитаемый кодек
-        search_limit: Максимальное количество результатов поиска
-        socket_timeout: Таймаут сокета в секундах
-        retries: Количество повторных попыток
-        geo_bypass_country: Страна для обхода геоблокировки
+        host: Хост Lavalink-ноды (в docker-сети это имя сервиса)
+        port: Порт Lavalink REST/WebSocket API
+        password: Пароль для аутентификации с Lavalink
+        secure: Использовать HTTPS/WSS (для удалённых нод за TLS-прокси)
+        identifier: Идентификатор ноды в логах wavelink
+        search_limit: Сколько результатов показывать при текстовом поиске
+        default_volume: Громкость по умолчанию для нового плеера (0-1000)
+        max_volume: Верхняя граница для команды /volume
+        queue_page_size: Сколько треков выводить на одной странице /queue
     """
 
-    audio_quality: str = "192"
-    audio_codec: str = "mp3"
-    search_limit: int = 100
-    socket_timeout: int = 5
-    retries: int = 1
-    geo_bypass_country: str = "RU"
+    host: str = "lavalink"
+    port: int = 2333
+    password: str = "youshallnotpass"
+    secure: bool = False
+    identifier: str = "MAIN"
+    search_limit: int = 10
+    default_volume: int = 50
+    max_volume: int = 200
+    queue_page_size: int = 10
 
 
 class MusicConfig(BaseModel):
     """Конфигурация музыкального модуля.
 
     Attributes:
-        downloads_dir: Директория для загрузки файлов
-        ffmpeg_options: Опции FFmpeg для воспроизведения
-        yt_dlp: Настройки yt-dlp
-        voice: Настройки голосового подключения
+        lavalink: Параметры подключения к Lavalink
+        voice: Таймауты голосового подключения и автодисконнекта
     """
 
-    downloads_dir: str = "downloads"
-    ffmpeg_options: str = "-vn -loglevel info -hide_banner"
-    yt_dlp: YtDlpConfig = YtDlpConfig()
+    lavalink: LavalinkConfig = LavalinkConfig()
     voice: MusicVoiceConfig = MusicVoiceConfig()
 
 
@@ -473,6 +482,12 @@ class BotSettings(BaseSettings):
     twitch_client_secret: str | None = Field(default=None, alias="TWITCH_CLIENT_SECRET")
     proxy_url: str | None = Field(default=None, alias="PROXY_URL")
 
+    # Lavalink — параметры подключения берутся из переменных окружения и затем
+    # переносятся в music.lavalink через model_validator ниже.
+    lavalink_host: str | None = Field(default=None, alias="LAVALINK_HOST")
+    lavalink_port: int | None = Field(default=None, alias="LAVALINK_PORT")
+    lavalink_password: str | None = Field(default=None, alias="LAVALINK_SERVER_PASSWORD")
+
     # Конфигурационные блоки
     channels: ChannelConfig = ChannelConfig()
     timeouts: TimeoutConfig = TimeoutConfig()
@@ -497,6 +512,22 @@ class BotSettings(BaseSettings):
         "case_sensitive": False,
         "extra": "ignore",
     }
+
+    @model_validator(mode="after")
+    def _apply_lavalink_env_overrides(self) -> "BotSettings":
+        """Переносит плоские LAVALINK_* env-переменные в вложенный music.lavalink.
+
+        Это позволяет .env держать привычные плоские имена (LAVALINK_HOST,
+        LAVALINK_PORT, LAVALINK_SERVER_PASSWORD), не заставляя пользователя
+        писать MUSIC__LAVALINK__HOST=... с двойным подчёркиванием.
+        """
+        if self.lavalink_host is not None:
+            self.music.lavalink.host = self.lavalink_host
+        if self.lavalink_port is not None:
+            self.music.lavalink.port = self.lavalink_port
+        if self.lavalink_password is not None:
+            self.music.lavalink.password = self.lavalink_password
+        return self
 
     @classmethod
     def load_from_yaml(cls, config_file: str = "config/bot_settings.yaml") -> "BotSettings":

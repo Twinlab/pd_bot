@@ -5,7 +5,7 @@
 ## Возможности
 
 - **Dota 2 интеграция** — статистика матчей через Stratz GraphQL API
-- **Музыкальный плеер** — воспроизведение с YouTube через yt-dlp + FFmpeg
+- **Музыкальный плеер** — Lavalink v4 + wavelink 3.x (YouTube, Spotify, Apple Music, SoundCloud, Bandcamp, Twitch — с OAuth-обходом YouTube bot-detection)
 - **Отслеживание активности** — мониторинг игровой активности с ежедневными/ежемесячными отчётами
 - **Twitch уведомления** — оповещения о начале стримов
 - **Аниме-арты** — автопостинг SFW изображений с safebooru.org
@@ -39,7 +39,7 @@ docker compose up -d --build
 | Discord API | discord.py |
 | База данных | SQLite + Tortoise ORM |
 | Конфигурация | Pydantic Settings + YAML |
-| Музыка | yt-dlp + FFmpeg |
+| Музыка | Lavalink v4 + wavelink 3.x (плагины: youtube-source, LavaSrc) |
 | Dota 2 API | Stratz GraphQL |
 | CI/CD | GitHub Actions + Watchtower |
 | Контейнеризация | Docker |

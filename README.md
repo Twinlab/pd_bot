@@ -5,7 +5,7 @@
 ## Возможности
 
 - Интеграция с Dota 2 API (Stratz GraphQL) для статистики матчей
-- Музыкальный плеер (YouTube через yt-dlp + FFmpeg)
+- Музыкальный плеер на базе **Lavalink v4 + wavelink 3.x** (YouTube/Spotify/SoundCloud/Apple Music/Deezer/Bandcamp, обход YouTube bot-detection через OAuth)
 - Отслеживание игровой активности с отчётами
 - Twitch уведомления о стримах
 - Автопостинг аниме-артов

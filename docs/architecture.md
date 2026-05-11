@@ -32,24 +32,50 @@ graph TD
 
 ## Поток данных в музыкальном модуле
 
+Музыка работает поверх **Lavalink v4** (отдельный JVM-контейнер) и Python-клиента **wavelink 3.x**. Бот ничего не транскодирует сам — он лишь отправляет команды Lavalink-ноде и слушает её события.
+
 ```mermaid
 sequenceDiagram
     participant User
     participant MusicCog
-    participant MusicPlayer
-    participant YTIntegration
+    participant Wavelink as wavelink (Python)
+    participant Lavalink as Lavalink v4 (JVM)
+    participant YT as YouTube / Spotify / ...
 
-    User->>MusicCog: /play [query]
-    MusicCog->>YTIntegration: search_youtube(query)
-    YTIntegration-->>MusicCog: search_results
-    MusicCog->>User: Показать результаты поиска
-    User->>MusicCog: Выбрать трек
-    MusicCog->>MusicPlayer: queue_track(url, user)
-    MusicPlayer->>YTIntegration: get_stream_info(url)
-    YTIntegration-->>MusicPlayer: track_info (with stream_url)
-    MusicPlayer->>MusicPlayer: play_next()
-    MusicPlayer->>User: Отправить "Сейчас играет"
+    User->>MusicCog: /play <запрос>
+    MusicCog->>MusicCog: _ensure_player() — connect to VC если нужно
+    MusicCog->>Wavelink: Playable.search(query)
+    Wavelink->>Lavalink: GET /v4/loadtracks?identifier=ytmsearch:...
+    Lavalink->>YT: запрос через youtube-source / LavaSrc
+    YT-->>Lavalink: метаданные треков
+    Lavalink-->>Wavelink: Search (list[Playable] или Playlist)
+    Wavelink-->>MusicCog: результаты
+
+    alt URL — единственный трек
+        MusicCog->>Wavelink: player.queue.put(track)
+        MusicCog->>Wavelink: player.play(...)
+    else Текстовый поиск
+        MusicCog->>User: SearchView с топ-N результатами
+        User->>MusicCog: выбор трека
+        MusicCog->>Wavelink: queue.put(track) + play()
+    end
+
+    Wavelink->>Lavalink: POST /v4/sessions/.../players/.../play
+    Lavalink->>YT: получает поток (opus)
+    Lavalink->>Discord: отправляет аудио через Voice Gateway
+
+    Lavalink-->>Wavelink: TrackStartEvent
+    Wavelink-->>MusicCog: on_wavelink_track_start
+    MusicCog->>User: сообщение "Сейчас играет" + PlayerControlView
 ```
+
+Ключевые компоненты:
+
+- `cogs/music.py` — все hybrid-команды + слушатели событий wavelink.
+- `utils/music/player.py::MusicPlayer` — subclass `wavelink.Player`; добавляет `text_channel`, `now_playing_message` и привязку «трек → заказчик» через `track.extras.requester_id`.
+- `utils/music/ui.py` — три View: `PlayerControlView` (кнопки под now-playing), `SearchView` (Select), `QueueView` (пагинация).
+- `utils/music/embeds.py` — единый стиль эмбедов: now-playing, added-to-queue, queue, playlist.
+- `lavalink/application.yml` — конфиг JVM-сервиса с плагинами `youtube-source` и `LavaSrc`.
 
 ## Поток данных в модуле отслеживания активности
 
@@ -264,14 +290,17 @@ graph TD
     D --> D6[music/]
     D --> D8[models.py]
 
-    D6 --> D6_1[player.py]
-    D6 --> D6_2[ui.py]
+    D6 --> D6_1[player.py - MusicPlayer/setup_node]
+    D6 --> D6_2[ui.py - Views]
     D6 --> D6_3[embeds.py]
-    D6 --> D6_4[yt_integration.py]
+    D6 --> D6_4[config.py - logger/colors]
 
     B2 --> D4
     B6 --> D5
     B9 --> D6
+    B9 --> WL[wavelink 3.x]
+    WL --> LL[Lavalink v4 - JVM]
+    LL --> G[YouTube / Spotify / SoundCloud / ...]
 
     B1 --> D2
     B2 --> D2
@@ -284,10 +313,9 @@ graph TD
     B11 --> D2
     B12 --> D2
 
-    D1 --> E[SQLite DB (Tortoise ORM)]
+    D1 --> E[SQLite DB - Tortoise ORM]
     D8 --> E
     D5 --> F[Stratz API]
-    D6_4 --> G[YouTube API]
 
     D --> D7[quotes_utils.py]
     B4 --> D7
@@ -343,7 +371,7 @@ graph TD
     J2 --> J2_1[bot.utils.music.player]
     J2 --> J2_2[bot.utils.music.ui]
     J2 --> J2_3[bot.utils.music.config]
-    J2 --> J2_4[bot.utils.music.yt_integration]
+    J2 --> J2_4[bot.utils.music.embeds]
 
     C --> L[LoggingCog]
     L --> M[Discord канал]

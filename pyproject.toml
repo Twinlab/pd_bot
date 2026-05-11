@@ -14,19 +14,17 @@ dependencies = [
     "aiosqlite",
     "async-timeout",
     "colorlog",
-    "discord.py",
+    "discord.py[voice]>=2.7.1",
     "diskcache",
-    "ffmpeg-python",
     "matplotlib",
     "Pillow",
     "pydantic[email]>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "PyNaCl",
     "pytz",
     "PyYAML>=6.0.1",
     "typing-extensions",
     "ujson",
-    "yt-dlp",
+    "wavelink>=3.5.2",
     "tortoise-orm",
     "aerich",
 ]
@@ -112,7 +110,7 @@ module = "discord"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "yt_dlp.*"
+module = "wavelink.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
