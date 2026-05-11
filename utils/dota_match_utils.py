@@ -296,12 +296,14 @@ async def handle_lastmatch(
     )
     embed.add_field(
         name="Networth:",
-        value=f"{player_data.get('networth', 0):,}" if player_data.get("networth") else "N/A",
+        value=f"{player_data['networth']:,}" if player_data.get("networth") is not None else "N/A",
         inline=True,
     )
     embed.add_field(
         name="Hero Damage:",
-        value=f"{player_data.get('heroDamage', 0):,}" if player_data.get("heroDamage") else "N/A",
+        value=f"{player_data['heroDamage']:,}"
+        if player_data.get("heroDamage") is not None
+        else "N/A",
         inline=True,
     )
 

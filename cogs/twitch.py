@@ -707,7 +707,7 @@ class TwitchCog(commands.Cog):
         cmd_name = interaction.command.name if interaction.command else "N/A"
         logger.error(
             f"Ошибка при выполнении app_command в TwitchCog: {cmd_name}",
-            exc_info=original_error,
+            exc_info=True,
         )
         try:
             if interaction.response.is_done():

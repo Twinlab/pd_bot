@@ -175,7 +175,7 @@ async def test_music_player_initialization(music_player, mock_bot) -> None:
     assert music_player.current_track is None
     assert music_player.is_playing is False
     assert music_player.is_paused is False
-    assert music_player.loop is not None
+    assert music_player._loop is None
     assert music_player.now_playing_message is None
     assert music_player.player_view is None
 
@@ -357,17 +357,15 @@ async def test_start_playback_loop(music_player) -> None:
     # Мокаем play_next
     music_player.play_next = AsyncMock()
 
-    # Мокаем loop.create_task
     mock_task = MagicMock()
-    music_player.loop.create_task = MagicMock(return_value=mock_task)
+    mock_loop = MagicMock()
+    mock_loop.create_task = MagicMock(return_value=mock_task)
 
-    # Вызываем start_playback_loop
-    music_player.start_playback_loop()
+    with patch("utils.music.player.asyncio.get_running_loop", return_value=mock_loop):
+        music_player.start_playback_loop()
 
-    # Проверяем вызовы
-    # Проверяем, что create_task был вызван хотя бы раз с coroutine
-    assert music_player.loop.create_task.call_count == 1
-    called_args = music_player.loop.create_task.call_args[0]
+    assert mock_loop.create_task.call_count == 1
+    called_args = mock_loop.create_task.call_args[0]
     assert called_args
     assert callable(getattr(called_args[0], "__await__", None))
     assert music_player._play_next_task is mock_task
@@ -886,13 +884,12 @@ async def test_start_playback_loop_already_running(music_player) -> None:
     mock_task = MagicMock()
     mock_task.done.return_value = False
     music_player._play_next_task = mock_task
-    
-    music_player.loop.create_task = MagicMock()
 
-    music_player.start_playback_loop()
+    mock_loop = MagicMock()
+    with patch("utils.music.player.asyncio.get_running_loop", return_value=mock_loop):
+        music_player.start_playback_loop()
 
-    # Проверяем, что новая задача не была создана
-    music_player.loop.create_task.assert_not_called()
+    mock_loop.create_task.assert_not_called()
 
 
 @pytest.mark.asyncio

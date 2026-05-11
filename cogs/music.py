@@ -333,7 +333,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore
         logger.error(
             f"Ошибка в музыкальной команде "
             f"'{interaction.command.name if interaction.command else 'неизвестно'}': {error}",
-            exc_info=error,
+            exc_info=True,
         )
         error_message = f"Произошла ошибка при выполнении команды: `{error}`"
         if isinstance(error, discord.app_commands.CheckFailure):

@@ -9,6 +9,7 @@
 непосредственно в Discord.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -101,21 +102,21 @@ class LoggingCog(commands.Cog):
             return
 
         try:
-            with open(self.log_file_path, encoding="utf-8", errors="ignore") as f:
-                buffer = ""
-                for line in f:
-                    if (
-                        len(buffer) + len(line) + self.bot.settings.limits.logging_buffer_overhead
-                        > self.bot.settings.limits.max_message_length
-                    ):
-                        if buffer:  # Отправляем, только если буфер не пуст
-                            await self.send_log_message(buffer)
-                        buffer = line
-                    else:
-                        buffer += line
-                if buffer:  # Отправляем остаток, если он есть
-                    await self.send_log_message(buffer)
-                self.last_read_position = f.tell()
+            lines, position = await asyncio.to_thread(self._read_full_log)
+            buffer = ""
+            for line in lines:
+                if (
+                    len(buffer) + len(line) + self.bot.settings.limits.logging_buffer_overhead
+                    > self.bot.settings.limits.max_message_length
+                ):
+                    if buffer:
+                        await self.send_log_message(buffer)
+                    buffer = line
+                else:
+                    buffer += line
+            if buffer:
+                await self.send_log_message(buffer)
+            self.last_read_position = position
             logger.info(
                 f"[LogCog] Весь лог '{self.log_file_path}' отправлен в канал "
                 f"{self.log_channel.name}."
@@ -137,10 +138,9 @@ class LoggingCog(commands.Cog):
         if not os.path.exists(self.log_file_path):
             return
         try:
-            with open(self.log_file_path, encoding="utf-8", errors="ignore") as f:
-                f.seek(self.last_read_position)
-                new_lines = f.readlines()
-                new_position = f.tell()
+            new_lines, new_position = await asyncio.to_thread(
+                self._read_log_from_position, self.last_read_position
+            )
             if new_lines:
                 buffer = ""
                 for line in new_lines:
@@ -164,6 +164,21 @@ class LoggingCog(commands.Cog):
         """Ожидает готовности бота перед первым запуском tail_log_file."""
         await self.bot.wait_until_ready()
         logger.info("[LogCog] Задача tail_log_file готова к запуску (после on_ready).")
+
+    def _read_full_log(self) -> tuple[list[str], int]:
+        """Читает весь лог-файл (вызывается в потоке)."""
+        with open(self.log_file_path, encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            position = f.tell()
+        return lines, position
+
+    def _read_log_from_position(self, position: int) -> tuple[list[str], int]:
+        """Читает лог-файл с указанной позиции (вызывается в потоке)."""
+        with open(self.log_file_path, encoding="utf-8", errors="ignore") as f:
+            f.seek(position)
+            lines = f.readlines()
+            new_position = f.tell()
+        return lines, new_position
 
     def format_json_log(self, log_line: str) -> str:
         """Преобразует JSON-лог в удобочитаемый формат.

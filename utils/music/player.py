@@ -85,7 +85,7 @@ class MusicPlayer:
         self.current_track: Track | None = None
         self.is_playing: bool = False
         self.is_paused: bool = False
-        self.loop = asyncio.get_event_loop()
+        self._loop: asyncio.AbstractEventLoop | None = None
         self.now_playing_message: discord.Message | None = None
         self.player_view: discord.ui.View | None = None
         self._play_next_task: asyncio.Task | None = None
@@ -286,7 +286,8 @@ class MusicPlayer:
             logger.debug("Цикл воспроизведения уже запущен. Новая задача не создается.")
             return
         logger.info("Запуск нового цикла воспроизведения...")
-        self._play_next_task = self.loop.create_task(self.play_next())
+        loop = self._loop or asyncio.get_running_loop()
+        self._play_next_task = loop.create_task(self.play_next())
 
     async def play_next(self) -> None:
         """Основная логика воспроизведения следующего трека из очереди."""
@@ -358,8 +359,12 @@ class MusicPlayer:
                     raise OSError("Не удалось получить stdout от ffmpeg.")
 
                 source = discord.PCMAudio(self.ffmpeg_process.stdout)
+                self._loop = asyncio.get_running_loop()
                 self.voice_client.play(
-                    source, after=lambda e: self.loop.create_task(self._after_playback(e))
+                    source,
+                    after=lambda e: asyncio.run_coroutine_threadsafe(
+                        self._after_playback(e), self._loop
+                    ),
                 )
 
                 self.is_playing = True
@@ -418,7 +423,7 @@ class MusicPlayer:
 
         if error:
             logger.error(
-                f"Ошибка воспроизведения трека '{finished_track_title}': {error}", exc_info=error
+                f"Ошибка воспроизведения трека '{finished_track_title}': {error}", exc_info=True
             )
             await self.send_error_message(
                 f"Ошибка во время воспроизведения трека '{finished_track_title}': `{error}`"

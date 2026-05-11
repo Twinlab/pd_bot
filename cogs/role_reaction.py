@@ -22,6 +22,13 @@ from utils.role_reaction_data_manager import RoleReactionDataManager
 logger = logging.getLogger("bot.cogs.role_reaction")
 
 
+def _normalize_emoji(emoji_str: str) -> str:
+    """Нормализует формат эмодзи, убирая префикс 'a:' для единообразия хранения и поиска."""
+    if emoji_str.startswith("a:"):
+        return emoji_str[2:]
+    return emoji_str
+
+
 class RoleReactionCog(commands.Cog):
     """Ког для управления ролями через реакции."""
 
@@ -127,7 +134,7 @@ class RoleReactionCog(commands.Cog):
             for msg_reaction in message.reactions:
                 current_emoji_obj = msg_reaction.emoji
                 if hasattr(current_emoji_obj, "id") and current_emoji_obj.id:
-                    emoji_str = f"{current_emoji_obj.name}:{current_emoji_obj.id}"
+                    emoji_str = _normalize_emoji(f"{current_emoji_obj.name}:{current_emoji_obj.id}")
                 else:
                     emoji_str = str(current_emoji_obj)
                 existing_reactions.add(emoji_str)
@@ -269,15 +276,11 @@ class RoleReactionCog(commands.Cog):
                 # Это пользовательский эмодзи, извлекаем его ID
                 emoji_id = emoji.split(":")[-1][:-1]
                 emoji_name = emoji.split(":")[1]
-                emoji_animated = emoji.startswith("<a:")
 
-                # Формируем правильный формат для реакции
-                emoji_format = f"{'a:' if emoji_animated else ''}{emoji_name}:{emoji_id}"
+                emoji_format = _normalize_emoji(f"{emoji_name}:{emoji_id}")
             else:
-                # Это стандартный эмодзи Unicode
                 emoji_format = emoji
 
-            # Добавляем привязку роли к эмодзи
             channel_id, message_id = message_info
             # Обновляем кеш, если его нет
             if interaction.guild.id not in self.message_cache:
@@ -353,15 +356,11 @@ class RoleReactionCog(commands.Cog):
                 # Это пользовательский эмодзи, извлекаем его ID
                 emoji_id = emoji.split(":")[-1][:-1]
                 emoji_name = emoji.split(":")[1]
-                emoji_animated = emoji.startswith("<a:")
 
-                # Формируем правильный формат для реакции
-                emoji_format = f"{'a:' if emoji_animated else ''}{emoji_name}:{emoji_id}"
+                emoji_format = _normalize_emoji(f"{emoji_name}:{emoji_id}")
             else:
-                # Это стандартный эмодзи Unicode
                 emoji_format = emoji
 
-            # Удаляем привязку роли к эмодзи
             success = await self.data_manager.remove_role_reaction(
                 interaction.guild.id, emoji_format
             )
@@ -423,17 +422,14 @@ class RoleReactionCog(commands.Cog):
         if payload.channel_id != channel_id or payload.message_id != message_id:
             return
 
-        # Получаем эмодзи в правильном формате
         emoji = payload.emoji.name
         if payload.emoji.id:
-            emoji = f"{payload.emoji.name}:{payload.emoji.id}"
+            emoji = _normalize_emoji(f"{payload.emoji.name}:{payload.emoji.id}")
 
-        # Получаем роль, привязанную к этому эмодзи
         role_id = await self.data_manager.get_role_by_emoji(payload.guild_id, emoji)
         if not role_id:
             return
 
-        # Получаем объект сервера и роли
         guild = self.bot.get_guild(payload.guild_id)
         if not guild:
             return
@@ -443,7 +439,6 @@ class RoleReactionCog(commands.Cog):
             logger.warning(f"Не найдена роль с ID {role_id} на сервере {payload.guild_id}")
             return
 
-        # Выдаем роль пользователю
         try:
             await payload.member.add_roles(role, reason="Роль по реакции")
             logger.info(
@@ -476,12 +471,10 @@ class RoleReactionCog(commands.Cog):
         if payload.channel_id != channel_id or payload.message_id != message_id:
             return
 
-        # Получаем эмодзи в правильном формате
         emoji = payload.emoji.name
         if payload.emoji.id:
-            emoji = f"{payload.emoji.name}:{payload.emoji.id}"
+            emoji = _normalize_emoji(f"{payload.emoji.name}:{payload.emoji.id}")
 
-        # Получаем роль, привязанную к этому эмодзи
         role_id = await self.data_manager.get_role_by_emoji(payload.guild_id, emoji)
         if not role_id:
             return
@@ -550,13 +543,13 @@ class RoleReactionCog(commands.Cog):
         elif isinstance(error, commands.CommandInvokeError):
             logger.error(
                 f"Ошибка при выполнении команды {ctx.command}: {error.original}",
-                exc_info=error.original,
+                exc_info=True,
             )
             await safe_send(ctx, f"Произошла ошибка: {str(error.original)}", ephemeral=True)
         elif isinstance(error, commands.BadArgument):
             await safe_send(ctx, f"Неверный аргумент: {error}", ephemeral=True)
         else:
-            logger.error(f"Необработанная ошибка в команде {ctx.command}: {error}", exc_info=error)
+            logger.error(f"Необработанная ошибка в команде {ctx.command}: {error}", exc_info=True)
             await safe_send(ctx, f"Произошла неизвестная ошибка: {str(error)}", ephemeral=True)
 
 

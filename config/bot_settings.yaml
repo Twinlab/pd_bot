@@ -153,6 +153,13 @@ activity:
 dota:
   match_view_timeout: 180
 
+top_reactions:
+  live_top: 10              # Сколько позиций показывать в режимах month / year
+  all_time_top: 50          # Сколько позиций показывать в режиме all
+  per_page: 10              # Сколько позиций на одной странице пагинации
+  content_preview_length: 200  # До какой длины обрезать текст сообщения при сохранении
+  view_timeout: 300         # Таймаут кнопок пагинации в секундах
+
 
 update:
   restart_command: "systemctl --user restart discord-bot.service"

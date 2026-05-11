@@ -56,7 +56,7 @@ def command_error_handler[F: Callable[..., Any]](func: F) -> F:
             # Логируем ошибку
             logger.error(
                 f"Ошибка в команде {ctx.command}: {error}",
-                exc_info=error,
+                exc_info=True,
                 extra={
                     "command": ctx.command.name if ctx.command else "unknown",
                     "author": f"{ctx.author} ({ctx.author.id})",

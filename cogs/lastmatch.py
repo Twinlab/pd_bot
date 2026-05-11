@@ -95,12 +95,10 @@ class LastMatchCog(commands.Cog):
         if isinstance(error, commands.MissingPermissions):
             await ctx.send("У вас нет прав для выполнения этой команды.", ephemeral=True)
         elif isinstance(error, commands.CommandInvokeError):
-            logger.error(
-                f"Ошибка при выполнении команды: {error.original}", exc_info=error.original
-            )
+            logger.error(f"Ошибка при выполнении команды: {error.original}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {error.original}", ephemeral=True)
         else:
-            logger.error(f"Необработанная ошибка в команде: {error}", exc_info=error)
+            logger.error(f"Необработанная ошибка в команде: {error}", exc_info=True)
             await ctx.send(f"Произошла неизвестная ошибка: {error}", ephemeral=True)
 
 

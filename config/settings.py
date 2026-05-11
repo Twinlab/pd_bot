@@ -370,6 +370,24 @@ class DotaConfig(BaseModel):
     match_view_timeout: int = 180  # 3 минуты
 
 
+class TopReactionsConfig(BaseModel):
+    """Конфигурация лидерборда сообщений с реакциями.
+
+    Attributes:
+        live_top: Сколько позиций показывать в режиме `month` / `year` (одна страница).
+        all_time_top: Сколько позиций показывать в режиме `all` (с пагинацией).
+        per_page: Сколько позиций на одной странице при пагинации.
+        content_preview_length: До какой длины обрезать текст сообщения для отображения.
+        view_timeout: Таймаут View (кнопок пагинации) в секундах.
+    """
+
+    live_top: int = 10
+    all_time_top: int = 50
+    per_page: int = 10
+    content_preview_length: int = 200
+    view_timeout: int = 300
+
+
 class UserReaction(BaseModel):
     """Конфигурация одной реакции на сообщение пользователя."""
 
@@ -470,6 +488,7 @@ class BotSettings(BaseSettings):
     dota: DotaConfig = DotaConfig()
     update: UpdateSettings = UpdateSettings()
     reactions: ReactionsConfig = ReactionsConfig()
+    top_reactions: TopReactionsConfig = TopReactionsConfig()
 
     model_config = {
         "env_file": ".env",

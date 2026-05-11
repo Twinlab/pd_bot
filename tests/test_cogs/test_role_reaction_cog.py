@@ -880,7 +880,7 @@ class TestCogCommandError:
             await role_reaction_cog.cog_command_error(mock_ctx, error)
             mock_safe_send.assert_called_once_with(mock_ctx, f"Произошла ошибка: {original_error}", ephemeral=True)
             mock_logger_error.assert_called_once_with(
-                f"Ошибка при выполнении команды {mock_ctx.command}: {original_error}", exc_info=original_error
+                f"Ошибка при выполнении команды {mock_ctx.command}: {original_error}", exc_info=True
             )
 
     @pytest.mark.asyncio
@@ -899,7 +899,7 @@ class TestCogCommandError:
             await role_reaction_cog.cog_command_error(mock_ctx, error)
             mock_safe_send.assert_called_once_with(mock_ctx, f"Произошла неизвестная ошибка: {error}", ephemeral=True)
             mock_logger_error.assert_called_once_with(
-                f"Необработанная ошибка в команде {mock_ctx.command}: {error}", exc_info=error
+                f"Необработанная ошибка в команде {mock_ctx.command}: {error}", exc_info=True
             )
 
 

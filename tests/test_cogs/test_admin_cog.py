@@ -391,7 +391,7 @@ class TestCogErrorHandling:
             await admin_cog.cog_command_error(mock_context, error)
             mock_context.send.assert_called_once_with(f"Произошла ошибка: {original_error}", ephemeral=True)
             mock_logger_error.assert_called_once_with(
-                f"Ошибка при выполнении команды: {original_error}", exc_info=original_error
+                f"Ошибка при выполнении команды: {original_error}", exc_info=True
             )
 
     @pytest.mark.asyncio
@@ -401,7 +401,7 @@ class TestCogErrorHandling:
         with patch("cogs.admin.logger.error") as mock_logger_error:
             await admin_cog.cog_command_error(mock_context, error)
             mock_context.send.assert_called_once_with(f"Произошла неизвестная ошибка: {error}", ephemeral=True)
-            mock_logger_error.assert_called_once_with(f"Необработанная ошибка в команде: {error}", exc_info=error)
+            mock_logger_error.assert_called_once_with(f"Необработанная ошибка в команде: {error}", exc_info=True)
 
 
 @pytest.mark.asyncio

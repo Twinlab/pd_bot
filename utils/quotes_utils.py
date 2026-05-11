@@ -7,6 +7,8 @@
 - Поддержки различных форматов изображений
 """
 
+import asyncio
+import io
 import logging
 import random
 from pathlib import Path
@@ -215,25 +217,21 @@ async def send_random_quote_image(
         # Получаем случайное изображение
         image_path = get_random_image_from_folder(folder_name)
 
-        # Отправляем изображение
-        with open(image_path, "rb") as f:
-            file = discord.File(f, filename=image_path.name)
+        image_data = await asyncio.to_thread(image_path.read_bytes)
+        file = discord.File(io.BytesIO(image_data), filename=image_path.name)
 
-            if embed:
-                # Создаем эмбед
-                settings = get_settings()
-                embed_obj = discord.Embed(
-                    title=f"📸 Случайное изображение из {folder_name}",
-                    color=discord.Color(int(settings.colors.default[1:], 16)),
-                )
-                # Добавляем информацию о файле
-                embed_obj.set_footer(text=f"Файл: {image_path.name}")
-                embed_obj.set_image(url=f"attachment://{image_path.name}")
+        if embed:
+            settings = get_settings()
+            embed_obj = discord.Embed(
+                title=f"📸 Случайное изображение из {folder_name}",
+                color=discord.Color(int(settings.colors.default[1:], 16)),
+            )
+            embed_obj.set_footer(text=f"Файл: {image_path.name}")
+            embed_obj.set_image(url=f"attachment://{image_path.name}")
 
-                await ctx.send(embed=embed_obj, file=file, ephemeral=ephemeral)
-            else:
-                # Отправляем только изображение
-                await ctx.send(file=file, ephemeral=ephemeral)
+            await ctx.send(embed=embed_obj, file=file, ephemeral=ephemeral)
+        else:
+            await ctx.send(file=file, ephemeral=ephemeral)
 
         logger.info(f"Отправлено изображение {image_path.name} из папки {folder_name}")
 
@@ -434,12 +432,11 @@ class QuotesFolderSelect(discord.ui.Select):
             )
             embed.set_footer(text=f"Файл: {image_path.name}")
 
-            # Отправляем изображение
-            with open(image_path, "rb") as f:
-                file = discord.File(f, filename=image_path.name)
-                embed.set_image(url=f"attachment://{image_path.name}")
+            image_data = await asyncio.to_thread(image_path.read_bytes)
+            file = discord.File(io.BytesIO(image_data), filename=image_path.name)
+            embed.set_image(url=f"attachment://{image_path.name}")
 
-                await interaction.followup.send(embed=embed, file=file)
+            await interaction.followup.send(embed=embed, file=file)
 
             logger.info(
                 f"Отправлено изображение {image_path.name} из папки {selected_folder} через UI"

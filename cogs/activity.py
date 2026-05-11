@@ -886,7 +886,7 @@ class ActivityTracker(commands.Cog):
 
         logger.error(
             f"Ошибка в команде {ctx.command}: {error}",
-            exc_info=error,
+            exc_info=True,
         )
         error_message = get_error_message(error)
         await safe_send_error(ctx, error_message)

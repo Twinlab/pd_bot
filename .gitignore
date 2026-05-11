@@ -62,3 +62,9 @@ memory-bank/
 # Claude Code
 CLAUDE.md
 site/
+
+# Локальные служебные скрипты, не входящие в публичный репозиторий
+/scripts/
+
+# Внутренние заметки по фичам
+docs/top_reactions.md

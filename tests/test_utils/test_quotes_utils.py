@@ -212,29 +212,23 @@ class TestSendRandomQuoteImage:
     @pytest.mark.asyncio
     @patch("utils.quotes_utils.get_random_image_from_folder")
     @patch("utils.quotes_utils.get_settings")
-    @patch("builtins.open", create=True)
-    async def test_send_random_quote_image_success(self, mock_open, mock_settings, mock_get_image):
+    async def test_send_random_quote_image_success(self, mock_settings, mock_get_image):
         """Тест успешной отправки изображения."""
-        # Настройка моков
         mock_settings.return_value.colors.default = "#0099ff"
         mock_image_path = MagicMock()
         mock_image_path.name = "test_image.jpg"
+        mock_image_path.read_bytes = MagicMock(return_value=b"fake-image-bytes")
         mock_get_image.return_value = mock_image_path
-        
-        mock_file_handle = MagicMock()
-        mock_open.return_value.__enter__.return_value = mock_file_handle
-        
-        # Создание мок контекста
+
         mock_ctx = MagicMock()
         mock_ctx.send = AsyncMock()
-        
+
         await send_random_quote_image(mock_ctx, "test_folder")
-        
-        # Проверки
+
         mock_get_image.assert_called_once_with("test_folder")
+        mock_image_path.read_bytes.assert_called_once()
         mock_ctx.send.assert_called_once()
-        
-        # Проверяем, что send был вызван с embed и file
+
         call_args = mock_ctx.send.call_args
         assert "embed" in call_args.kwargs
         assert "file" in call_args.kwargs

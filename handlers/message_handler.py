@@ -1,7 +1,7 @@
 """Ког для обработки входящих сообщений пользователей и их маршрутизации."""
 
-import asyncio
 import logging
+import time
 
 import discord
 from discord.ext import commands
@@ -65,16 +65,17 @@ class MessageHandler(commands.Cog):
         if message.author.bot or not message.guild or is_command:
             return
 
-        # Проверка кулдауна (2 секунды) для конкретного пользователя
         author_id = message.author.id
-        current_time = asyncio.get_event_loop().time()
+        current_time = time.monotonic()
 
-        # Кулдаун 2 секунды между обработками сообщений одного пользователя
         if author_id in self.cooldowns and current_time - self.cooldowns[author_id] < 2:
-            return  # Игнорируем сообщение, если кулдаун активен
+            return
 
-        # Обновляем время последней обработки для этого пользователя
         self.cooldowns[author_id] = current_time
+
+        if len(self.cooldowns) > 200:
+            cutoff = current_time - 10
+            self.cooldowns = {uid: ts for uid, ts in self.cooldowns.items() if ts > cutoff}
 
         # Вызываем основную логику обработки сообщения из utils
         try:
@@ -93,7 +94,7 @@ class MessageHandler(commands.Cog):
             ctx: Контекст команды, в которой произошла ошибка.
             error: Объект ошибки.
         """
-        logger.error(f"Ошибка в команде {ctx.command}: {error}", exc_info=error)
+        logger.error(f"Ошибка в команде {ctx.command}: {error}", exc_info=True)
         await ctx.send(f"❌ Произошла ошибка при выполнении команды: {error}")
 
 

@@ -135,14 +135,9 @@ class TestMessageHandlerMethods:
         mock_message.content = "Тестовое сообщение"
         mock_bot.get_prefix = AsyncMock(return_value="!")
         
-        # Патчим handle_message и asyncio.get_event_loop().time()
+        # Патчим handle_message и time.monotonic
         with patch("utils.message_utils.handle_message", AsyncMock()) as mock_handle_message, \
-             patch("asyncio.get_event_loop") as mock_get_loop:
-            
-            # Настраиваем мок для времени
-            mock_loop = MagicMock()
-            mock_loop.time.return_value = 100.0
-            mock_get_loop.return_value = mock_loop
+             patch("handlers.message_handler.time.monotonic", return_value=100.0):
             
             # Вызываем метод
             await handler.on_message(mock_message)

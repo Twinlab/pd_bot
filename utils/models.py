@@ -96,3 +96,45 @@ class APICache(models.Model):
 
     class Meta:
         table = "api_cache"
+
+
+class ReactedMessage(models.Model):
+    """Сообщение, на которое поставлена хотя бы одна реакция.
+
+    Используется для лидерборда популярных сообщений. Заполняется двумя путями:
+    1. Live-трекинг через Discord events (полные данные, есть запись в MessageReactor).
+    2. Импорт из дампа DiscordChatExporter (есть только historical_reaction_count).
+    """
+
+    message_id = fields.BigIntField(pk=True)
+    channel_id = fields.BigIntField()
+    author_id = fields.BigIntField()
+    content = fields.TextField()  # Обрезаем до 500 символов на стороне кода
+    jump_url = fields.TextField()
+    posted_at = fields.DatetimeField()
+    historical_reaction_count = fields.IntField(null=True)  # Для импорта из DCE
+    is_deleted = fields.BooleanField(default=False)
+
+    class Meta:
+        table = "reacted_messages"
+        indexes = (("posted_at",), ("author_id",))
+
+
+class MessageReactor(models.Model):
+    """Запись о конкретной реакции (message_id, user_id, emoji).
+
+    Хранение per-(user, emoji) позволяет корректно обрабатывать сценарий, когда юзер
+    поставил несколько эмодзи на сообщение и снял только одно — он остаётся в счётчике
+    уникальных реакторов до тех пор, пока есть хотя бы одна его реакция.
+    """
+
+    id = fields.IntField(pk=True)
+    message_id = fields.BigIntField()
+    user_id = fields.BigIntField()
+    emoji = fields.TextField()
+    reacted_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "message_reactors"
+        unique_together = (("message_id", "user_id", "emoji"),)
+        indexes = (("message_id",), ("user_id",))

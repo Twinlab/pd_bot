@@ -46,6 +46,7 @@ class AnimeCog(commands.Cog):
             bot: Экземпляр discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
+        self._session: aiohttp.ClientSession | None = None
         # Получаем настройки из новой системы конфигурации
         settings = get_settings()
         self.channel_id: int | None = settings.channels.anime
@@ -73,6 +74,12 @@ class AnimeCog(commands.Cog):
         self.morning_post.start()
         self.evening_post.start()
 
+    def _get_session(self) -> aiohttp.ClientSession:
+        """Возвращает переиспользуемую aiohttp-сессию."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+        return self._session
+
     async def _load_cache_from_db(self) -> None:
         """Загружает кеш из базы данных при первом использовании."""
         if self._cache_loaded:
@@ -95,10 +102,12 @@ class AnimeCog(commands.Cog):
             self._cache_loaded = True
 
     async def cog_unload(self) -> None:
-        """Вызывается при выгрузке кога, останавливает фоновые задачи."""
+        """Вызывается при выгрузке кога, останавливает фоновые задачи и закрывает сессию."""
         logger.info("Остановка задач публикации аниме...")
         self.morning_post.cancel()
         self.evening_post.cancel()
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def get_anime_image(self) -> tuple[str, int] | None:
         """Асинхронно получает URL и ID случайного SFW аниме-изображения.
@@ -173,83 +182,74 @@ class AnimeCog(commands.Cog):
         # Максимальное количество попыток найти непустую страницу
         max_page_attempts = 10
 
-        async with aiohttp.ClientSession() as session:
-            for attempt in range(max_page_attempts):
-                # Используем оптимальный диапазон страниц на основе отладки
-                random_page = random.randint(0, 30)  # Самый стабильный диапазон
+        session = self._get_session()
+        for attempt in range(max_page_attempts):
+            random_page = random.randint(0, 30)
 
-                # Формируем параметры запроса для safebooru API
-                params = {
-                    "page": "dapi",
-                    "s": "post",
-                    "q": "index",
-                    "json": "1",
-                    "limit": str(settings.anime.safebooru_limit),
-                    "tags": " ".join(all_tags),
-                    "pid": str(random_page),
-                }
+            params = {
+                "page": "dapi",
+                "s": "post",
+                "q": "index",
+                "json": "1",
+                "limit": str(settings.anime.safebooru_limit),
+                "tags": " ".join(all_tags),
+                "pid": str(random_page),
+            }
 
-                try:
-                    # Выполняем запрос к API
-                    async with session.get(api_url, params=params) as response:
-                        if response.status == 200:
-                            # Проверяем content-type перед парсингом JSON
-                            content_type = response.headers.get("content-type", "")
-                            if "application/json" not in content_type:
-                                logger.debug(f"Неверный content-type на стр. {random_page}")
-                                continue  # Пробуем следующую страницу
+            try:
+                async with session.get(api_url, params=params) as response:
+                    if response.status != 200:
+                        logger.debug(f"HTTP {response.status} на стр. {random_page}")
+                        continue
 
-                            try:
-                                data = await response.json()
-                            except Exception:
-                                logger.debug(f"Ошибка JSON на стр. {random_page}")
-                                continue  # Пробуем следующую страницу
+                    content_type = response.headers.get("content-type", "")
+                    if "application/json" not in content_type:
+                        logger.debug(f"Неверный content-type на стр. {random_page}")
+                        continue
 
-                            # Проверяем, что получили список
-                            if not isinstance(data, list):
-                                logger.debug(f"Не список на стр. {random_page}")
-                                continue  # Пробуем следующую страницу
+                    try:
+                        data = await response.json()
+                    except Exception:
+                        logger.debug(f"Ошибка JSON на стр. {random_page}")
+                        continue
 
-                            # Фильтруем посты, у которых нет ID
-                            valid_posts = [p for p in data if isinstance(p, dict) and "id" in p]
-                            if not valid_posts:
-                                logger.debug(f"Пустая страница {random_page}, пробуем следующую...")
-                                continue  # Пробуем следующую страницу
+                    if not isinstance(data, list):
+                        logger.debug(f"Не список на стр. {random_page}")
+                        continue
 
-                            # Выбираем случайный пост
-                            random_post = random.choice(valid_posts)
-                            post_id = random_post["id"]
+                    valid_posts = [p for p in data if isinstance(p, dict) and "id" in p]
+                    if not valid_posts:
+                        logger.debug(f"Пустая страница {random_page}, пробуем следующую...")
+                        continue
 
-                            # Формируем полный URL изображения
-                            file_url = None
-                            if "file_url" in random_post and random_post["file_url"]:
-                                file_url = random_post["file_url"]
-                                if not file_url.startswith("http"):
-                                    file_url = f"https:{file_url}"
-                            elif "directory" in random_post and "image" in random_post:
-                                directory = random_post["directory"]
-                                image = random_post["image"]
-                                file_url = f"https://safebooru.org/images/{directory}/{image}"
+                    random_post = random.choice(valid_posts)
+                    post_id = random_post["id"]
 
-                            if file_url:
-                                logger.info(
-                                    f"Найдено изображение (ID: {post_id}), "
-                                    f"стр. {random_page}, попытка {attempt + 1}"
-                                )
-                                return str(file_url), int(post_id)
-                            else:
-                                logger.debug(f"Нет URL в посте на стр. {random_page}")
-                                continue  # Пробуем следующую страницу
-                        else:
-                            logger.debug(f"HTTP {response.status} на стр. {random_page}")
-                            continue  # Пробуем следующую страницу
-                except Exception:
-                    logger.debug(f"Исключение на стр. {random_page}")
-                    continue  # Пробуем следующую страницу
+                    file_url = None
+                    if "file_url" in random_post and random_post["file_url"]:
+                        file_url = random_post["file_url"]
+                        if not file_url.startswith("http"):
+                            file_url = f"https:{file_url}"
+                    elif "directory" in random_post and "image" in random_post:
+                        directory = random_post["directory"]
+                        image = random_post["image"]
+                        file_url = f"https://safebooru.org/images/{directory}/{image}"
 
-            # Если все попытки исчерпаны
-            logger.warning(f"Не удалось найти изображение после {max_page_attempts} попыток")
-            return None
+                    if file_url:
+                        logger.info(
+                            f"Найдено изображение (ID: {post_id}), "
+                            f"стр. {random_page}, попытка {attempt + 1}"
+                        )
+                        return str(file_url), int(post_id)
+                    else:
+                        logger.debug(f"Нет URL в посте на стр. {random_page}")
+                        continue
+            except Exception:
+                logger.debug(f"Исключение на стр. {random_page}")
+                continue
+
+        logger.warning(f"Не удалось найти изображение после {max_page_attempts} попыток")
+        return None
 
     async def post_anime_image(self) -> bool:
         """Получает URL аниме-изображения и публикует его в настроенный канал.
@@ -387,12 +387,10 @@ class AnimeCog(commands.Cog):
         if isinstance(error, commands.MissingPermissions):
             await ctx.send("У вас нет прав для выполнения этой команды.", ephemeral=True)
         elif isinstance(error, commands.CommandInvokeError):
-            logger.error(
-                f"Ошибка при выполнении команды: {error.original}", exc_info=error.original
-            )
+            logger.error(f"Ошибка при выполнении команды: {error.original}", exc_info=True)
             await ctx.send(f"Произошла ошибка: {error.original}", ephemeral=True)
         else:
-            logger.error(f"Необработанная ошибка в команде: {error}", exc_info=error)
+            logger.error(f"Необработанная ошибка в команде: {error}", exc_info=True)
             await ctx.send(f"Произошла неизвестная ошибка: {error}", ephemeral=True)
 
 

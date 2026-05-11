@@ -233,13 +233,13 @@ class LinksCog(commands.Cog):
         elif isinstance(error, commands.CommandInvokeError):
             logger.error(
                 f"Ошибка при выполнении команды {ctx.command}: {error.original}",
-                exc_info=error.original,
+                exc_info=True,
             )
             await self.send_response(ctx, f"Произошла ошибка: {str(error.original)}")
         elif isinstance(error, commands.BadArgument):
             await self.send_response(ctx, f"Неверный аргумент: {error}")
         else:
-            logger.error(f"Необработанная ошибка в команде {ctx.command}: {error}", exc_info=error)
+            logger.error(f"Необработанная ошибка в команде {ctx.command}: {error}", exc_info=True)
             await self.send_response(ctx, f"Произошла неизвестная ошибка: {str(error)}")
 
 
