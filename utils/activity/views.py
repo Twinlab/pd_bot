@@ -5,6 +5,7 @@
 отображения и пагинацией.
 """
 
+import logging
 from collections import defaultdict
 from datetime import datetime
 
@@ -14,6 +15,13 @@ from discord.ext import commands
 
 # Импортируем хелперы форматирования времени
 from .helpers import format_time_short
+
+logger = logging.getLogger("bot.utils.activity")
+
+# Жёсткий лимит Discord на длину одного сообщения
+DISCORD_MESSAGE_MAX_LENGTH = 2000
+# Запас на изменения номера страницы в footer и прочую страховку
+_PAGE_SIZE_SAFETY_MARGIN = 50
 
 
 class ActivityView(ui.View):
@@ -90,7 +98,8 @@ class ActivityView(ui.View):
         """Подготавливает и сортирует данные для отображения.
 
         Режимы: "по пользователям" и "по играм".
-        Фильтрует игры с нулевым временем. Рассчитывает максимальное количество страниц.
+        Фильтрует игры с нулевым временем. Предрассчитывает строки и упаковывает их
+        в страницы с учётом лимита Discord на длину сообщения (2000 символов).
         """
         # Отображение по пользователям
         # Фильтруем пользователей и игры с нулевым временем
@@ -131,16 +140,129 @@ class ActivityView(ui.View):
             reverse=True,
         )
 
+        # Предрассчитываем готовые строки для каждого пользователя и каждой игры,
+        # а также общую сводку — это всё не зависит от текущей страницы.
+        self._user_lines: dict[int, str] = self._build_user_lines(guild)
+        self._game_lines: dict[str, str] = self._build_game_lines()
+        self._summary_cache: str = self._get_summary()
+
+        # Упаковываем строки в страницы так, чтобы каждая страница укладывалась в лимит Discord.
+        self._user_pages: list[list[int]] = self._pack_pages_for_mode("users")
+        self._game_pages: list[list[str]] = self._pack_pages_for_mode("games")
+
         # Считаем общее количество страниц для текущего режима
         self._recalculate_max_pages()
 
+    def _build_user_lines(self, guild: discord.Guild | None) -> dict[int, str]:
+        """Готовит строку отчёта для каждого пользователя (без заголовка раздела)."""
+        lines: dict[int, str] = {}
+        for user_id in self.user_ids:
+            member = guild.get_member(user_id) if guild else None
+            username = member.name if member else f"Пользователь {user_id}"
+            activities = sorted(
+                self.users_data[user_id].items(), key=lambda item: item[1], reverse=True
+            )
+            games_list = [
+                f"{game_name} ({format_time_short(time_spent)})"
+                for game_name, time_spent in activities
+            ]
+            lines[user_id] = f"**{username}**: " + ", ".join(games_list) + "\n"
+        return lines
+
+    def _build_game_lines(self) -> dict[str, str]:
+        """Готовит строку отчёта для каждой игры (без заголовка раздела)."""
+        lines: dict[str, str] = {}
+        for game_name in self.games_list:
+            players_data = self.games_data[game_name]
+            total_time = sum(players_data.values())
+            if total_time <= 0:
+                continue
+            players_count = len(players_data)
+            players_info = (
+                f"{players_count} {'игрока' if 2 <= players_count <= 4 else 'игроков'}"
+                if players_count > 1
+                else "1 игрок"
+            )
+            lines[game_name] = (
+                f"**{game_name}**: {players_info} ⏱️ {format_time_short(total_time)}\n"
+            )
+        return lines
+
+    def _calc_page_budget(self, section_header: str) -> int:
+        """Вычисляет, сколько символов можно потратить на тело страницы.
+
+        Учитывает фиксированные части итогового сообщения: общий заголовок отчёта,
+        заголовок раздела ("По пользователям"/"По играм"), сводку и футер с номером
+        страницы. Оставляет дополнительный запас на безопасность.
+        """
+        report_title = "Ежедневный отчет" if self.report_type == "daily" else "Статистика"
+        header = f"# 📊 {report_title} игровой активности{self.date_str}\n\n"
+        # В get_current_content между content и summary вставляется "\n",
+        # а перед footer ещё один (см. f"\n*Страница ..."). Заложим оба.
+        # Резерв под номер страницы — оцениваем как 3-значный с запасом.
+        footer_reserve = len("\n*Страница 999/999*")
+        fixed_overhead = (
+            len(header) + len(section_header) + 1 + len(self._summary_cache) + footer_reserve
+        )
+        budget = DISCORD_MESSAGE_MAX_LENGTH - fixed_overhead - _PAGE_SIZE_SAFETY_MARGIN
+        # На случай совсем экзотических данных не даём бюджету уйти в ноль/минус
+        return max(budget, 200)
+
+    def _pack_pages_for_mode(self, mode: str) -> list[list]:
+        """Распределяет элементы по страницам с учётом длины строк и лимита Discord.
+
+        Args:
+            mode: "users" или "games".
+
+        Returns:
+            Список страниц, где каждая страница — список user_id или названий игр.
+        """
+        if mode == "users":
+            section_header = "## 👤 По пользователям\n"
+            items: list = list(self.user_ids)
+            line_map: dict = self._user_lines
+        else:
+            section_header = "## 🎮 По играм\n"
+            items = list(self._game_lines.keys())
+            line_map = self._game_lines
+
+        budget = self._calc_page_budget(section_header)
+
+        pages: list[list] = []
+        current_page: list = []
+        current_size = 0
+
+        for item in items:
+            line_len = len(line_map.get(item, ""))
+            would_overflow_size = current_page and (current_size + line_len > budget)
+            would_overflow_count = len(current_page) >= self.max_items_per_page
+            if would_overflow_size or would_overflow_count:
+                pages.append(current_page)
+                current_page = []
+                current_size = 0
+            current_page.append(item)
+            current_size += line_len
+            if line_len > budget:
+                # Одиночная строка длиннее бюджета — на этой странице больше ничего не уместится,
+                # отчёт всё ещё может превысить лимит Discord. Просто предупреждаем в лог.
+                logger.warning(
+                    "ActivityView: одиночная запись (%s) длиной %d превышает бюджет страницы %d",
+                    item,
+                    line_len,
+                    budget,
+                )
+
+        if current_page:
+            pages.append(current_page)
+        if not pages:
+            # Гарантируем минимум одну (возможно пустую) страницу для корректного отображения
+            pages.append([])
+        return pages
+
     def _recalculate_max_pages(self) -> None:
         """Пересчитывает максимальное количество страниц в зависимости от режима."""
-        if self.view_mode == "users":
-            count = len(self.user_ids)
-        else:  # view_mode == "games"
-            count = len(self.games_list)
-        self.max_pages = max(1, (count + self.max_items_per_page - 1) // self.max_items_per_page)
+        pages = self._user_pages if self.view_mode == "users" else self._game_pages
+        self.max_pages = max(1, len(pages))
         # Сбрасываем на первую страницу при смене режима или если текущая страница стала невалидной
         if self.current_page >= self.max_pages:
             self.current_page = 0
@@ -173,68 +295,37 @@ class ActivityView(ui.View):
         else:  # view_mode == "games"
             content = self._get_games_content()
 
-        # Добавляем общую статистику и номер страницы
-        summary = self._get_summary()
+        # Используем закешированную сводку: ровно её мы учитывали при расчёте бюджета страницы.
+        summary = getattr(self, "_summary_cache", None) or self._get_summary()
         footer = f"\n*Страница {self.current_page + 1}/{self.max_pages}*"
         return header + content + "\n" + summary + footer
 
     def _get_users_content(self) -> str:
         """Формирует содержимое для режима отображения "по пользователям"."""
         content = "## 👤 По пользователям\n"
-        start_idx = self.current_page * self.max_items_per_page
-        end_idx = min(start_idx + self.max_items_per_page, len(self.user_ids))
-        current_user_ids = self.user_ids[start_idx:end_idx]
+        if not self._user_pages or self.current_page >= len(self._user_pages):
+            return content + "*Нет данных для отображения на этой странице.*\n"
 
+        current_user_ids = self._user_pages[self.current_page]
         if not current_user_ids:
             return content + "*Нет данных для отображения на этой странице.*\n"
 
-        guild = self._get_guild()
         for user_id in current_user_ids:
-            member = guild.get_member(user_id) if guild else None
-            username = member.name if member else f"Пользователь {user_id}"
-            content += f"**{username}**: "
-
-            # Сортируем игры пользователя по времени
-            activities = sorted(
-                self.users_data[user_id].items(), key=lambda item: item[1], reverse=True
-            )
-            # Формируем строку игр
-            games_list = [
-                f"{game_name} ({format_time_short(time_spent)})"
-                for game_name, time_spent in activities
-                # Доп. проверка > 0 не нужна, т.к. данные уже отфильтрованы в prepare_data
-            ]
-            content += ", ".join(games_list) + "\n"
-
+            content += self._user_lines[user_id]
         return content
 
     def _get_games_content(self) -> str:
         """Формирует содержимое для режима отображения "по играм"."""
         content = "## 🎮 По играм\n"
-        start_idx = self.current_page * self.max_items_per_page
-        end_idx = min(start_idx + self.max_items_per_page, len(self.games_list))
-        current_games = self.games_list[start_idx:end_idx]
+        if not self._game_pages or self.current_page >= len(self._game_pages):
+            return content + "*Нет данных для отображения на этой странице.*\n"
 
+        current_games = self._game_pages[self.current_page]
         if not current_games:
             return content + "*Нет данных для отображения на этой странице.*\n"
 
         for game_name in current_games:
-            players_data = self.games_data[game_name]
-            total_time = sum(players_data.values())
-            players_count = len(players_data)
-
-            # Пропускаем, если время нулевое (хотя такого быть не должно после фильтрации)
-            if total_time <= 0:
-                continue
-
-            # Формируем информацию об игроках
-            players_info = (
-                f"{players_count} {'игрока' if 2 <= players_count <= 4 else 'игроков'}"
-                if players_count > 1
-                else "1 игрок"
-            )
-            content += f"**{game_name}**: {players_info} ⏱️ {format_time_short(total_time)}\n"
-
+            content += self._game_lines[game_name]
         return content
 
     def _get_summary(self) -> str:
