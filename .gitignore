@@ -60,7 +60,7 @@ backups/
 memory-bank/
 
 # Claude Code
-CLAUDE.md
+# CLAUDE.md is a symlink to AGENTS.md — keep it tracked
 site/
 
 # Локальные служебные скрипты, не входящие в публичный репозиторий

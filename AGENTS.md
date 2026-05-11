@@ -1,0 +1,139 @@
+# PD Bot — AGENTS.md
+
+Multifunctional Discord bot built with Python 3.13+ and `discord.py`. Features Dota 2 stats (Stratz GraphQL), music player (yt-dlp + FFmpeg), activity tracking, anime art posting, Twitch notifications, role reactions, top-reactions leaderboard and fun commands. **Single-guild design** — never iterate over `bot.guilds`.
+
+## Tech Stack
+
+- **Runtime**: Python 3.13+
+- **Framework**: `discord.py` with hybrid commands (`!` prefix + `/` slash)
+- **Config**: Pydantic v2 + `pydantic-settings` (`.env` + `config/bot_settings.yaml`)
+- **DB**: SQLite via Tortoise ORM (+ aerich for migrations)
+- **Audio**: yt-dlp + FFmpeg + PyNaCl
+- **Lint/Format**: Ruff (line-length 100, double quotes)
+- **Type-check**: mypy (strict-ish; see `pyproject.toml` overrides)
+- **Tests**: pytest + pytest-asyncio (`asyncio_mode = "auto"`) + freezegun
+- **Deployment**: Docker → GHCR → Watchtower auto-pull on `main`
+
+## Environment Setup
+
+The project uses a virtualenv at `.venv/`. **Always run commands through `.venv/bin/...` or activate the env first.**
+
+```bash
+.venv/bin/pip install -e ".[dev]"     # install with dev extras
+cp .env.example .env                   # then fill BOT_TOKEN, STRATZ_API_KEY, etc.
+.venv/bin/python main.py               # run the bot locally
+```
+
+## Commands
+
+### File-scoped (preferred — fast feedback)
+
+```bash
+.venv/bin/pytest tests/test_utils/test_dota_utils.py
+.venv/bin/pytest tests/test_cogs/test_music_cog.py::TestClassName::test_method -v
+.venv/bin/ruff check cogs/music.py
+.venv/bin/ruff format cogs/music.py
+.venv/bin/mypy utils/dota_api.py
+```
+
+### Full suite (only on explicit request or before commit)
+
+```bash
+.venv/bin/pytest                      # all tests
+.venv/bin/pytest --cov                # with coverage
+.venv/bin/ruff check . && .venv/bin/ruff format .
+.venv/bin/mypy .
+docker compose up -d --build          # local Docker run
+```
+
+Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
+
+## Project Structure
+
+- `main.py` — entry point: logging → config → Tortoise init → cog auto-discovery → bot start
+- `cogs/` — auto-loaded discord.py extensions; **every file must expose `async def setup(bot)`**
+- `handlers/` — non-cog extensions: `events.py` (on_ready, presence, voice), `message_handler.py`
+- `config/` — `bot_settings.yaml` + `settings.py` (Pydantic models). Access via `bot.settings` or `get_settings()`
+- `utils/` — shared logic; `*_data_manager.py` files own CRUD per module
+  - `utils/music/` — modular player (player.py, ui.py, embeds.py, yt_integration.py, config.py)
+  - `utils/activity/` — activity tracking (views.py, reports.py, helpers.py)
+  - `utils/dota_api.py` + `dota_match_utils.py` + `dota_utils.py` — Stratz GraphQL with in-memory + disk cache
+  - `utils/models.py` — Tortoise ORM models; `utils/schemas.py` — Pydantic DTOs; `utils/database.py` — DB init
+  - `utils/error_handler.py` — `@command_error_handler`, `safe_send()`, `safe_send_error()`
+- `tests/` — mirrors source layout (`test_cogs/`, `test_utils/`, `test_handlers/`)
+- `docs/` — MkDocs Material site (`architecture.md`, `commands.md`, `style-guide.md`, `deployment.md`)
+- `assets/`, `downloads/`, `logs/`, `data/` — runtime artifacts (mostly gitignored)
+
+## Code Style & Conventions
+
+- **Language**: identifiers in English; **comments, docstrings, user-facing strings in Russian**
+- **Type hints**: required on all public functions/methods. Modern syntax: `str | None`, `list[int]`, `dict[str, Any]` — never `Optional`/`List`/`Dict`/`Union`
+- **Docstrings**: Google style, Russian text
+- **Commands**: prefer `@commands.hybrid_command()` for new commands
+- **Decorators**: wrap every command with `@command_error_handler` from `utils/error_handler.py`
+- **Replies**: use `safe_send()` / `safe_send_error()` — never raw `ctx.send` for user-visible errors
+- **Logging**: hierarchical `logging.getLogger("bot.<subsystem>")` (e.g. `bot.music`, `bot.dota`, `bot.cogs.activity`). For `utils/music/*` import the shared logger from `utils/music/config.py`. **Never use `print()`**
+- **Single guild**: do not write multi-guild logic, do not iterate `bot.guilds`
+- **Imports**: stdlib → third-party → local, separated by blank lines (Ruff/isort enforced)
+
+## Testing
+
+- Frameworks: `pytest`, `pytest-asyncio` (auto mode), `pytest-cov`, `freezegun`
+- Mock discord.py objects with `MagicMock` / `AsyncMock`
+- Test files mirror source: `cogs/foo.py` ↔ `tests/test_cogs/test_foo_cog.py`, `utils/foo.py` ↔ `tests/test_utils/test_foo.py`
+- Add tests for every new public function, command and data manager method
+- Ruff and mypy must pass; CI (`.github/workflows/deploy.yml`) runs `ruff check`, `ruff format --check`, and `pytest` on every PR
+
+## Good Patterns / What to Mirror
+
+- Cog skeleton: `cogs/music.py`, `cogs/role_reaction.py` (hybrid commands, error decorator, `setup(bot)`)
+- Data manager pattern: `utils/role_reaction_data_manager.py`, `utils/top_reactions_data_manager.py` (Tortoise queries isolated from cogs)
+- Modular subsystem: `utils/music/` (split player/ui/embeds/integration)
+- Pydantic config: `config/settings.py` (validates `.env` + YAML in one model)
+- Error handling: `utils/error_handler.py` (`command_error_handler`, `ERROR_MESSAGES` mapping)
+
+## Avoid
+
+- `print()` instead of logging
+- Raw `discord.py` exception handling inside commands — let `@command_error_handler` do it
+- Multi-guild logic (`for guild in bot.guilds`, cross-guild membership checks)
+- Hardcoded channel/role/user IDs in code — put them in `config/bot_settings.yaml`
+- Adding `Optional[X]` / `List[X]` / `Dict[K,V]` / `Union[A,B]` — use modern syntax
+- Editing files under `data/`, `downloads/`, `logs/`, `.venv/`, `site/`, `*_cache/` — runtime/build artifacts
+
+## Permissions
+
+### Allowed without asking
+
+- Read any file (except `.env`)
+- Run linters, formatters, type-checkers, single-file tests
+- Edit code and add tests
+- Update relevant docs in `docs/` when changing behaviour
+
+### Require explicit approval
+
+- Adding/removing dependencies in `pyproject.toml`
+- `git push`, `git commit` (only on explicit user request)
+- `git commit --amend`, force push, history rewrites
+- Deleting files or directories
+- Editing `.env`, `.env.example` secret values, anything under `.github/workflows/`
+- `docker compose up/down`, manual deploy actions
+- Touching `aerich` migrations or DB schema of `utils/models.py` without confirming a migration plan
+
+## Git & PR Conventions
+
+- Branches deploy automatically on merge to `main` (CI → GHCR → Watchtower polls every 60s)
+- Before committing: `.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest`
+- Keep diffs small and focused on a single concern
+- Commit messages: short imperative summary; **never add `Co-Authored-By` lines**
+- Update affected docs (`README.md`, `docs/architecture.md`, `docs/commands.md`, `docs/style-guide.md`) in the same PR
+
+## Secrets
+
+- Real secrets live only in `.env` (gitignored) and the production server's environment
+- `.env.example` documents the required keys: `BOT_TOKEN`, `STRATZ_API_KEY`, `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `BOT_PREFIX`, `BOT_ENVIRONMENT`, `PROXY_URL`, `REPO_USER`, `REPO_PASS`
+- **Never** commit `.env`, hardcode tokens, or print secret values in logs
+
+## When stuck
+
+Ask a clarifying question instead of guessing. For schema, deployment, or dependency changes, propose a plan first and wait for confirmation.
