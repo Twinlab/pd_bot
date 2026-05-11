@@ -26,11 +26,15 @@ services:
       - ./lavalink/plugins:/opt/Lavalink/plugins
       - ./lavalink/logs:/opt/Lavalink/logs
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:2333/version || exit 1"]
+      # TCP-проверка: достаточно, что Lavalink слушает порт 2333.
+      # Не используем wget на /version, т.к. эндпойнт требует Authorization-header
+      # и без него возвращает 401 — busybox wget --spider в этом случае падает с exit 1.
+      # nc -z отрабатывает за миллисекунды и не требует секретов в healthcheck-команде.
+      test: ["CMD-SHELL", "nc -z localhost 2333 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
-      start_period: 60s
+      start_period: 90s
     deploy:
       resources:
         limits:

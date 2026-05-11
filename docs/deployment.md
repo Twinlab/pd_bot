@@ -111,7 +111,17 @@ openssl rand -hex 32
 
 > 💡 Если в `.env` уже есть переменные с такими именами от старой схемы (а их не было — `BOT_TOKEN/STRATZ_API_KEY/TWITCH_*/PROXY_URL/REPO_*` остаются как были), они не пострадают.
 
-### Шаг 3 — Подтянуть image Lavalink
+### Шаг 3 — Дать права на директории Lavalink
+
+Контейнер Lavalink запускается от непривилегированного пользователя `lavalink` (UID 322). Папки `./lavalink/plugins/` и `./lavalink/logs/` после `git pull` принадлежат тому, кто делал pull (обычно root). Если их не «подарить» контейнерному UID, Lavalink при первом запуске упадёт с `FileNotFoundException: ./plugins/youtube-plugin-1.18.1.jar (Permission denied)`.
+
+```bash
+sudo chown -R 322:322 lavalink/plugins lavalink/logs
+```
+
+Хост-юзера `322` не существует — это нормально, числовой UID работает напрямую. Эта операция нужна **один раз**; после `docker compose up -d` плагины и логи пишутся уже от правильного владельца.
+
+### Шаг 4 — Подтянуть image Lavalink
 
 ```bash
 docker compose pull lavalink
@@ -119,7 +129,7 @@ docker compose pull lavalink
 
 Это скачает `ghcr.io/lavalink-devs/lavalink:4-alpine` (~150 MB).
 
-### Шаг 4 — Поднять связку
+### Шаг 5 — Поднять связку
 
 ```bash
 docker compose up -d
@@ -143,7 +153,7 @@ docker compose logs --tail=50 bot | grep -i lavalink
 # bot.music | Lavalink-нода MAIN готова (resumed=False, session_id=...)
 ```
 
-### Шаг 5 — OAuth для YouTube
+### Шаг 6 — OAuth для YouTube
 
 > 🔑 **Зачем:** YouTube активно блокирует анонимные запросы из дата-центров (Cloudflare-капчи, 403 «Sign in to confirm you're not a bot»). Авторизация через burner-аккаунт Google почти полностью эту проблему решает.
 >
@@ -202,7 +212,7 @@ docker compose restart lavalink
 
 После рестарта Lavalink стартует уже с токеном — никакого device-flow больше не нужно. Refresh-token живёт годами; обновить его придётся только если Google его инвалидирует (увидишь 401 от YouTube в логах).
 
-### Шаг 6 — Spotify (опционально)
+### Шаг 7 — Spotify (опционально)
 
 Если **не** нужны spotify-ссылки — пропускай шаг, всё остальное работает (YouTube, SoundCloud, Bandcamp, Twitch, Vimeo).
 
@@ -217,7 +227,7 @@ docker compose restart lavalink
    ```
 4. `docker compose restart lavalink`.
 
-### Шаг 7 — Финальная проверка
+### Шаг 8 — Финальная проверка
 
 В Discord (там, где работает бот):
 
@@ -236,7 +246,7 @@ docker compose restart lavalink
 /stop
 ```
 
-Если что-то не работает — смотри [Диагностика](#диагностика) внизу.
+Если что-то не работает — смотри [Диагностика](#диагностика) внизу. Часто всплывающие проблемы: [Permission denied на ./plugins/](#lavalink-падает-с-permission-denied-на-plugins) и [device-flow не появляется в логах](#бот-стартует-но-музыкальные-команды-не-работают).
 
 ---
 
@@ -263,7 +273,7 @@ Lavalink v4 — standalone JVM-сервер. Бот выступает клие�
 
 `lavalink/application.yml` коммитится в репозиторий. Секреты подставляются через переменные окружения из `.env`:
 
-- **[youtube-source 1.18.x](https://github.com/lavalink-devs/youtube-source)** — современный YouTube-источник вместо мёртвого встроенного. Использует ротацию клиентов (`MUSIC`, `ANDROID_VR`, `WEB`, `WEBEMBEDDED`, `TVHTML5_SIMPLY`) и OAuth.
+- **[youtube-source 1.18.x](https://github.com/lavalink-devs/youtube-source)** — современный YouTube-источник вместо мёртвого встроенного. Использует ротацию клиентов (`MUSIC`, `TV`, `ANDROID_VR`, `WEB`, `WEBEMBEDDED`, `TVHTML5_SIMPLY`) и OAuth. В таблице клиентов youtube-source OAuth поддерживает **только клиент `TV`** — поэтому он явно включён в `application.yml` рядом с остальными. Без `TV` в списке плагин предупреждает «OAuth has been enabled without registering any OAuth-compatible clients» и анонимные запросы будут проходить мимо токена.
 - **[LavaSrc 4.x](https://github.com/topi314/LavaSrc)** — Spotify / Apple Music / Deezer / Yandex Music: метаданные через API провайдера, стрим через YouTube.
 
 При первом запуске Lavalink скачивает jar-плагины в смонтированный volume `./lavalink/plugins/` (закешированы между перезапусками; гитнорятся).
@@ -347,6 +357,33 @@ docker compose up -d
 
 ## Диагностика
 
+### Lavalink падает с `Permission denied` на `./plugins/`
+
+В логах `docker compose logs lavalink` есть:
+
+```
+java.io.FileNotFoundException: ./plugins/youtube-plugin-1.18.1.jar (Permission denied)
+```
+
+Контейнер крутится в цикле рестартов и не доходит до открытия порта 2333 → бот в `waiting` ждёт healthcheck и не стартует. Причина: волюм `./lavalink/plugins` на хосте принадлежит root, а внутри контейнера юзер `lavalink` (UID 322) не может туда писать.
+
+Лечится так:
+
+```bash
+sudo chown -R 322:322 lavalink/plugins lavalink/logs
+docker compose restart lavalink
+docker logs -f pd_bot_lavalink
+```
+
+Если по каким-то причинам `chown` нельзя — можно дать всем права на запись (менее безопасно, но рабоче):
+
+```bash
+sudo chmod -R 0777 lavalink/plugins lavalink/logs
+docker compose restart lavalink
+```
+
+После этого Lavalink скачает плагины и в логах появится device-flow код (см. шаг 6 миграции).
+
 ### Бот стартует, но музыкальные команды не работают
 
 Проверь, что Lavalink-нода поднялась и бот к ней подключился:
@@ -375,6 +412,7 @@ docker compose logs --tail=200 lavalink | grep -iE 'youtube|oauth|403'
 - `YOUTUBE_REFRESH_TOKEN` пустой или устарел → перегенерируй (см. шаг 5 миграции).
 - Burner-аккаунт заблокирован Google → заведи новый, прогрей пару дней, повтори device-flow.
 - Все клиенты выпали из ротации → проверь `plugins.youtube.clients` в `lavalink/application.yml`. Возможно стоит добавить `WEB` обратно или попробовать `IOS` (без Opus — будет лишний транскод, но как fallback ок).
+- В логах есть `WARN OAuth has been enabled without registering any OAuth-compatible clients` → в списке `clients` отсутствует `TV`. По таблице youtube-source это единственный OAuth-совместимый клиент. Добавь `- TV` в `plugins.youtube.clients`, перезапусти `docker compose restart lavalink`.
 
 ### Spotify-ссылки не резолвятся
 
@@ -421,6 +459,7 @@ docker compose up -d bot
 - [ ] `git pull origin main`
 - [ ] `openssl rand -hex 32` → сохранить пароль
 - [ ] В `.env` добавить `LAVALINK_HOST=lavalink`, `LAVALINK_PORT=2333`, `LAVALINK_SERVER_PASSWORD=<тот_пароль>`, `YOUTUBE_REFRESH_TOKEN=` (пустой), `SPOTIFY_CLIENT_ID=`, `SPOTIFY_CLIENT_SECRET=`
+- [ ] `sudo chown -R 322:322 lavalink/plugins lavalink/logs` — иначе `Permission denied` при скачивании плагинов
 - [ ] `docker compose pull lavalink`
 - [ ] `docker compose up -d`
 - [ ] `docker compose ps` → все три сервиса Up, `lavalink` healthy

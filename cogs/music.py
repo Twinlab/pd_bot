@@ -228,6 +228,20 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
                 await player.move_to(target_channel)
             return player
 
+        # Зомби-VoiceClient: на стороне discord.py остался устаревший клиент
+        # (не наш MusicPlayer — значит после краха предыдущей сессии). Discord
+        # не пускает в канал второй раз, пока первая сессия не закрыта явно,
+        # из-за чего connect() висит до ChannelTimeoutException на 30 секундах.
+        if player is not None:
+            logger.warning(
+                "Обнаружен зомби-VoiceClient (%s), принудительно дисконнектим",
+                type(player).__name__,
+            )
+            try:
+                await player.disconnect(force=True)
+            except Exception as exc:
+                logger.debug("Игнорируем ошибку при disconnect зомби-клиента: %s", exc)
+
         try:
             player = await target_channel.connect(cls=MusicPlayer, self_deaf=True)
         except discord.ClientException as exc:

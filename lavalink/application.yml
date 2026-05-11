@@ -81,13 +81,19 @@ plugins:
     # Клиенты YouTube InnerTube, опрашиваемые по порядку. Если первый отвечает 403/captcha,
     # плагин автоматически переходит к следующему. Список оптимизирован под май 2026:
     #   MUSIC          — для ytmsearch: (поиск в YT Music)
-    #   ANDROID_VR     — Opus, полный функционал, минимально режется YouTube'ом
-    #   WEB            — Opus, поддерживает poToken; основной fallback
-    #   WEBEMBEDDED    — Opus, ограниченный age-restriction; ещё fallback
-    #   TVHTML5_SIMPLY — Opus, заменил выпиленный TVHTML5_EMBEDDED
+    #   TV             — ЕДИНСТВЕННЫЙ клиент с поддержкой OAuth (по таблице README youtube-source).
+    #                    Используется для авторизованных playback-запросов, обходит bot-detection.
+    #                    Метаданных не даёт — только воспроизведение, поэтому стоит после MUSIC.
+    #   ANDROID_VR     — Opus, полный функционал (видео+поиск+плейлисты), минимально режется YouTube'ом.
+    #   WEB            — Opus, поддерживает poToken; основной fallback.
+    #   WEBEMBEDDED    — Opus, ограниченный age-restriction; ещё fallback.
+    #   TVHTML5_SIMPLY — Opus, заменил выпиленный TVHTML5_EMBEDDED.
     # НЕ включаем: ANDROID (heavily restricted), IOS (без Opus, лишний транскод).
+    # ВАЖНО: при oauth.enabled=true в списке обязателен TV — иначе warning
+    # "OAuth has been enabled without registering any OAuth-compatible clients".
     clients:
       - MUSIC
+      - TV
       - ANDROID_VR
       - WEB
       - WEBEMBEDDED
