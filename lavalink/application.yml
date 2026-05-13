@@ -110,6 +110,15 @@ plugins:
       # skipInitialization: true   # раскомментируй если хочешь чтобы Lavalink не блокировался
                                    # на ожидании OAuth-флоу при отсутствии токена
 
+    # Удалённый signature-decipherer. Lavalink-плагин youtube-source 1.18.x не успевает
+    # за частой ротацией обфускации player.js, поэтому signature-decoding выносится в
+    # отдельный stateless-сервис yt-cipher (см. docker-compose.yml → service yt-cipher).
+    # Без этого блока на свежих player.js видео валятся с "Must find sig function from script".
+    # Документация: https://github.com/kikkia/yt-cipher
+    remoteCipher:
+      url: "http://yt-cipher:8001"
+      userAgent: "pd-bot"
+
     # poToken (Proof-of-Origin Token) — резервный механизм для клиентов WEB/WEBEMBEDDED,
     # на случай если OAuth откажет. Получается через iv-org/youtube-trusted-session-generator.
     # См. docs/deployment.md.

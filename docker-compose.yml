@@ -1,10 +1,39 @@
 services:
+  # Удалённый сервис расшифровки YouTube-сигнатур (player.js cipher).
+  # Lavalink-плагин youtube-source отстаёт за частыми сменами обфускации YouTube'a,
+  # поэтому подсовывает signature-парсинг сюда. См. plugins.youtube.remoteCipher в
+  # lavalink/application.yml и docs/deployment.md → раздел "yt-cipher".
+  # Репо/документация: https://github.com/kikkia/yt-cipher
+  yt-cipher:
+    image: ghcr.io/kikkia/yt-cipher:master
+    container_name: yt-cipher
+    restart: unless-stopped
+    environment:
+      # Вариант скрипта декодера. IAS — текущая дефолтная стратегия,
+      # см. https://github.com/kikkia/yt-cipher#configuration.
+      - OVERRIDE_SCRIPT_VARIANT=IAS
+      - TZ=Europe/Moscow
+    expose:
+      - "8001"
+    networks:
+      - pd_bot_net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.3'
+          memory: 128M
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
   lavalink:
     # Официальный образ Lavalink v4 (alpine, Java 21).
     # Документация: https://lavalink.dev/getting-started/docker.html
     image: ghcr.io/lavalink-devs/lavalink:4-alpine
     container_name: pd_bot_lavalink
     restart: unless-stopped
+    depends_on:
+      yt-cipher:
+        condition: service_started
     # Порт наружу НЕ публикуется — общение только внутри docker-сети.
     expose:
       - "2333"
