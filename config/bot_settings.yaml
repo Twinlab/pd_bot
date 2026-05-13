@@ -169,6 +169,18 @@ activity:
 dota:
   match_view_timeout: 180
 
+party:
+  fallback_emoji: "💩"            # Подставляется, если бот не видит кастомное эмодзи юзера
+  initiator_emoji: "👑"           # Эмодзи рядом с инициатором (он автоматически готов)
+  min_duration_minutes: 1
+  max_duration_minutes: 240       # 4 часа
+  min_count: 1
+  max_count: 25
+  command_cooldown_seconds: 3600  # 1 час между вызовами /party на одного юзера
+  dm_send_delay: 0.1              # Между отправкой DM, чтобы не упереться в rate-limit
+  finished_message_template: "Пати собрано! {ready_pings} — кто не пришёл, тот пидарас. ({role}: {comment})"
+  empty_finished_message: "Никого не собрали в пати на {role} ({comment})."
+
 top_reactions:
   live_top: 10              # Сколько позиций показывать в режимах month / year
   all_time_top: 50          # Сколько позиций показывать в режиме all

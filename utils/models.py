@@ -120,6 +120,22 @@ class ReactedMessage(models.Model):
         indexes = (("posted_at",), ("author_id",))
 
 
+class PartyBlock(models.Model):
+    """Запись о пользователе, которому запрещено вызывать команду /party.
+
+    Хранится глобально для бота (single-guild design — `guild_id` не нужен).
+    Управляется админ-командами `/party_block` и `/party_unblock`.
+    """
+
+    user_id = fields.BigIntField(pk=True)
+    blocked_by = fields.BigIntField()
+    reason = fields.TextField(null=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "party_blocks"
+
+
 class MessageReactor(models.Model):
     """Запись о конкретной реакции (message_id, user_id, emoji).
 

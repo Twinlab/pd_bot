@@ -388,6 +388,40 @@ class DotaConfig(BaseModel):
     match_view_timeout: int = 180  # 3 минуты
 
 
+class PartyConfig(BaseModel):
+    """Конфигурация модуля сбора пати.
+
+    Attributes:
+        fallback_emoji: Эмодзи, которое подставляется в embed если бот не имеет
+            доступа к кастомному эмодзи, поставленному пользователем.
+        initiator_emoji: Эмодзи, отображаемое рядом с инициатором пати
+            (он автоматически в списке готовых).
+        min_duration_minutes: Минимальная длительность сбора в минутах.
+        max_duration_minutes: Максимальная длительность сбора в минутах.
+        min_count: Минимальное число участников.
+        max_count: Максимальное число участников (Discord-лимит на пинги).
+        command_cooldown_seconds: Кулдаун команды /party на одного пользователя.
+        dm_send_delay: Задержка между отправкой DM, чтобы не упереться в rate-limit.
+        finished_message_template: Шаблон сообщения по истечении таймера, если
+            кто-то записался. Поддерживает плейсхолдеры {ready_pings}, {role}, {comment}.
+        empty_finished_message: Шаблон сообщения, если никто не записался.
+            Поддерживает {role}, {comment}.
+    """
+
+    fallback_emoji: str = "💩"
+    initiator_emoji: str = "👑"
+    min_duration_minutes: int = 1
+    max_duration_minutes: int = 240
+    min_count: int = 1
+    max_count: int = 25
+    command_cooldown_seconds: int = 3600
+    dm_send_delay: float = 0.1
+    finished_message_template: str = (
+        "Пати собрано! {ready_pings} — кто не пришёл, тот пидарас. ({role}: {comment})"
+    )
+    empty_finished_message: str = "Никого не собрали в пати на {role} ({comment})."
+
+
 class TopReactionsConfig(BaseModel):
     """Конфигурация лидерборда сообщений с реакциями.
 
@@ -522,6 +556,7 @@ class BotSettings(BaseSettings):
     update: UpdateSettings = UpdateSettings()
     reactions: ReactionsConfig = ReactionsConfig()
     top_reactions: TopReactionsConfig = TopReactionsConfig()
+    party: PartyConfig = PartyConfig()
 
     model_config = {
         "env_file": ".env",
