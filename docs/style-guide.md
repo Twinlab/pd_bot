@@ -77,6 +77,7 @@ def process_user_data(user_id,data):
     # Обработка данных
     processed_data = {'id':user_id,'name':data.get('name','Неизвестно'),'email':data.get('email',''),'settings':{'theme':data.get('theme','default'),'notifications':data.get('notifications',True)}}
     return User(**processed_data)
+```
 
 ## 2. Именование
 
@@ -229,9 +230,8 @@ from typing import Dict, List, Optional, Union
 ### 4.1. Основные правила
 
 - Используйте аннотации типов для всех публичных функций и методов.
-- Используйте модуль `typing` для сложных типов.
-- Используйте `Optional[тип]` для параметров, которые могут быть None.
-- Используйте `Union[тип1, тип2]` для параметров, которые могут быть разных типов.
+- Используйте **современный синтаксис типов** (PEP 585 / 604): `list[int]`, `dict[str, Any]`, `tuple[int, ...]`, `тип | None`, `A | B`. Запрещено использовать `Optional[X]`, `List[X]`, `Dict[K, V]`, `Tuple[...]`, `Union[A, B]` из модуля `typing` — они нужны были только до Python 3.10, а проект работает на 3.13+.
+- Из `typing` остаются нужны только специальные конструкции: `Any`, `TypedDict`, `Protocol`, `Callable`, `Literal`, `cast`, `TypeVar`, `Generic`.
 - Используйте `Any` только в крайнем случае.
 
 ### 4.2. Типы для часто используемых объектов

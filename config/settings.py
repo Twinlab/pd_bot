@@ -265,10 +265,19 @@ class PenisConfig(BaseModel):
     Attributes:
         min_length: Минимальная длина пениса
         max_length: Максимальная длина пениса
+        nuance_chance: Шанс (0.0-1.0) добавить шуточную строку-нюанс к обычной выдаче
+        nuance_text: Текст строки-нюанса
+        not_found_user_ids: ID пользователей, для которых вместо измерения шлётся
+            шуточное сообщение об ошибке
+        not_found_text: Текст шуточного сообщения об "ошибке"
     """
 
     min_length: int = 0
     max_length: int = 25
+    nuance_chance: float = 0.10
+    nuance_text: str = "...но есть нюанс, это у тебя в жопе"
+    not_found_user_ids: list[int] = []
+    not_found_text: str = "ошибка, пенис не найден"
 
 
 class DeathbattleDamageConfig(BaseModel):

@@ -572,10 +572,14 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
             ),
         )
 
-    @commands.hybrid_command(name="clear", description="Очистить очередь.")
+    @commands.hybrid_command(name="clearqueue", aliases=["cq"], description="Очистить очередь.")
     @command_error_handler
-    async def clear(self, ctx: commands.Context) -> None:
-        """Очищает очередь (только админ)."""
+    async def clearqueue(self, ctx: commands.Context) -> None:
+        """Очищает очередь (только админ).
+
+        Имя команды — `clearqueue`, чтобы не конфликтовать с `/clear` из admin-кога,
+        который чистит сообщения в чате. Для prefix-вызовов есть короткий алиас `cq`.
+        """
         player = self._require_same_voice(ctx)
         if player is None:
             await safe_send_error(ctx, "Вы должны быть в том же голосовом канале, что и бот.")

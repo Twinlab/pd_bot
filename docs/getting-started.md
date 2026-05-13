@@ -25,7 +25,7 @@
     - `BOT_TOKEN` — токен Discord бота
     - `STRATZ_API_KEY` — API ключ для Dota 2 (Stratz)
     - `LAVALINK_SERVER_PASSWORD` — случайный пароль для Lavalink (`openssl rand -hex 32`)
-    - `YOUTUBE_REFRESH_TOKEN` — OAuth refresh от burner-аккаунта Google (см. [Деплой → YouTube OAuth](deployment.md#youtube-oauth--bot-detection))
+    - `YOUTUBE_REFRESH_TOKEN` — OAuth refresh от burner-аккаунта Google (получается через device-flow при первом запуске Lavalink)
     - `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` — (опционально) для Twitch уведомлений
     - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — (опционально) для Spotify-ссылок
 

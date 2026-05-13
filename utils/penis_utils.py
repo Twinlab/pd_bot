@@ -3,7 +3,9 @@
 
 Этот модуль предоставляет функциональность для генерации случайного размера пениса
 и отображения результата в виде эмбеда Discord с соответствующим форматированием
-и цветовой индикацией в зависимости от размера.
+и цветовой индикацией в зависимости от размера. Поддерживает шуточный режим:
+случайный «нюанс» с настраиваемым шансом и список user_id, для которых пенис
+«не найден».
 """
 
 import logging
@@ -12,47 +14,79 @@ import random
 import discord
 from discord.ext import commands
 
+from config.settings import PenisConfig
+
 logger = logging.getLogger("bot.utils.penis_utils")
+
+
+def _color_for_length(length: int) -> discord.Color:
+    """Возвращает цвет эмбеда в зависимости от длины."""
+    if length >= 15:
+        return discord.Color.green()
+    if length >= 10:
+        return discord.Color.gold()
+    return discord.Color.red()
+
+
+def _build_description(
+    *,
+    user: discord.Member | discord.User,
+    is_self: bool,
+    representation: str,
+    nuance_text: str | None,
+) -> str:
+    """Собирает текст описания эмбеда, опционально дописывая «нюанс» с новой строки."""
+    if is_self:
+        base = f"{user.mention}, твой пенис\n{representation}"
+    else:
+        base = f"Пенис {user.mention}\n{representation}"
+    if nuance_text:
+        return f"{base}\n{nuance_text}"
+    return base
 
 
 async def measure_penis(ctx: commands.Context, target_user: discord.Member | None = None) -> None:
     """
     Генерирует случайный размер пениса и отправляет его в виде эмбеда.
 
+    Поведение:
+        - Если ``user.id`` есть в ``settings.fun.penis.not_found_user_ids`` — вместо
+          обычной выдачи отправляется шуточное сообщение «ошибка, пенис не найден».
+        - С шансом ``settings.fun.penis.nuance_chance`` к обычной выдаче добавляется
+          строка-нюанс из ``settings.fun.penis.nuance_text`` (на следующей строке).
+
     Args:
-        ctx: Контекст команды
-        target_user: Пользователь, для которого генерируется размер (опционально)
+        ctx: Контекст команды.
+        target_user: Пользователь, для которого генерируется размер (опционально).
     """
-    try:
-        # Получаем настройки
-        from config.settings import get_settings
+    from config.settings import get_settings
 
-        settings = get_settings()
+    settings = get_settings()
+    cfg: PenisConfig = settings.fun.penis
 
-        # Если пользователь не указан, используем автора сообщения
-        user = target_user if target_user else ctx.author
-        penis_length = random.randint(settings.fun.penis.min_length, settings.fun.penis.max_length)
-        penis_representation = "8" + "=" * penis_length + "D"
+    user = target_user if target_user else ctx.author
 
-        # Определяем цвет в зависимости от размера
-        if penis_length >= 15:
-            color = discord.Color.green()
-        elif penis_length >= 10:
-            color = discord.Color.gold()
-        else:
-            color = discord.Color.red()
+    if user.id in cfg.not_found_user_ids:
+        await ctx.send(cfg.not_found_text)
+        return
 
-        # Разные сообщения в зависимости от того, кому измеряем
-        if user == ctx.author:
-            description = f"{user.mention}, твой пенис\n{penis_representation}"
-        else:
-            description = f"Пенис {user.mention}\n{penis_representation}"
+    penis_length = random.randint(cfg.min_length, cfg.max_length)
+    penis_representation = "8" + "=" * penis_length + "D"
 
-        embed = discord.Embed(title="Измеритель пениса", description=description, color=color)
+    nuance = cfg.nuance_text if random.random() < cfg.nuance_chance else None
 
-        embed.add_field(name="Длина", value=f"{penis_length} см", inline=True)
+    description = _build_description(
+        user=user,
+        is_self=user == ctx.author,
+        representation=penis_representation,
+        nuance_text=nuance,
+    )
 
-        await ctx.send(embed=embed)
-    except Exception as e:
-        logger.error(f"Ошибка при измерении пениса: {e}", exc_info=True)
-        await ctx.send(f"Произошла ошибка при измерении: {e}")
+    embed = discord.Embed(
+        title="Измеритель пениса",
+        description=description,
+        color=_color_for_length(penis_length),
+    )
+    embed.add_field(name="Длина", value=f"{penis_length} см", inline=True)
+
+    await ctx.send(embed=embed)

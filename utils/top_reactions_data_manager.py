@@ -240,28 +240,45 @@ class TopReactionsDataManager:
         try:
             now = datetime.now(UTC)
             qs = ReactedMessage.filter(is_deleted=False)
+            # Используем явные диапазоны вместо __year/__month: на SQLite Tortoise
+            # транслирует их в EXTRACT(YEAR FROM ...), которого в SQLite нет.
+            # Заодно даёт шанс воспользоваться индексом по posted_at.
             if period == "month":
-                qs = qs.filter(posted_at__year=now.year, posted_at__month=now.month)
+                month_start = datetime(now.year, now.month, 1, tzinfo=UTC)
+                if now.month == 12:
+                    month_end = datetime(now.year + 1, 1, 1, tzinfo=UTC)
+                else:
+                    month_end = datetime(now.year, now.month + 1, 1, tzinfo=UTC)
+                qs = qs.filter(posted_at__gte=month_start, posted_at__lt=month_end)
             elif period == "year":
-                qs = qs.filter(posted_at__year=now.year)
+                year_start = datetime(now.year, 1, 1, tzinfo=UTC)
+                year_end = datetime(now.year + 1, 1, 1, tzinfo=UTC)
+                qs = qs.filter(posted_at__gte=year_start, posted_at__lt=year_end)
             # for "all" — без доп. фильтров
 
-            # Подзапрос на COUNT(DISTINCT user_id) для каждого сообщения
+            # Подзапрос на COUNT(DISTINCT user_id) для каждого сообщения.
             live_count_sql = (
                 "(SELECT COUNT(DISTINCT user_id) FROM message_reactors "
                 "WHERE message_reactors.message_id = reacted_messages.message_id)"
             )
-            qs = qs.annotate(live_count=RawSQL(live_count_sql))
+            # Эффективный счётчик для сортировки: live, иначе historical, иначе 0.
+            # Дублируем подзапрос (вместо ссылки на alias `live_count`), потому что
+            # SQLite/большинство SQL не позволяет ссылаться на alias из той же SELECT-секции.
+            effective_count_sql = (
+                f"CASE WHEN {live_count_sql} > 0 THEN {live_count_sql} "
+                "ELSE COALESCE(historical_reaction_count, 0) END"
+            )
+            qs = qs.annotate(
+                live_count=RawSQL(live_count_sql),
+                effective_count=RawSQL(effective_count_sql),
+            )
 
             # Берём с запасом — чтобы после фильтрации (live_count > 0 OR historical > 0)
             # точно осталось `limit` записей. Запас x3 достаточно для практики.
             fetch_limit = max(limit * 3, limit + 50)
-            rows = await qs.order_by(
-                RawSQL(
-                    "CASE WHEN live_count > 0 THEN live_count "
-                    "ELSE COALESCE(historical_reaction_count, 0) END DESC"
-                )
-            ).limit(fetch_limit)
+            # order_by принимает только строковые имена полей/аннотаций; передавать
+            # RawSQL напрямую нельзя — pypika бросит TypeError на ordering[0].
+            rows = await qs.order_by("-effective_count").limit(fetch_limit)
 
             entries: list[LeaderboardEntry] = []
             for row in rows:

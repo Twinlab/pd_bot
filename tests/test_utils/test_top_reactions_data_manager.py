@@ -1,10 +1,13 @@
 """Тесты для TopReactionsDataManager."""
 
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from tortoise import Tortoise
 
+from utils.models import MessageReactor, ReactedMessage
 from utils.top_reactions_data_manager import (
     LeaderboardEntry,
     TopReactionsDataManager,
@@ -330,3 +333,178 @@ class TestLeaderboardEntry:
         )
         with pytest.raises(AttributeError):
             entry.reactor_count = 10  # frozen dataclass
+
+
+@pytest.fixture
+async def db() -> AsyncIterator[None]:
+    """In-memory SQLite через Tortoise — для интеграционных тестов get_leaderboard."""
+    await Tortoise.init(
+        db_url="sqlite://:memory:",
+        modules={"models": ["utils.models"]},
+    )
+    await Tortoise.generate_schemas()
+    try:
+        yield
+    finally:
+        await Tortoise.close_connections()
+
+
+class TestGetLeaderboard:
+    """Интеграционные тесты get_leaderboard на реальной in-memory SQLite.
+
+    Регрессия: ранее в order_by передавался RawSQL-объект, что вызывало
+    `TypeError: Field' object is not subscriptable` из pypika и приводило к
+    пустой выдаче.
+    """
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_no_messages(self, db, manager):
+        result = await manager.get_leaderboard("month", limit=10)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_live_messages_sorted_by_reactor_count(self, db, manager):
+        now = datetime.now(UTC)
+        # msg1 — 1 реактор, msg2 — 3 реактора (даже с дублирующимся эмодзи у юзера 10)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="first",
+            jump_url="https://discord.com/x/1",
+            posted_at=now,
+        )
+        await manager.upsert_message(
+            message_id=2,
+            channel_id=100,
+            author_id=201,
+            content="second",
+            jump_url="https://discord.com/x/2",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+        await manager.add_reactor(message_id=2, user_id=10, emoji="👍")
+        await manager.add_reactor(message_id=2, user_id=10, emoji="🔥")  # тот же юзер
+        await manager.add_reactor(message_id=2, user_id=11, emoji="👍")
+        await manager.add_reactor(message_id=2, user_id=12, emoji="👍")
+
+        result = await manager.get_leaderboard("month", limit=10)
+        assert len(result) == 2
+        assert result[0].message_id == 2
+        assert result[0].reactor_count == 3  # уникальных юзеров, не реакций
+        assert result[0].is_historical is False
+        assert result[1].message_id == 1
+        assert result[1].reactor_count == 1
+
+    @pytest.mark.asyncio
+    async def test_historical_fallback_when_no_live(self, db, manager):
+        now = datetime.now(UTC)
+        await ReactedMessage.create(
+            message_id=42,
+            channel_id=100,
+            author_id=200,
+            content="old",
+            jump_url="https://x/42",
+            posted_at=now,
+            historical_reaction_count=7,
+        )
+        result = await manager.get_leaderboard("month", limit=10)
+        assert len(result) == 1
+        assert result[0].reactor_count == 7
+        assert result[0].is_historical is True
+
+    @pytest.mark.asyncio
+    async def test_live_wins_over_historical_for_same_message(self, db, manager):
+        now = datetime.now(UTC)
+        await ReactedMessage.create(
+            message_id=42,
+            channel_id=100,
+            author_id=200,
+            content="mixed",
+            jump_url="https://x/42",
+            posted_at=now,
+            historical_reaction_count=7,
+        )
+        # один реальный реактор должен победить historical=7 (live > 0 → берём live)
+        await manager.add_reactor(message_id=42, user_id=10, emoji="👍")
+
+        result = await manager.get_leaderboard("month", limit=10)
+        assert len(result) == 1
+        assert result[0].reactor_count == 1
+        assert result[0].is_historical is False
+
+    @pytest.mark.asyncio
+    async def test_skips_messages_without_any_reactions(self, db, manager):
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="no reactions",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        result = await manager.get_leaderboard("month", limit=10)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_skips_deleted_messages(self, db, manager):
+        now = datetime.now(UTC)
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="gone",
+            jump_url="https://x/1",
+            posted_at=now,
+            historical_reaction_count=99,
+            is_deleted=True,
+        )
+        result = await manager.get_leaderboard("all", limit=10)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_period_month_filters_out_other_months(self, db, manager):
+        now = datetime.now(UTC)
+        old = now.replace(year=now.year - 1)
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="last year",
+            jump_url="https://x/1",
+            posted_at=old,
+            historical_reaction_count=50,
+        )
+        await ReactedMessage.create(
+            message_id=2,
+            channel_id=100,
+            author_id=200,
+            content="this month",
+            jump_url="https://x/2",
+            posted_at=now,
+            historical_reaction_count=10,
+        )
+        result = await manager.get_leaderboard("month", limit=10)
+        assert [r.message_id for r in result] == [2]
+
+    @pytest.mark.asyncio
+    async def test_remove_reactor_drops_from_leaderboard(self, db, manager):
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="x",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+        assert (await manager.get_leaderboard("month", limit=10))[0].reactor_count == 1
+
+        await manager.remove_reactor(message_id=1, user_id=10, emoji="👍")
+        # без реакторов и без historical — не попадает в выдачу
+        assert await manager.get_leaderboard("month", limit=10) == []
+        # запись о сообщении при этом остаётся в БД
+        assert await MessageReactor.filter(message_id=1).count() == 0
+        assert await ReactedMessage.filter(message_id=1).exists()

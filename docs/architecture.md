@@ -20,7 +20,7 @@ graph TD
     F --> F9[music.py]
     F --> F10[role_reaction.py]
     F --> F11[twitch.py]
-    F --> F12[update.py]
+    F --> F12[top_reactions.py]
 
     D --> G[Handlers]
     G --> G1[events.py]
@@ -255,8 +255,28 @@ erDiagram
         int ttl
     }
 
+    reacted_messages {
+        int message_id PK
+        int channel_id
+        int author_id
+        text content
+        text jump_url
+        datetime posted_at
+        int historical_reaction_count
+        bool is_deleted
+    }
+
+    message_reactors {
+        int id PK
+        int message_id
+        int user_id
+        text emoji
+        datetime reacted_at
+    }
+
     links ||--o{ daily_activity : "tracks"
     daily_activity ||--o{ monthly_activity : "aggregates to"
+    reacted_messages ||--o{ message_reactors : "uniqueReactors"
 ```
 
 ## Взаимодействие компонентов системы
@@ -277,7 +297,7 @@ graph TD
     B --> B9[music.py]
     B --> B10[role_reaction.py]
     B --> B11[twitch.py]
-    B --> B12[update.py]
+    B --> B12[top_reactions.py]
 
     C --> C1[events.py]
     C --> C2[message_handler.py]
