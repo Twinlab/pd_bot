@@ -135,8 +135,22 @@ Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
 - Branches deploy automatically on merge to `main` (CI → GHCR → Watchtower polls every 60s)
 - Before committing: `.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest`
 - Keep diffs small and focused on a single concern
-- Commit messages: short imperative summary; **never add `Co-Authored-By` lines**
+- Commit messages: short imperative summary
 - Update affected docs (`README.md`, `docs/architecture.md`, `docs/commands.md`, `docs/style-guide.md`) in the same PR
+
+### Commit attribution (strict)
+
+All commits in this repository belong to the repo owner. AI assistants must
+not leave any trace of themselves in commit metadata or messages:
+
+- **Never** add `Co-Authored-By:` trailers (Cursor, Claude, Anthropic, Copilot, anyone).
+- **Never** add `Generated-by:` / `Assisted-by:` / `Signed-off-by:` for AI tools.
+- **Never** put phrases like "Generated with Cursor", "Made with Claude", "AI-assisted" into commit messages, PR titles or PR bodies.
+- **Never** change `git config user.name` / `user.email` to AI bot identities.
+- **Never** push under a Cursor cloud agent / background agent identity. If you are running as such an agent, stop and ask the user to commit locally instead.
+- The local `git config` already points to the repo owner. Don't override it via `-c user.name=...` / `-c user.email=...` flags either.
+
+If you are unsure whether a `git` action will leak attribution, don't run it — show the diff and ask the user to commit manually.
 
 ## Secrets
 

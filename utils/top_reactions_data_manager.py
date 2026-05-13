@@ -221,7 +221,12 @@ class TopReactionsDataManager:
             logger.error(f"Ошибка import_historical_message {message_id}: {e}", exc_info=True)
             return False
 
-    async def get_leaderboard(self, period: PeriodType, limit: int) -> list[LeaderboardEntry]:
+    async def get_leaderboard(
+        self,
+        period: PeriodType,
+        limit: int,
+        excluded_message_ids: set[int] | None = None,
+    ) -> list[LeaderboardEntry]:
         """Возвращает топ сообщений за указанный период.
 
         Логика подсчёта:
@@ -233,6 +238,8 @@ class TopReactionsDataManager:
         Args:
             period: 'month', 'year' или 'all'.
             limit: Сколько позиций вернуть.
+            excluded_message_ids: Сообщения с этими id будут исключены из выдачи
+                (например, сообщение role-реакций). Может быть None или пустым.
 
         Returns:
             Список LeaderboardEntry, отсортированный по убыванию счётчика.
@@ -240,6 +247,8 @@ class TopReactionsDataManager:
         try:
             now = datetime.now(UTC)
             qs = ReactedMessage.filter(is_deleted=False)
+            if excluded_message_ids:
+                qs = qs.exclude(message_id__in=list(excluded_message_ids))
             # Используем явные диапазоны вместо __year/__month: на SQLite Tortoise
             # транслирует их в EXTRACT(YEAR FROM ...), которого в SQLite нет.
             # Заодно даёт шанс воспользоваться индексом по posted_at.

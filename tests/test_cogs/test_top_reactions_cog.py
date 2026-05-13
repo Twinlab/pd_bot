@@ -6,7 +6,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
-from cogs.top_reactions import TopReactionsCog, TopReactionsView, _build_embed
+from cogs.top_reactions import (
+    TopReactionsCog,
+    TopReactionsView,
+    _build_embed,
+    _format_preview,
+)
 from utils.top_reactions_data_manager import LeaderboardEntry
 
 
@@ -232,6 +237,182 @@ class TestEmbedBuild:
         ]
         embed = _build_embed(entries=entries, page=2, total_pages=5, period="all", guild=None)
         assert embed.footer.text == "Страница 3 из 5"
+
+    def test_rank_prefix_has_no_padding_spaces(self):
+        """Регрессия: раньше использовался `:>2` → выводилось `#  4` вместо `#4`."""
+        entries = [
+            LeaderboardEntry(
+                message_id=i,
+                channel_id=2,
+                author_id=3,
+                content="x",
+                jump_url=f"https://x/{i}",
+                posted_at=datetime(2024, 1, 1, tzinfo=UTC),
+                reactor_count=10 - i,
+                is_historical=False,
+            )
+            for i in range(1, 6)
+        ]
+        embed = _build_embed(entries=entries, page=0, total_pages=1, period="all", guild=None)
+        # Никаких ` #4` или ` # 4` — ранг должен быть слитный.
+        assert "`#4`" in embed.description
+        assert "`#5`" in embed.description
+        assert "` #" not in embed.description
+        assert "`# " not in embed.description
+
+    def test_long_message_with_markdown_does_not_break_wrapper(self):
+        """Регрессия: длинное сообщение с `[...]` и `(...)` ломало `[preview](url)`.
+
+        Все спецсимволы markdown в превью должны быть эскейпнуты, чтобы наш
+        wrapper-ссылка осталась корректной.
+        """
+        nasty = (
+            "[Нужна роль? Нажми на реакцию] (link) <@!12345>: "
+            "разрываем *ладдер* и `ворота` _соперников_ | очень длинное "
+            "сообщение которое раньше ломало вёрстку"
+        )
+        entries = [
+            LeaderboardEntry(
+                message_id=1,
+                channel_id=2,
+                author_id=3,
+                content=nasty,
+                jump_url="https://discord.com/x/1",
+                posted_at=datetime(2024, 1, 1, tzinfo=UTC),
+                reactor_count=31,
+                is_historical=False,
+            )
+        ]
+        embed = _build_embed(entries=entries, page=0, total_pages=1, period="all", guild=None)
+        # Открывающая `[` из исходного текста должна быть эскейпнута,
+        # а наш wrapper остаться единственной валидной markdown-ссылкой.
+        assert r"\[" in embed.description
+        assert r"\]" in embed.description
+        # Wrapper-ссылка цела.
+        assert "](https://discord.com/x/1)" in embed.description
+
+
+class TestFormatPreview:
+    """Юнит-тесты для _format_preview."""
+
+    def test_collapses_whitespace(self):
+        assert _format_preview("a   b\n\nc\td", 100) == "a b c d"
+
+    def test_empty_returns_placeholder(self):
+        assert _format_preview("", 100) == "*(вложение / без текста)*"
+        assert _format_preview("   \n\t  ", 100) == "*(вложение / без текста)*"
+
+    def test_truncates_to_max_len_with_ellipsis(self):
+        result = _format_preview("a" * 200, max_len=50)
+        assert len(result) == 50
+        assert result.endswith("…")
+
+    def test_escapes_brackets_and_parens(self):
+        result = _format_preview("[click](url)", 100)
+        assert result == r"\[click\]\(url\)"
+
+    def test_escapes_markdown_specials(self):
+        result = _format_preview("a*b_c~d`e|f>g\\h", 100)
+        assert result == r"a\*b\_c\~d\`e\|f\>g\\h"
+
+    def test_short_text_passes_through(self):
+        assert _format_preview("hello world", 100) == "hello world"
+
+
+class TestExcludedMessageIds:
+    """Тесты сборки чёрного списка id для get_leaderboard."""
+
+    def _settings_with(
+        self,
+        *,
+        ignored_message_ids: list[int],
+        ignore_role_reaction: bool,
+    ) -> MagicMock:
+        s = MagicMock()
+        s.top_reactions.ignored_message_ids = ignored_message_ids
+        s.top_reactions.ignore_role_reaction_message = ignore_role_reaction
+        return s
+
+    @pytest.mark.asyncio
+    async def test_only_yaml_when_role_reaction_disabled(self, cog):
+        cog.role_reaction_manager = MagicMock()
+        cog.role_reaction_manager.get_message_info = AsyncMock(return_value=(1, 999))
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 42
+        with patch(
+            "cogs.top_reactions.get_settings",
+            return_value=self._settings_with(
+                ignored_message_ids=[100, 200],
+                ignore_role_reaction=False,
+            ),
+        ):
+            result = await cog._build_excluded_message_ids(guild)
+        assert result == {100, 200}
+        cog.role_reaction_manager.get_message_info.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_combines_yaml_and_role_reaction_message(self, cog):
+        cog.role_reaction_manager = MagicMock()
+        cog.role_reaction_manager.get_message_info = AsyncMock(return_value=(1, 999))
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 42
+        with patch(
+            "cogs.top_reactions.get_settings",
+            return_value=self._settings_with(
+                ignored_message_ids=[100],
+                ignore_role_reaction=True,
+            ),
+        ):
+            result = await cog._build_excluded_message_ids(guild)
+        assert result == {100, 999}
+
+    @pytest.mark.asyncio
+    async def test_role_reaction_message_not_set_is_safe(self, cog):
+        cog.role_reaction_manager = MagicMock()
+        cog.role_reaction_manager.get_message_info = AsyncMock(return_value=None)
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 42
+        with patch(
+            "cogs.top_reactions.get_settings",
+            return_value=self._settings_with(
+                ignored_message_ids=[],
+                ignore_role_reaction=True,
+            ),
+        ):
+            result = await cog._build_excluded_message_ids(guild)
+        assert result == set()
+
+    @pytest.mark.asyncio
+    async def test_role_reaction_lookup_error_does_not_crash(self, cog):
+        cog.role_reaction_manager = MagicMock()
+        cog.role_reaction_manager.get_message_info = AsyncMock(side_effect=Exception("db down"))
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 42
+        with patch(
+            "cogs.top_reactions.get_settings",
+            return_value=self._settings_with(
+                ignored_message_ids=[42],
+                ignore_role_reaction=True,
+            ),
+        ):
+            result = await cog._build_excluded_message_ids(guild)
+        # Только yaml-список — ошибка при чтении role-реакций не валит выдачу.
+        assert result == {42}
+
+    @pytest.mark.asyncio
+    async def test_no_guild_means_no_role_reaction_lookup(self, cog):
+        cog.role_reaction_manager = MagicMock()
+        cog.role_reaction_manager.get_message_info = AsyncMock(return_value=(1, 999))
+        with patch(
+            "cogs.top_reactions.get_settings",
+            return_value=self._settings_with(
+                ignored_message_ids=[7],
+                ignore_role_reaction=True,
+            ),
+        ):
+            result = await cog._build_excluded_message_ids(None)
+        assert result == {7}
+        cog.role_reaction_manager.get_message_info.assert_not_called()
 
 
 class TestPaginationView:

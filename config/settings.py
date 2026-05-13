@@ -395,15 +395,24 @@ class TopReactionsConfig(BaseModel):
         live_top: Сколько позиций показывать в режиме `month` / `year` (одна страница).
         all_time_top: Сколько позиций показывать в режиме `all` (с пагинацией).
         per_page: Сколько позиций на одной странице при пагинации.
-        content_preview_length: До какой длины обрезать текст сообщения для отображения.
+        content_preview_length: До какой длины обрезать текст сообщения **при сохранении** в БД.
+        preview_inline_length: До какой длины обрезать превью сообщения **в embed**
+            (более короткое значение защищает от длинных сообщений, разрывающих лейаут).
         view_timeout: Таймаут View (кнопок пагинации) в секундах.
+        ignored_message_ids: Ручной чёрный список id сообщений, которые не должны попадать
+            в лидерборд (применяется и при сборе, и при выдаче).
+        ignore_role_reaction_message: Автоматически исключать сообщение role-реакций
+            (id берётся динамически из RoleReactionDataManager).
     """
 
     live_top: int = 10
     all_time_top: int = 50
     per_page: int = 10
     content_preview_length: int = 200
+    preview_inline_length: int = 80
     view_timeout: int = 300
+    ignored_message_ids: list[int] = []
+    ignore_role_reaction_message: bool = True
 
 
 class UserReaction(BaseModel):

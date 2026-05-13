@@ -489,6 +489,51 @@ class TestGetLeaderboard:
         assert [r.message_id for r in result] == [2]
 
     @pytest.mark.asyncio
+    async def test_excluded_message_ids_skips_them(self, db, manager):
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="role-reactions",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.upsert_message(
+            message_id=2,
+            channel_id=100,
+            author_id=201,
+            content="normal",
+            jump_url="https://x/2",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+        await manager.add_reactor(message_id=1, user_id=11, emoji="👍")
+        await manager.add_reactor(message_id=2, user_id=12, emoji="👍")
+
+        result = await manager.get_leaderboard("month", limit=10, excluded_message_ids={1})
+        assert [r.message_id for r in result] == [2]
+
+    @pytest.mark.asyncio
+    async def test_excluded_message_ids_none_or_empty_is_noop(self, db, manager):
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="x",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+
+        assert len(await manager.get_leaderboard("month", limit=10)) == 1
+        assert len(await manager.get_leaderboard("month", limit=10, excluded_message_ids=None)) == 1
+        assert (
+            len(await manager.get_leaderboard("month", limit=10, excluded_message_ids=set())) == 1
+        )
+
+    @pytest.mark.asyncio
     async def test_remove_reactor_drops_from_leaderboard(self, db, manager):
         now = datetime.now(UTC)
         await manager.upsert_message(

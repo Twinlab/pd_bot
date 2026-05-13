@@ -17,10 +17,31 @@ from discord.ext import commands
 
 from config import get_settings
 from utils.error_handler import command_error_handler
+from utils.role_reaction_data_manager import RoleReactionDataManager
 from utils.top_reactions_data_manager import (
     LeaderboardEntry,
     PeriodType,
     TopReactionsDataManager,
+)
+
+# Спецсимволы Discord-markdown, которые ломают рендер при попадании в превью.
+# escape_markdown из discord.utils эскейпит только * _ ~ | `, скобки же
+# нужно чинить руками — иначе [...] из текста схлопывается с нашим
+# wrapper-ом [preview](jump_url) и парсер уезжает.
+_MD_TRANSLATE = str.maketrans(
+    {
+        "[": r"\[",
+        "]": r"\]",
+        "(": r"\(",
+        ")": r"\)",
+        "*": r"\*",
+        "_": r"\_",
+        "~": r"\~",
+        "`": r"\`",
+        "|": r"\|",
+        ">": r"\>",
+        "\\": r"\\",
+    }
 )
 
 logger = logging.getLogger("bot.cogs.top_reactions")
@@ -38,6 +59,26 @@ def _format_author(member: discord.Member | discord.User | None, author_id: int)
     if member is None:
         return f"<@{author_id}>"
     return member.mention
+
+
+def _format_preview(content: str, max_len: int) -> str:
+    """Готовит безопасное превью сообщения для подстановки в `[preview](url)`.
+
+    Делает три вещи:
+      1. Схлопывает любые whitespace-последовательности в один пробел.
+      2. Эскейпит спецсимволы markdown — особенно `[ ] ( )`, иначе вложенные
+         ссылки / квадратные скобки рвут наш wrapper-ссылку и Discord начинает
+         показывать сырой URL и упоминания.
+      3. Обрезает до `max_len` (символов исходного текста — после эскейпа
+         строка длиннее, но это нормально, лимита Discord на длину
+         description обычно достаточно).
+    """
+    text = " ".join(content.split())
+    if not text:
+        return "*(вложение / без текста)*"
+    if len(text) > max_len:
+        text = text[: max_len - 1] + "…"
+    return text.translate(_MD_TRANSLATE)
 
 
 def _build_embed(
@@ -68,21 +109,16 @@ def _build_embed(
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     parts: list[str] = []
     base_rank = page * settings.top_reactions.per_page
+    preview_len = settings.top_reactions.preview_inline_length
 
     for offset, entry in enumerate(entries, start=1):
         rank = base_rank + offset
-        prefix = medals.get(rank, f"`#{rank:>2}`")
+        prefix = medals.get(rank, f"`#{rank}`")
 
         member = guild.get_member(entry.author_id) if guild else None
         author = _format_author(member, entry.author_id)
 
-        # Превью текста: убираем переносы строк, обрезаем
-        preview = entry.content.replace("\n", " ").strip()
-        if len(preview) > 120:
-            preview = preview[:119] + "…"
-        if not preview:
-            preview = "*(вложение / без текста)*"
-
+        preview = _format_preview(entry.content, preview_len)
         hist_marker = " *(архив)*" if entry.is_historical else ""
 
         parts.append(
@@ -192,6 +228,30 @@ class TopReactionsCog(commands.Cog):
         self.manager = TopReactionsDataManager(
             content_preview_length=settings.top_reactions.content_preview_length
         )
+        self.role_reaction_manager = RoleReactionDataManager()
+
+    async def _build_excluded_message_ids(self, guild: discord.Guild | None) -> set[int]:
+        """Собирает чёрный список id сообщений на момент выдачи лидерборда.
+
+        В список попадают:
+          1. `top_reactions.ignored_message_ids` из YAML — ручной чёрный список.
+          2. id сообщения role-реакций (если включено `ignore_role_reaction_message`
+             и оно вообще существует на этом гилде).
+        """
+        settings = get_settings()
+        excluded: set[int] = set(settings.top_reactions.ignored_message_ids)
+
+        if settings.top_reactions.ignore_role_reaction_message and guild is not None:
+            try:
+                info = await self.role_reaction_manager.get_message_info(guild.id)
+            except Exception as e:
+                logger.warning(f"Не удалось получить id сообщения role-реакций: {e}")
+                info = None
+            if info is not None:
+                _, role_msg_id = info
+                excluded.add(role_msg_id)
+
+        return excluded
 
     async def _backfill_message(self, message: discord.Message) -> None:
         """Сохраняет сообщение и все его текущие реакции в БД.
@@ -347,9 +407,12 @@ class TopReactionsCog(commands.Cog):
             else settings.top_reactions.live_top
         )
 
+        excluded_message_ids = await self._build_excluded_message_ids(ctx.guild)
+
         entries = await self.manager.get_leaderboard(
             period=period_normalized,  # type: ignore[arg-type]
             limit=limit,
+            excluded_message_ids=excluded_message_ids,
         )
 
         if not entries:
