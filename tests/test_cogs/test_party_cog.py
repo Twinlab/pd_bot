@@ -286,11 +286,12 @@ class TestFinalize:
         bot: MagicMock,
         patched_settings: BotSettings,
     ) -> None:
-        """Если есть готовые — шлёт сообщение с пингами по шаблону."""
+        """Полный состав → пинги по шаблону, роль как plain-text, без `<@&id>`."""
         guild = MagicMock(spec=discord.Guild)
         guild.id = 1
         role = MagicMock(spec=discord.Role)
         role.id = 42
+        role.name = "Гремлины"
         role.mention = "<@&42>"
         guild.get_role = MagicMock(return_value=role)
         bot.get_guild.return_value = guild
@@ -301,6 +302,7 @@ class TestFinalize:
         channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
         bot.get_channel.return_value = channel
 
+        # count=2 → нужно ровно 2 готовых (инициатор + 1 реакция). Полный состав.
         party = cog.manager.create(
             guild_id=1,
             channel_id=10,
@@ -322,7 +324,56 @@ class TestFinalize:
         assert "<@100>" in sent_text
         assert "<@200>" in sent_text
         assert "идём ранкед" in sent_text
+        # Имя роли — да, mention роли — нет
+        assert "Гремлины" in sent_text
+        assert "<@&42>" not in sent_text
         assert party.finalized is True
+
+    @pytest.mark.asyncio
+    async def test_incomplete_party_uses_empty_template(
+        self,
+        cog: PartyCog,
+        bot: MagicMock,
+        patched_settings: BotSettings,
+    ) -> None:
+        """Если набрано меньше count — переиспользуем empty_finished_message без пингов."""
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 1
+        role = MagicMock(spec=discord.Role)
+        role.id = 42
+        role.name = "Гремлины"
+        role.mention = "<@&42>"
+        guild.get_role = MagicMock(return_value=role)
+        bot.get_guild.return_value = guild
+
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.id = 10
+        channel.send = AsyncMock()
+        channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
+        bot.get_channel.return_value = channel
+
+        # count=3, но в ready только инициатор (1 < 3) — неполный состав.
+        party = cog.manager.create(
+            guild_id=1,
+            channel_id=10,
+            public_message_id=1000,
+            role_id=role.id,
+            initiator_id=100,
+            count=3,
+            comment="тестим",
+            created_at=datetime.now(UTC),
+            deadline=datetime.now(UTC),
+        )
+
+        await cog._finalize(party)
+
+        channel.send.assert_awaited_once()
+        sent_text = channel.send.await_args.args[0]
+        assert "Никого не собрали" in sent_text
+        # Никого не пингуем — даже инициатора
+        assert "<@100>" not in sent_text
+        # И роль остаётся plain-text
+        assert "<@&42>" not in sent_text
 
     @pytest.mark.asyncio
     async def test_empty_pings_uses_empty_template(
@@ -335,6 +386,7 @@ class TestFinalize:
         guild = MagicMock(spec=discord.Guild)
         role = MagicMock(spec=discord.Role)
         role.id = 42
+        role.name = "x"
         role.mention = "<@&42>"
         guild.get_role = MagicMock(return_value=role)
         bot.get_guild.return_value = guild

@@ -183,18 +183,23 @@ class PartyCog(commands.Cog):
         role = guild.get_role(party.role_id) if guild else None
 
         ready_ids = list(party.ready)
-        ready_pings = " ".join(f"<@{uid}>" for uid in ready_ids) if ready_ids else ""
-        role_mention = role.mention if role else f"<@&{party.role_id}>"
+        # Имя роли, а не mention — иначе в финальном сообщении она выглядит как кликабельный
+        # пинг (даже с allowed_mentions roles=False это всё равно подсвечивается и раздражает).
+        role_name = role.name if role else f"роль #{party.role_id}"
 
-        if ready_pings:
+        # Пати считается собранным только если набрали запрошенный состав (включая инициатора).
+        # Если ready меньше count — переиспользуем шаблон "никого не собрали": раз состав
+        # не набран, пинговать частично собравшихся бессмысленно.
+        if len(ready_ids) >= party.count:
+            ready_pings = " ".join(f"<@{uid}>" for uid in ready_ids)
             text = settings.party.finished_message_template.format(
                 ready_pings=ready_pings,
-                role=role_mention,
+                role=role_name,
                 comment=party.comment,
             )
         else:
             text = settings.party.empty_finished_message.format(
-                role=role_mention,
+                role=role_name,
                 comment=party.comment,
             )
 
