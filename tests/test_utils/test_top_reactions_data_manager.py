@@ -11,6 +11,7 @@ from utils.models import MessageReactor, ReactedMessage
 from utils.top_reactions_data_manager import (
     LeaderboardEntry,
     TopReactionsDataManager,
+    resolve_period_range,
 )
 
 
@@ -553,3 +554,317 @@ class TestGetLeaderboard:
         # запись о сообщении при этом остаётся в БД
         assert await MessageReactor.filter(message_id=1).count() == 0
         assert await ReactedMessage.filter(message_id=1).exists()
+
+    @pytest.mark.asyncio
+    async def test_explicit_year_month_overrides_period(self, db, manager):
+        """Если переданы year+month — фильтр идёт по этому конкретному месяцу,
+        period фактически игнорируется."""
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="march 2024",
+            jump_url="https://x/1",
+            posted_at=datetime(2024, 3, 15, tzinfo=UTC),
+            historical_reaction_count=10,
+        )
+        await ReactedMessage.create(
+            message_id=2,
+            channel_id=100,
+            author_id=200,
+            content="april 2024",
+            jump_url="https://x/2",
+            posted_at=datetime(2024, 4, 1, tzinfo=UTC),
+            historical_reaction_count=20,
+        )
+
+        result = await manager.get_leaderboard("month", limit=10, year=2024, month=3)
+        assert [r.message_id for r in result] == [1]
+
+        result = await manager.get_leaderboard("month", limit=10, year=2024, month=4)
+        assert [r.message_id for r in result] == [2]
+
+    @pytest.mark.asyncio
+    async def test_explicit_year_only_takes_whole_year(self, db, manager):
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="2023",
+            jump_url="https://x/1",
+            posted_at=datetime(2023, 12, 31, tzinfo=UTC),
+            historical_reaction_count=5,
+        )
+        await ReactedMessage.create(
+            message_id=2,
+            channel_id=100,
+            author_id=200,
+            content="2024",
+            jump_url="https://x/2",
+            posted_at=datetime(2024, 1, 1, tzinfo=UTC),
+            historical_reaction_count=5,
+        )
+
+        result = await manager.get_leaderboard("month", limit=10, year=2024)
+        assert [r.message_id for r in result] == [2]
+
+
+class TestResolvePeriodRange:
+    """Юнит-тесты на разрешение (period, year, month) → (start, end)."""
+
+    def test_all_without_explicit_returns_none_none(self):
+        start, end = resolve_period_range("all")
+        assert start is None
+        assert end is None
+
+    def test_month_uses_current_month_when_no_explicit(self):
+        now = datetime(2024, 5, 15, 12, 30, tzinfo=UTC)
+        start, end = resolve_period_range("month", now=now)
+        assert start == datetime(2024, 5, 1, tzinfo=UTC)
+        assert end == datetime(2024, 6, 1, tzinfo=UTC)
+
+    def test_month_in_december_wraps_to_next_year(self):
+        now = datetime(2024, 12, 5, tzinfo=UTC)
+        start, end = resolve_period_range("month", now=now)
+        assert start == datetime(2024, 12, 1, tzinfo=UTC)
+        assert end == datetime(2025, 1, 1, tzinfo=UTC)
+
+    def test_year_uses_current_year_when_no_explicit(self):
+        now = datetime(2024, 5, 15, tzinfo=UTC)
+        start, end = resolve_period_range("year", now=now)
+        assert start == datetime(2024, 1, 1, tzinfo=UTC)
+        assert end == datetime(2025, 1, 1, tzinfo=UTC)
+
+    def test_explicit_year_and_month(self):
+        start, end = resolve_period_range("month", year=2023, month=11)
+        assert start == datetime(2023, 11, 1, tzinfo=UTC)
+        assert end == datetime(2023, 12, 1, tzinfo=UTC)
+
+    def test_explicit_year_and_december_wraps(self):
+        start, end = resolve_period_range("month", year=2023, month=12)
+        assert start == datetime(2023, 12, 1, tzinfo=UTC)
+        assert end == datetime(2024, 1, 1, tzinfo=UTC)
+
+    def test_explicit_year_only(self):
+        start, end = resolve_period_range("all", year=2022)
+        assert start == datetime(2022, 1, 1, tzinfo=UTC)
+        assert end == datetime(2023, 1, 1, tzinfo=UTC)
+
+    def test_explicit_month_only_uses_current_year(self):
+        now = datetime(2024, 7, 1, tzinfo=UTC)
+        start, end = resolve_period_range("all", now=now, month=2)
+        assert start == datetime(2024, 2, 1, tzinfo=UTC)
+        assert end == datetime(2024, 3, 1, tzinfo=UTC)
+
+
+class TestGetTopAuthors:
+    """Интеграционные тесты get_top_authors на in-memory SQLite."""
+
+    @pytest.mark.asyncio
+    async def test_empty_db_returns_empty(self, db, manager):
+        result = await manager.get_top_authors("all", limit=10)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_sums_unique_reactors_across_messages(self, db, manager):
+        """Автор A: 3 + 4 = 7 уникальных реакторов на двух сообщениях.
+        Автор B: 5 на одном. Топ: B(5), A(7) — нет, A впереди.
+        Точнее: A=7, B=5 → A первый."""
+        now = datetime.now(UTC)
+        # автор A — два сообщения
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="a-1",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.upsert_message(
+            message_id=2,
+            channel_id=100,
+            author_id=10,
+            content="a-2",
+            jump_url="https://x/2",
+            posted_at=now,
+        )
+        # 3 уникальных реактора на msg1
+        for u in (100, 101, 102):
+            await manager.add_reactor(message_id=1, user_id=u, emoji="👍")
+        # 4 уникальных реактора на msg2
+        for u in (200, 201, 202, 203):
+            await manager.add_reactor(message_id=2, user_id=u, emoji="🔥")
+        # автор B — одно сообщение, 5 реакторов
+        await manager.upsert_message(
+            message_id=3,
+            channel_id=100,
+            author_id=20,
+            content="b-1",
+            jump_url="https://x/3",
+            posted_at=now,
+        )
+        for u in (300, 301, 302, 303, 304):
+            await manager.add_reactor(message_id=3, user_id=u, emoji="👍")
+
+        result = await manager.get_top_authors("all", limit=10)
+        assert len(result) == 2
+        assert result[0].author_id == 10
+        assert result[0].total_reactions == 7
+        assert result[0].message_count == 2
+        assert result[1].author_id == 20
+        assert result[1].total_reactions == 5
+        assert result[1].message_count == 1
+
+    @pytest.mark.asyncio
+    async def test_historical_used_when_no_live(self, db, manager):
+        """historical_reaction_count учитывается при отсутствии live-реакций."""
+        now = datetime.now(UTC)
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="hist-only",
+            jump_url="https://x/1",
+            posted_at=now,
+            historical_reaction_count=8,
+        )
+        result = await manager.get_top_authors("all", limit=10)
+        assert len(result) == 1
+        assert result[0].author_id == 10
+        assert result[0].total_reactions == 8
+        assert result[0].message_count == 1
+
+    @pytest.mark.asyncio
+    async def test_live_wins_over_historical_per_message(self, db, manager):
+        """На одном сообщении live перебивает historical."""
+        now = datetime.now(UTC)
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="mixed",
+            jump_url="https://x/1",
+            posted_at=now,
+            historical_reaction_count=99,
+        )
+        await manager.add_reactor(message_id=1, user_id=100, emoji="👍")
+        result = await manager.get_top_authors("all", limit=10)
+        # historical=99 проигрывает live=1
+        assert result[0].total_reactions == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_messages_without_any_reactions(self, db, manager):
+        """Сообщения без live и без historical не вносят вклад."""
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="silent",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.upsert_message(
+            message_id=2,
+            channel_id=100,
+            author_id=10,
+            content="loud",
+            jump_url="https://x/2",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=2, user_id=100, emoji="👍")
+
+        result = await manager.get_top_authors("all", limit=10)
+        assert len(result) == 1
+        # message_count = 1, потому что только msg2 даёт вклад
+        assert result[0].message_count == 1
+        assert result[0].total_reactions == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_deleted_messages(self, db, manager):
+        now = datetime.now(UTC)
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="gone",
+            jump_url="https://x/1",
+            posted_at=now,
+            historical_reaction_count=50,
+            is_deleted=True,
+        )
+        result = await manager.get_top_authors("all", limit=10)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_excluded_message_ids_skipped(self, db, manager):
+        now = datetime.now(UTC)
+        # role-реакции у автора 10, обычное сообщение у автора 10
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="role-msg",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        for u in (100, 101, 102):
+            await manager.add_reactor(message_id=1, user_id=u, emoji="👍")
+        await manager.upsert_message(
+            message_id=2,
+            channel_id=100,
+            author_id=10,
+            content="normal",
+            jump_url="https://x/2",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=2, user_id=200, emoji="🔥")
+
+        result = await manager.get_top_authors("all", limit=10, excluded_message_ids={1})
+        assert len(result) == 1
+        assert result[0].author_id == 10
+        assert result[0].total_reactions == 1  # только msg2
+        assert result[0].message_count == 1
+
+    @pytest.mark.asyncio
+    async def test_period_filtering_by_explicit_month(self, db, manager):
+        await ReactedMessage.create(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="march",
+            jump_url="https://x/1",
+            posted_at=datetime(2024, 3, 10, tzinfo=UTC),
+            historical_reaction_count=4,
+        )
+        await ReactedMessage.create(
+            message_id=2,
+            channel_id=100,
+            author_id=10,
+            content="april",
+            jump_url="https://x/2",
+            posted_at=datetime(2024, 4, 10, tzinfo=UTC),
+            historical_reaction_count=10,
+        )
+
+        result = await manager.get_top_authors("month", limit=10, year=2024, month=3)
+        assert len(result) == 1
+        assert result[0].total_reactions == 4
+
+    @pytest.mark.asyncio
+    async def test_limit_respected(self, db, manager):
+        now = datetime.now(UTC)
+        for author_id in range(1, 6):
+            await ReactedMessage.create(
+                message_id=author_id,
+                channel_id=100,
+                author_id=author_id,
+                content=f"a{author_id}",
+                jump_url=f"https://x/{author_id}",
+                posted_at=now,
+                historical_reaction_count=author_id,
+            )
+        result = await manager.get_top_authors("all", limit=3)
+        assert len(result) == 3
+        # Должны прийти топ-3 по значению (5, 4, 3)
+        assert [r.total_reactions for r in result] == [5, 4, 3]

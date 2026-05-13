@@ -9,10 +9,12 @@ import pytest
 from cogs.top_reactions import (
     TopReactionsCog,
     TopReactionsView,
+    _build_authors_embed,
     _build_embed,
     _format_preview,
+    _period_label,
 )
-from utils.top_reactions_data_manager import LeaderboardEntry
+from utils.top_reactions_data_manager import AuthorLeaderboardEntry, LeaderboardEntry
 
 
 @pytest.fixture
@@ -60,6 +62,7 @@ class TestCogInit:
     def test_cog_registers_command(self, cog):
         names = [cmd.name for cmd in cog.get_commands()]
         assert "topreactions" in names
+        assert "topauthors" in names
 
 
 class TestReactionAdd:
@@ -509,3 +512,234 @@ class TestPaginationView:
         interaction.user.id = 42
         result = await view.interaction_check(interaction)
         assert result is True
+
+
+class TestPeriodLabel:
+    """Юнит-тесты на _period_label — заголовок embed зависит от выбранного периода."""
+
+    def test_explicit_year_and_month(self):
+        assert _period_label("month", year=2024, month=3) == "март 2024"
+
+    def test_explicit_year_only(self):
+        assert _period_label("month", year=2024) == "2024"
+
+    def test_explicit_month_only(self):
+        assert _period_label("month", month=11) == "ноябрь"
+
+    def test_period_month_no_args(self):
+        assert _period_label("month") == "месяц"
+
+    def test_period_year_no_args(self):
+        assert _period_label("year") == "год"
+
+    def test_period_all_no_args(self):
+        assert _period_label("all") == "всё время"
+
+
+class TestAuthorsEmbed:
+    """Юнит-тесты на _build_authors_embed."""
+
+    def _make_authors(self, n: int) -> list[AuthorLeaderboardEntry]:
+        return [
+            AuthorLeaderboardEntry(
+                author_id=100 + i,
+                total_reactions=(n - i) * 5,
+                message_count=n - i,
+            )
+            for i in range(n)
+        ]
+
+    def test_empty_entries_show_placeholder(self):
+        embed = _build_authors_embed(
+            entries=[],
+            page=0,
+            total_pages=1,
+            period="month",
+            guild=None,
+        )
+        assert embed.description is not None
+        assert "Пока нет авторов" in embed.description
+
+    def test_lists_authors_with_counts(self):
+        entries = self._make_authors(3)
+        embed = _build_authors_embed(
+            entries=entries,
+            page=0,
+            total_pages=1,
+            period="month",
+            guild=None,
+        )
+        # Сумма реакций и число сообщений должны быть в выдаче
+        assert embed.description is not None
+        assert "15" in embed.description  # первый автор: 3*5
+        assert "3 сообщ." in embed.description
+
+    def test_title_uses_period_label(self):
+        embed = _build_authors_embed(
+            entries=self._make_authors(1),
+            page=0,
+            total_pages=1,
+            period="month",
+            guild=None,
+            year=2024,
+            month=2,
+        )
+        assert "Топ авторов" in embed.title
+        assert "февраль 2024" in embed.title
+
+    def test_pagination_footer_shown_when_multiple_pages(self):
+        embed = _build_authors_embed(
+            entries=self._make_authors(2),
+            page=0,
+            total_pages=3,
+            period="month",
+            guild=None,
+        )
+        assert embed.footer.text == "Страница 1 из 3"
+
+
+class TestPaginationViewWithAuthors:
+    """View должен корректно рендерить и embed авторов, и embed сообщений."""
+
+    @pytest.mark.asyncio
+    async def test_renders_authors_embed_when_entries_are_authors(self):
+        entries = [
+            AuthorLeaderboardEntry(author_id=100, total_reactions=10, message_count=2)
+        ]
+        view = TopReactionsView(
+            entries=entries,
+            period="month",
+            per_page=10,
+            guild=None,
+            invoker_id=1,
+            timeout=60,
+        )
+        embed = view.render_embed()
+        assert "Топ авторов" in embed.title
+
+    @pytest.mark.asyncio
+    async def test_renders_messages_embed_when_entries_are_messages(self):
+        entries = [
+            LeaderboardEntry(
+                message_id=1,
+                channel_id=1,
+                author_id=1,
+                content="hi",
+                jump_url="https://x/1",
+                posted_at=datetime(2024, 1, 1, tzinfo=UTC),
+                reactor_count=3,
+                is_historical=False,
+            )
+        ]
+        view = TopReactionsView(
+            entries=entries,
+            period="month",
+            per_page=10,
+            guild=None,
+            invoker_id=1,
+            timeout=60,
+        )
+        embed = view.render_embed()
+        assert "Топ сообщений" in embed.title
+
+
+class TestMonthlyReportTask:
+    """Тесты автоматической ежемесячной задачи."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_not_first_day_of_month(self, cog):
+        """tasks.loop с time= триггерится каждый день — мы фильтруем по 1-му числу."""
+        with patch("cogs.top_reactions.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2024, 5, 15, 12, 0, tzinfo=UTC)
+            cog._send_monthly_top_messages_report = AsyncMock()
+            await cog.monthly_report()
+        cog._send_monthly_top_messages_report.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_runs_for_previous_month_on_first_day(self, cog):
+        with patch("cogs.top_reactions.datetime") as mock_dt:
+            # МСК — 1 июня 2024
+            mock_dt.now.return_value = datetime(2024, 6, 1, 12, 0, tzinfo=UTC)
+            cog._send_monthly_top_messages_report = AsyncMock()
+            await cog.monthly_report()
+        cog._send_monthly_top_messages_report.assert_awaited_once_with(2024, 5)
+
+    @pytest.mark.asyncio
+    async def test_january_first_wraps_to_previous_year_december(self, cog):
+        with patch("cogs.top_reactions.datetime") as mock_dt:
+            mock_dt.now.return_value = datetime(2025, 1, 1, 12, 0, tzinfo=UTC)
+            cog._send_monthly_top_messages_report = AsyncMock()
+            await cog.monthly_report()
+        cog._send_monthly_top_messages_report.assert_awaited_once_with(2024, 12)
+
+
+class TestSendMonthlyReport:
+    """Юнит-тесты на _send_monthly_top_messages_report."""
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_channel_not_found(self, cog):
+        cog.bot.get_channel = MagicMock(return_value=None)
+        cog.bot.fetch_channel = AsyncMock(side_effect=discord.NotFound(MagicMock(), "x"))
+        result = await cog._send_monthly_top_messages_report(2024, 5)
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_no_entries(self, cog):
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
+        cog._build_excluded_message_ids = AsyncMock(return_value=set())
+        cog.manager.get_leaderboard = AsyncMock(return_value=[])
+
+        result = await cog._send_monthly_top_messages_report(2024, 5)
+        assert result is False
+        channel.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sends_embed_when_entries_found(self, cog):
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+        channel.guild.get_member = MagicMock(return_value=None)
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
+        cog._build_excluded_message_ids = AsyncMock(return_value=set())
+        cog.manager.get_leaderboard = AsyncMock(
+            return_value=[
+                LeaderboardEntry(
+                    message_id=1,
+                    channel_id=1,
+                    author_id=10,
+                    content="hi",
+                    jump_url="https://x/1",
+                    posted_at=datetime(2024, 5, 10, tzinfo=UTC),
+                    reactor_count=4,
+                    is_historical=False,
+                )
+            ]
+        )
+
+        result = await cog._send_monthly_top_messages_report(2024, 5)
+        assert result is True
+        channel.send.assert_awaited_once()
+        # Проверяем, что вызвано с правильным каналом и embed
+        call = channel.send.await_args
+        assert "май 2024" in call.kwargs["content"]
+        assert call.kwargs["embed"] is not None
+
+    @pytest.mark.asyncio
+    async def test_passes_year_month_to_data_manager(self, cog):
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.guild = MagicMock(spec=discord.Guild)
+        channel.send = AsyncMock()
+        cog.bot.get_channel = MagicMock(return_value=channel)
+        cog._build_excluded_message_ids = AsyncMock(return_value={42})
+        cog.manager.get_leaderboard = AsyncMock(return_value=[])
+
+        await cog._send_monthly_top_messages_report(2023, 11)
+        cog.manager.get_leaderboard.assert_awaited_once()
+        kwargs = cog.manager.get_leaderboard.await_args.kwargs
+        assert kwargs["period"] == "month"
+        assert kwargs["year"] == 2023
+        assert kwargs["month"] == 11
+        assert kwargs["excluded_message_ids"] == {42}
