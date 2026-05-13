@@ -24,6 +24,7 @@ from utils.party.data_manager import PartyDataManager
 from utils.party.duration import parse_minutes
 from utils.party.embeds import build_dm_embed, build_public_embed
 from utils.party.manager import Party, PartyManager
+from utils.role_reaction_data_manager import RoleReactionDataManager
 
 
 def _party_cooldown(ctx: commands.Context) -> commands.Cooldown:
@@ -58,13 +59,24 @@ class PartyCog(commands.Cog):
     bot: commands.Bot
     manager: PartyManager
     data_manager: PartyDataManager
+    role_reaction_manager: RoleReactionDataManager
     _timers: dict[str, asyncio.Task[None]]
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.manager = PartyManager()
         self.data_manager = PartyDataManager()
+        self.role_reaction_manager = RoleReactionDataManager()
         self._timers = {}
+
+    async def _allowed_role_ids(self, guild_id: int) -> set[int]:
+        """ID ролей, разрешённых для сбора (только выданные через /role_assign).
+
+        Системная запись с ``role_id == 0`` отфильтровывается — это маркер
+        самого role-message, не настоящая роль.
+        """
+        rows = await self.role_reaction_manager.get_all_role_reactions(guild_id)
+        return {row["role_id"] for row in rows if row["role_id"] != 0}
 
     async def cog_unload(self) -> None:
         """Отменяет все запущенные таймеры финализации."""
@@ -108,7 +120,7 @@ class PartyCog(commands.Cog):
 
         embed = build_public_embed(
             party,
-            role_mention=role.mention if role else f"<@&{party.role_id}>",
+            role_name=role.name if role else f"роль #{party.role_id}",
             initiator=initiator,
             member_resolver=self._member_resolver(guild),
             initiator_emoji=settings.party.initiator_emoji,
@@ -206,9 +218,9 @@ class PartyCog(commands.Cog):
         description="Собрать пати в игру: разошлёт DM всем с этой ролью.",
     )
     @app_commands.describe(
-        role="Серверная роль — кому слать DM",
+        role="Игровая роль (только из /role_assign)",
         when="Через сколько закроется сбор (минут, максимум 240)",
-        count="Сколько человек нужно в основной состав",
+        count="Сколько ещё человек нужно (тебя считать не надо)",
         comment="Комментарий, который увидят все",
     )
     @commands.dynamic_cooldown(_party_cooldown, commands.BucketType.user)
@@ -231,6 +243,14 @@ class PartyCog(commands.Cog):
 
         if await self.data_manager.is_blocked(ctx.author.id):
             await safe_send_error(ctx, "ты в бане")
+            return
+
+        allowed_role_ids = await self._allowed_role_ids(ctx.guild.id)
+        if role.id not in allowed_role_ids:
+            await safe_send_error(
+                ctx,
+                "Можно звать только в роли из /role_assign — выбери одну из них.",
+            )
             return
 
         try:
@@ -277,7 +297,8 @@ class PartyCog(commands.Cog):
             public_message_id=public_message.id,
             role_id=role.id,
             initiator_id=initiator.id,
-            count=count,
+            count=count
+            + 1,  # +1: инициатор тоже занимает слот, но не должен съедать запрошенное число
             comment=comment,
             created_at=now,
             deadline=deadline,

@@ -39,8 +39,16 @@ def bot() -> MagicMock:
 
 @pytest.fixture
 def cog(bot: MagicMock) -> PartyCog:
-    """Свежий PartyCog."""
-    return PartyCog(bot)
+    """Свежий PartyCog с замоканным role_reaction_manager (по умолчанию пускает любую роль).
+
+    Тесты, которым нужен другой allowlist (или пустой), переопределяют возвращаемое значение.
+    """
+    c = PartyCog(bot)
+    c.role_reaction_manager = MagicMock()
+    c.role_reaction_manager.get_all_role_reactions = AsyncMock(
+        return_value=[{"role_id": 42, "emoji": "🎮", "message_id": 1}]
+    )
+    return c
 
 
 @pytest.fixture
@@ -642,6 +650,54 @@ class TestPartyCommandGuards:
 
         send_err.assert_awaited_once()
         assert "от" in send_err.await_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_role_not_in_allowlist_rejected(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Роль вне списка ролей из /role_assign — отказ."""
+        cog.data_manager.is_blocked = AsyncMock(return_value=False)
+        cog.role_reaction_manager.get_all_role_reactions = AsyncMock(
+            return_value=[{"role_id": 42, "emoji": "🎮", "message_id": 1}]
+        )
+
+        ctx = MagicMock(spec=commands.Context)
+        ctx.guild = MagicMock(spec=discord.Guild, id=1)
+        ctx.author = MagicMock(spec=discord.Member, id=100)
+
+        # role.id=999 — НЕ из allowlist
+        role = MagicMock(spec=discord.Role, id=999, mention="<@&999>", name="random", members=[])
+
+        with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
+            await cog.party.callback(cog, ctx, role=role, when=15, count=2, comment="x")
+
+        send_err.assert_awaited_once()
+        assert "role_assign" in send_err.await_args.args[1]
+
+    @pytest.mark.asyncio
+    async def test_role_in_allowlist_passes_role_check(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Если роль в allowlist — проверка роли проходит, ошибка приходит уже от
+        дальнейших шагов (тут — длительность вне границ).
+        """
+        cog.data_manager.is_blocked = AsyncMock(return_value=False)
+        cog.role_reaction_manager.get_all_role_reactions = AsyncMock(
+            return_value=[{"role_id": 42, "emoji": "🎮", "message_id": 1}]
+        )
+
+        ctx = MagicMock(spec=commands.Context)
+        ctx.guild = MagicMock(spec=discord.Guild, id=1)
+        ctx.author = MagicMock(spec=discord.Member, id=100)
+
+        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", name="ok", members=[])
+
+        with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
+            await cog.party.callback(cog, ctx, role=role, when=0, count=2, comment="x")
+
+        send_err.assert_awaited_once()
+        # Сообщение про минимум — не про allowlist
+        assert "role_assign" not in send_err.await_args.args[1]
 
     @pytest.mark.asyncio
     async def test_dm_invocation_rejected(

@@ -42,7 +42,7 @@ def _format_section(
 def build_public_embed(
     party: Party,
     *,
-    role_mention: str,
+    role_name: str,
     initiator: discord.Member | discord.User | None,
     member_resolver: MemberResolver,
     initiator_emoji: str,
@@ -52,7 +52,9 @@ def build_public_embed(
 
     Args:
         party: Текущее состояние пати.
-        role_mention: Текстовое упоминание роли (``role.mention``).
+        role_name: Имя роли — попадает в title как plain text. Discord не
+            парсит markdown/mention в title, поэтому именно строка ``role.name``,
+            а не ``role.mention`` (иначе будет сырой ``<@&id>``).
         initiator: Объект инициатора (для footer'а).
         member_resolver: Функция ``user_id -> Member | None`` для резолва упоминаний.
         initiator_emoji: Эмодзи-корона для инициатора.
@@ -62,7 +64,7 @@ def build_public_embed(
         Готовый :class:`discord.Embed`.
     """
     title_prefix = "Сбор закрыт" if finalized else "Сбор пати"
-    title = f"{title_prefix}: {role_mention}"
+    title = f"{title_prefix}: {role_name}"
 
     description_parts: list[str] = []
     if party.comment:
@@ -72,7 +74,7 @@ def build_public_embed(
     if finalized:
         description_parts.append(f"Закрыт <t:{deadline_unix}:R>")
     else:
-        description_parts.append(f"Закроется <t:{deadline_unix}:R>")
+        description_parts.append(f"Закрытие <t:{deadline_unix}:R>")
 
     color = discord.Color.dark_grey() if finalized else discord.Color.green()
     embed = discord.Embed(
@@ -118,7 +120,7 @@ def build_dm_embed(
     """
     deadline_unix = int(party.deadline.timestamp())
     description = (
-        f"{initiator.mention} зовёт в **{role_name}** — через <t:{deadline_unix}:R>.\n"
+        f"{initiator.mention} зовёт в **{role_name}** — закрытие <t:{deadline_unix}:R>.\n"
         f"Нужно человек: **{party.count}**.\n"
     )
     if party.comment:
