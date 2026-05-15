@@ -1,9 +1,12 @@
-"""Ког сбора пати в игры через DM-реакции.
+"""Ког сбора пати в игры через DM-кнопки.
 
 Команда ``/party`` создаёт публичный embed в текущем канале и шлёт DM
-каждому участнику с указанной серверной ролью. Юзер ставит **любую**
-реакцию на DM-сообщение → попадает в живой embed (готовы / начинка).
-По истечении таймера бот пингует готовых отдельным сообщением.
+каждому участнику с указанной серверной ролью. В DM есть две кнопки:
+**Готов** и **Не готов**. Нажатие любой кнопки обновляет embed синхронно
+во всех личках и в публичном канале.
+
+По истечении таймера бот пингует готовых отдельным сообщением; если состав
+не набран — отправляет сообщение про "никого не собрали" без пингов.
 
 Админ-команды ``/party_block``, ``/party_unblock``, ``/party_blocklist``
 управляют чёрным списком пользователей, которым запрещено вызывать ``/party``.
@@ -22,8 +25,9 @@ from config import get_settings
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.party.data_manager import PartyDataManager
 from utils.party.duration import parse_minutes
-from utils.party.embeds import build_dm_embed, build_public_embed
+from utils.party.embeds import build_party_embed
 from utils.party.manager import Party, PartyManager
+from utils.party.views import PartyView
 from utils.role_reaction_data_manager import RoleReactionDataManager
 
 
@@ -35,26 +39,8 @@ def _party_cooldown(ctx: commands.Context) -> commands.Cooldown:
 logger = logging.getLogger("bot.cogs.party")
 
 
-def _resolve_emoji(
-    bot: commands.Bot, payload: discord.RawReactionActionEvent, fallback: str
-) -> str:
-    """Превращает RawReaction-эмодзи в строку для embed.
-
-    - Unicode-эмодзи возвращаем как есть (`payload.emoji.name`).
-    - Кастомный эмодзи отдаём в формате ``<:name:id>`` / ``<a:name:id>`` только
-      если бот видит его (`bot.get_emoji(id) is not None`); иначе подставляем
-      fallback из конфига.
-    """
-    if payload.emoji.id is None:
-        return payload.emoji.name or fallback
-    if bot.get_emoji(payload.emoji.id) is None:
-        return fallback
-    prefix = "a" if payload.emoji.animated else ""
-    return f"<{prefix}:{payload.emoji.name}:{payload.emoji.id}>"
-
-
 class PartyCog(commands.Cog):
-    """Сбор пати: команды + listener'ы + таймеры финализации."""
+    """Сбор пати: команды + кнопки в DM + таймеры финализации."""
 
     bot: commands.Bot
     manager: PartyManager
@@ -88,7 +74,7 @@ class PartyCog(commands.Cog):
     def _member_resolver(
         self, guild: discord.Guild | None
     ) -> Callable[[int], discord.Member | discord.User | None]:
-        """Создаёт resolver `user_id -> Member | User | None` для embed-builder'ов."""
+        """Создаёт resolver `user_id -> Member | User | None` для embed-builder."""
 
         def resolve(user_id: int) -> discord.Member | discord.User | None:
             if guild is not None:
@@ -99,17 +85,27 @@ class PartyCog(commands.Cog):
 
         return resolve
 
-    async def _refresh_public_embed(self, party: Party) -> None:
-        """Перерисовывает публичный embed; поглощает Discord-ошибки."""
+    def _build_embed(self, party: Party, *, finalized: bool | None = None) -> discord.Embed:
+        """Готовит embed для конкретного состояния пати."""
         settings = get_settings()
         guild = self.bot.get_guild(party.guild_id)
-        channel = self.bot.get_channel(party.channel_id) if guild else None
         role = guild.get_role(party.role_id) if guild else None
         initiator = self._member_resolver(guild)(party.initiator_id)
+        return build_party_embed(
+            party,
+            role_name=role.name if role else f"роль #{party.role_id}",
+            initiator=initiator,
+            member_resolver=self._member_resolver(guild),
+            initiator_emoji=settings.party.initiator_emoji,
+            finalized=party.finalized if finalized is None else finalized,
+        )
 
+    async def _refresh_public_embed(self, party: Party) -> None:
+        """Перерисовывает публичный embed; поглощает Discord-ошибки."""
+        guild = self.bot.get_guild(party.guild_id)
+        channel = self.bot.get_channel(party.channel_id) if guild else None
         if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
             return
-
         try:
             message = await channel.fetch_message(party.public_message_id)
         except (discord.NotFound, discord.Forbidden):
@@ -118,45 +114,60 @@ class PartyCog(commands.Cog):
             logger.warning(f"fetch_message {party.public_message_id} упал: {e}")
             return
 
-        embed = build_public_embed(
-            party,
-            role_name=role.name if role else f"роль #{party.role_id}",
-            initiator=initiator,
-            member_resolver=self._member_resolver(guild),
-            initiator_emoji=settings.party.initiator_emoji,
-            finalized=party.finalized,
-        )
+        embed = self._build_embed(party)
         try:
             await message.edit(embed=embed)
         except (discord.NotFound, discord.Forbidden):
             pass
         except discord.HTTPException as e:
-            logger.warning(f"Не удалось обновить embed пати {party.id}: {e}")
+            logger.warning(f"Не удалось обновить публичный embed пати {party.id}: {e}")
+
+    async def _refresh_dm_embeds(self, party: Party) -> None:
+        """Перерисовывает embed во всех DM-сообщениях пати параллельно."""
+        if not party.dm_messages:
+            return
+        embed = self._build_embed(party)
+
+        async def edit_one(uid: int, msg: discord.Message) -> None:
+            try:
+                await msg.edit(embed=embed)
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            except discord.HTTPException as e:
+                logger.warning(f"DM edit для юзера {uid} упал: {e}")
+
+        await asyncio.gather(
+            *(edit_one(uid, msg) for uid, msg in party.dm_messages.items()),
+            return_exceptions=True,
+        )
+
+    async def _refresh_all_embeds(self, party: Party) -> None:
+        """Обновляет публичный embed + все DM-embed синхронно."""
+        await asyncio.gather(
+            self._refresh_public_embed(party),
+            self._refresh_dm_embeds(party),
+            return_exceptions=True,
+        )
 
     async def _send_dms(
         self,
         party: Party,
         role: discord.Role,
         initiator: discord.Member,
-        jump_url: str,
     ) -> int:
-        """Рассылает DM участникам роли. Возвращает число доставленных писем."""
+        """Рассылает DM с embed + кнопками. Возвращает число доставленных писем."""
         settings = get_settings()
         delivered = 0
-        embed = build_dm_embed(
-            party,
-            role_name=role.name,
-            initiator=initiator,
-            jump_url=jump_url,
-        )
+        embed = self._build_embed(party)
         for member in role.members:
             if member.bot or member.id == initiator.id:
                 continue
             if await self.data_manager.is_blocked(member.id):
                 continue
             try:
-                msg = await member.send(embed=embed)
-                self.manager.register_dm(party.id, member.id, msg.id)
+                view = PartyView(cog=self, party=party)
+                msg = await member.send(embed=embed, view=view)
+                party.dm_messages[member.id] = msg
                 delivered += 1
             except discord.Forbidden:
                 logger.info(f"Юзер {member.id} закрыл DM — пропускаем")
@@ -164,6 +175,25 @@ class PartyCog(commands.Cog):
                 logger.warning(f"Ошибка отправки DM юзеру {member.id}: {e}")
             await asyncio.sleep(settings.party.dm_send_delay)
         return delivered
+
+    async def _disable_dm_buttons(self, party: Party) -> None:
+        """Снимает кнопки во всех DM (заменяет view на пустую)."""
+        if not party.dm_messages:
+            return
+        embed = self._build_embed(party, finalized=True)
+
+        async def disable_one(uid: int, msg: discord.Message) -> None:
+            try:
+                await msg.edit(embed=embed, view=None)
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            except discord.HTTPException as e:
+                logger.warning(f"Не удалось снять кнопки в DM юзера {uid}: {e}")
+
+        await asyncio.gather(
+            *(disable_one(uid, msg) for uid, msg in party.dm_messages.items()),
+            return_exceptions=True,
+        )
 
     async def _finalize_after(self, party: Party, seconds: float) -> None:
         """Таймер закрытия пати. Отменяется через `task.cancel()` в `cog_unload`."""
@@ -215,6 +245,8 @@ class PartyCog(commands.Cog):
                 logger.warning(f"Не удалось отправить финальное сообщение пати {party.id}: {e}")
 
         self.manager.cancel(party.id)
+        # Сначала снимаем кнопки в DM (с серым embed-ом), потом обновляем публичный.
+        await self._disable_dm_buttons(party)
         await self._refresh_public_embed(party)
         self._timers.pop(party.id, None)
 
@@ -287,7 +319,7 @@ class PartyCog(commands.Cog):
         deadline = now + duration
 
         placeholder_embed = discord.Embed(
-            title=f"Сбор пати: {role.mention}",
+            title=f"Сбор пати: {role.name}",
             description="Готовлю сбор…",
             color=discord.Color.green(),
         )
@@ -311,10 +343,13 @@ class PartyCog(commands.Cog):
 
         await self._refresh_public_embed(party)
 
-        delivered = await self._send_dms(party, role, initiator, public_message.jump_url)
+        delivered = await self._send_dms(party, role, initiator)
+        # После рассылки нужно ещё раз обновить публичный embed — а заодно DM,
+        # вдруг счётчики уже изменились пока мы рассылали.
+        await self._refresh_all_embeds(party)
         logger.info(
-            f"Создано пати {party.id} (роль {role.id}, нужно {count}, дедлайн {deadline.isoformat()}): "
-            f"DM доставлено {delivered}"
+            f"Создано пати {party.id} (роль {role.id}, нужно {count}, "
+            f"дедлайн {deadline.isoformat()}): DM доставлено {delivered}"
         )
 
         task = asyncio.create_task(
@@ -339,6 +374,7 @@ class PartyCog(commands.Cog):
         if task is not None:
             task.cancel()
         self.manager.cancel(party.id)
+        await self._disable_dm_buttons(party)
         await self._refresh_public_embed(party)
         await safe_send(ctx, "Сбор пати отменён.", ephemeral=True)
         logger.info(f"Пати {party.id} отменено инициатором {ctx.author.id}")
@@ -417,40 +453,6 @@ class PartyCog(commands.Cog):
             ephemeral=True,
             allowed_mentions=discord.AllowedMentions.none(),
         )
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
-        """Учитывает реакцию юзера на DM-сообщение пати."""
-        if payload.guild_id is not None:
-            return
-        if self.bot.user is not None and payload.user_id == self.bot.user.id:
-            return
-        party = self.manager.get_by_dm_message(payload.message_id)
-        if party is None:
-            return
-
-        settings = get_settings()
-        emoji_str = _resolve_emoji(self.bot, payload, settings.party.fallback_emoji)
-        updated = self.manager.add_reaction(payload.message_id, payload.user_id, emoji_str)
-        if updated is not None:
-            await self._refresh_public_embed(updated)
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
-        """Учитывает снятие реакции юзера с DM-сообщения пати."""
-        if payload.guild_id is not None:
-            return
-        if self.bot.user is not None and payload.user_id == self.bot.user.id:
-            return
-        party = self.manager.get_by_dm_message(payload.message_id)
-        if party is None:
-            return
-
-        settings = get_settings()
-        emoji_str = _resolve_emoji(self.bot, payload, settings.party.fallback_emoji)
-        updated = self.manager.remove_reaction(payload.message_id, payload.user_id, emoji_str)
-        if updated is not None:
-            await self._refresh_public_embed(updated)
 
 
 async def setup(bot: commands.Bot) -> None:

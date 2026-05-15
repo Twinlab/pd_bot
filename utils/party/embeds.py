@@ -1,7 +1,9 @@
-"""Builder'ы embed-ов для модуля сбора пати.
+"""Builder embed-а для модуля сбора пати.
 
-Чистые функции — никакого I/O, чтобы их можно было тестировать
-и просто вызывать из кога при каждом обновлении состояния.
+Чистая функция — никакого I/O, чтобы её можно было тестировать и просто
+вызывать из кога при каждом обновлении состояния. Один и тот же embed
+вешается в публичном сообщении и в DM каждому участнику — так что
+обновления видны везде синхронно.
 """
 
 from __future__ import annotations
@@ -29,17 +31,20 @@ def _format_section(
     resolver: MemberResolver,
     initiator_emoji: str,
 ) -> str:
-    """Форматирует список юзеров в виде ``эмодзи упоминание`` по одному на строку."""
+    """Форматирует список юзеров: у инициатора — корона, у остальных просто упоминание."""
     if not user_ids:
         return "_никого_"
     lines: list[str] = []
     for uid in user_ids:
-        emoji = party.display_emoji(uid, initiator_emoji=initiator_emoji)
-        lines.append(f"{emoji} {_format_user(uid, resolver)}")
+        mention = _format_user(uid, resolver)
+        if uid == party.initiator_id:
+            lines.append(f"{initiator_emoji} {mention}")
+        else:
+            lines.append(f"• {mention}")
     return "\n".join(lines)
 
 
-def build_public_embed(
+def build_party_embed(
     party: Party,
     *,
     role_name: str,
@@ -48,28 +53,24 @@ def build_public_embed(
     initiator_emoji: str,
     finalized: bool = False,
 ) -> discord.Embed:
-    """Собирает публичный embed для сообщения в исходном канале.
+    """Универсальный embed для публичного сообщения и DM.
 
     Args:
         party: Текущее состояние пати.
-        role_name: Имя роли — попадает в title как plain text. Discord не
-            парсит markdown/mention в title, поэтому именно строка ``role.name``,
-            а не ``role.mention`` (иначе будет сырой ``<@&id>``).
-        initiator: Объект инициатора (для footer'а).
-        member_resolver: Функция ``user_id -> Member | None`` для резолва упоминаний.
-        initiator_emoji: Эмодзи-корона для инициатора.
-        finalized: Если True — embed закрашивается серым и в title идёт пометка.
-
-    Returns:
-        Готовый :class:`discord.Embed`.
+        role_name: Имя роли plain text — Discord не парсит mention в title.
+        initiator: Инициатор (для footer).
+        member_resolver: ``user_id -> Member | User | None`` для упоминаний.
+        initiator_emoji: Эмодзи рядом с инициатором (по умолчанию корона).
+        finalized: Если True — embed серый, в title пометка «Сбор закрыт».
     """
     title_prefix = "Сбор закрыт" if finalized else "Сбор пати"
     title = f"{title_prefix}: {role_name}"
 
+    # Размер состава (party.count) намеренно НЕ дублируем в description —
+    # он уже виден в заголовке секции «✅ Готовы (X/Y)».
     description_parts: list[str] = []
     if party.comment:
         description_parts.append(f"**Комментарий:** {party.comment}")
-    description_parts.append(f"**Нужно:** {party.count} чел.")
     deadline_unix = int(party.deadline.timestamp())
     if finalized:
         description_parts.append(f"Закрыт <t:{deadline_unix}:R>")
@@ -83,18 +84,23 @@ def build_public_embed(
         color=color,
     )
 
-    ready_value = _format_section(party.ready, party, member_resolver, initiator_emoji)
     embed.add_field(
         name=f"✅ Готовы ({len(party.ready)}/{party.count})",
-        value=ready_value,
+        value=_format_section(party.ready, party, member_resolver, initiator_emoji),
         inline=False,
     )
 
     if party.bench:
-        bench_value = _format_section(party.bench, party, member_resolver, initiator_emoji)
         embed.add_field(
             name=f"🪑 Начинка ({len(party.bench)})",
-            value=bench_value,
+            value=_format_section(party.bench, party, member_resolver, initiator_emoji),
+            inline=False,
+        )
+
+    if party.declined:
+        embed.add_field(
+            name=f"❌ Не пойдут ({len(party.declined)})",
+            value=_format_section(party.declined, party, member_resolver, initiator_emoji),
             inline=False,
         )
 
@@ -104,37 +110,4 @@ def build_public_embed(
             icon_url=initiator.display_avatar.url if hasattr(initiator, "display_avatar") else None,
         )
 
-    return embed
-
-
-def build_dm_embed(
-    party: Party,
-    *,
-    role_name: str,
-    initiator: discord.Member | discord.User,
-    jump_url: str,
-) -> discord.Embed:
-    """Собирает embed, который отправляется юзеру в личку.
-
-    Просит поставить любую реакцию на это сообщение, чтобы записаться.
-    """
-    deadline_unix = int(party.deadline.timestamp())
-    description = (
-        f"{initiator.mention} зовёт в **{role_name}** — закрытие <t:{deadline_unix}:R>.\n"
-        f"Нужно человек: **{party.count}**.\n"
-    )
-    if party.comment:
-        description += f"**Комментарий:** {party.comment}\n"
-    description += (
-        "\nПоставь **любую реакцию** на это сообщение, если готов. "
-        "Снимешь реакцию — выпадешь из списка."
-    )
-
-    embed = discord.Embed(
-        title=f"Сбор пати: {role_name}",
-        description=description,
-        color=discord.Color.green(),
-        url=jump_url,
-    )
-    embed.add_field(name="Окно сбора", value=f"[Перейти]({jump_url})", inline=False)
     return embed

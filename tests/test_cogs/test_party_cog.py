@@ -1,4 +1,4 @@
-"""Тесты для PartyCog."""
+"""Тесты для PartyCog (кнопочная версия)."""
 
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,8 +7,9 @@ import discord
 import pytest
 from discord.ext import commands
 
-from cogs.party import PartyCog, _resolve_emoji
+from cogs.party import PartyCog
 from config.settings import BotSettings
+from utils.party.views import PartyView
 
 
 @pytest.fixture
@@ -19,18 +20,20 @@ def party_settings() -> BotSettings:
 
 @pytest.fixture
 def patched_settings(party_settings: BotSettings):
-    """Подменяет get_settings во всех местах, где он импортирован в коге."""
-    with patch("cogs.party.get_settings", return_value=party_settings):
+    """Подменяет get_settings во всех местах, где он импортирован."""
+    with (
+        patch("cogs.party.get_settings", return_value=party_settings),
+        patch("utils.party.views.get_settings", return_value=party_settings),
+    ):
         yield party_settings
 
 
 @pytest.fixture
 def bot() -> MagicMock:
-    """Бот с .user, get_emoji, get_guild, get_channel, get_user."""
+    """Бот с .user, get_guild, get_channel, get_user."""
     b = MagicMock(spec=commands.Bot)
     b.user = MagicMock(spec=discord.ClientUser)
     b.user.id = 99
-    b.get_emoji = MagicMock(return_value=None)
     b.get_guild = MagicMock(return_value=None)
     b.get_channel = MagicMock(return_value=None)
     b.get_user = MagicMock(return_value=None)
@@ -39,10 +42,7 @@ def bot() -> MagicMock:
 
 @pytest.fixture
 def cog(bot: MagicMock) -> PartyCog:
-    """Свежий PartyCog с замоканным role_reaction_manager (по умолчанию пускает любую роль).
-
-    Тесты, которым нужен другой allowlist (или пустой), переопределяют возвращаемое значение.
-    """
+    """Свежий PartyCog с замоканным role_reaction_manager (по умолчанию пускает role.id=42)."""
     c = PartyCog(bot)
     c.role_reaction_manager = MagicMock()
     c.role_reaction_manager.get_all_role_reactions = AsyncMock(
@@ -62,19 +62,6 @@ def role() -> MagicMock:
     return r
 
 
-def _make_emoji(*, id_: int | None, name: str, animated: bool = False) -> MagicMock:
-    """Готовит мок discord.PartialEmoji с правильно проставленным `name`.
-
-    `MagicMock(name=...)` не работает — `name` это служебное поле самого мока,
-    поэтому атрибуты приходится выставлять отдельными присваиваниями.
-    """
-    emoji = MagicMock()
-    emoji.id = id_
-    emoji.name = name
-    emoji.animated = animated
-    return emoji
-
-
 def make_member(user_id: int, *, can_dm: bool = True, is_bot: bool = False) -> MagicMock:
     """Создаёт мок Member; если can_dm=False — `send` бросает Forbidden."""
     m = MagicMock(spec=discord.Member)
@@ -86,43 +73,28 @@ def make_member(user_id: int, *, can_dm: bool = True, is_bot: bool = False) -> M
     m.display_avatar = MagicMock()
     m.display_avatar.url = "http://avatar"
     if can_dm:
-        sent = MagicMock()
+        sent = MagicMock(spec=discord.Message)
         sent.id = 10000 + user_id
+        sent.edit = AsyncMock()
         m.send = AsyncMock(return_value=sent)
     else:
         m.send = AsyncMock(side_effect=discord.Forbidden(MagicMock(status=403), "DM closed"))
     return m
 
 
-class TestResolveEmoji:
-    """Тесты _resolve_emoji."""
-
-    def test_unicode_emoji(self, bot: MagicMock) -> None:
-        """Unicode-эмодзи возвращается как есть."""
-        payload = MagicMock()
-        payload.emoji = _make_emoji(id_=None, name="🎮", animated=False)
-        assert _resolve_emoji(bot, payload, "💩") == "🎮"
-
-    def test_custom_emoji_visible(self, bot: MagicMock) -> None:
-        """Кастомный эмодзи, который бот видит — форматируется в `<:name:id>`."""
-        bot.get_emoji.return_value = MagicMock()
-        payload = MagicMock()
-        payload.emoji = _make_emoji(id_=12345, name="kekw", animated=False)
-        assert _resolve_emoji(bot, payload, "💩") == "<:kekw:12345>"
-
-    def test_custom_emoji_animated(self, bot: MagicMock) -> None:
-        """Анимированный кастомный эмодзи — `<a:name:id>`."""
-        bot.get_emoji.return_value = MagicMock()
-        payload = MagicMock()
-        payload.emoji = _make_emoji(id_=12345, name="dance", animated=True)
-        assert _resolve_emoji(bot, payload, "💩") == "<a:dance:12345>"
-
-    def test_custom_emoji_invisible_falls_back(self, bot: MagicMock) -> None:
-        """Если бот не видит кастомный эмодзи — fallback из конфига."""
-        bot.get_emoji.return_value = None
-        payload = MagicMock()
-        payload.emoji = _make_emoji(id_=12345, name="secret", animated=False)
-        assert _resolve_emoji(bot, payload, "💩") == "💩"
+def _make_party(cog: PartyCog, *, count: int = 2, comment: str = "x", initiator_id: int = 100):
+    """Хелпер: создаёт пати в менеджере с дефолтами."""
+    return cog.manager.create(
+        guild_id=1,
+        channel_id=10,
+        public_message_id=1000,
+        role_id=42,
+        initiator_id=initiator_id,
+        count=count,
+        comment=comment,
+        created_at=datetime.now(UTC),
+        deadline=datetime.now(UTC) + timedelta(minutes=15),
+    )
 
 
 class TestSendDMs:
@@ -130,10 +102,7 @@ class TestSendDMs:
 
     @pytest.mark.asyncio
     async def test_skips_initiator_and_bots(
-        self,
-        cog: PartyCog,
-        role: MagicMock,
-        patched_settings: BotSettings,
+        self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
     ) -> None:
         """Инициатор и боты пропускаются."""
         initiator = make_member(100)
@@ -144,20 +113,10 @@ class TestSendDMs:
         cog.data_manager = MagicMock()
         cog.data_manager.is_blocked = AsyncMock(return_value=False)
 
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=role.id,
-            initiator_id=initiator.id,
-            count=2,
-            comment="test",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC) + timedelta(minutes=15),
-        )
+        party = _make_party(cog, count=2, initiator_id=initiator.id)
 
         with patch("cogs.party.asyncio.sleep", new=AsyncMock()):
-            delivered = await cog._send_dms(party, role, initiator, "http://jump")
+            delivered = await cog._send_dms(party, role, initiator)
 
         assert delivered == 1
         regular.send.assert_awaited_once()
@@ -166,10 +125,7 @@ class TestSendDMs:
 
     @pytest.mark.asyncio
     async def test_skips_blocked_users(
-        self,
-        cog: PartyCog,
-        role: MagicMock,
-        patched_settings: BotSettings,
+        self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
     ) -> None:
         """Заблокированные юзеры не получают DM."""
         initiator = make_member(100)
@@ -184,20 +140,10 @@ class TestSendDMs:
 
         cog.data_manager.is_blocked = AsyncMock(side_effect=is_blocked)
 
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=role.id,
-            initiator_id=initiator.id,
-            count=2,
-            comment="test",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC) + timedelta(minutes=15),
-        )
+        party = _make_party(cog, count=2, initiator_id=initiator.id)
 
         with patch("cogs.party.asyncio.sleep", new=AsyncMock()):
-            delivered = await cog._send_dms(party, role, initiator, "http://jump")
+            delivered = await cog._send_dms(party, role, initiator)
 
         assert delivered == 1
         blocked.send.assert_not_called()
@@ -205,10 +151,7 @@ class TestSendDMs:
 
     @pytest.mark.asyncio
     async def test_forbidden_does_not_break_loop(
-        self,
-        cog: PartyCog,
-        role: MagicMock,
-        patched_settings: BotSettings,
+        self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
     ) -> None:
         """Если у одного юзера закрыты DM — остальные всё равно получают."""
         initiator = make_member(100)
@@ -219,37 +162,23 @@ class TestSendDMs:
         cog.data_manager = MagicMock()
         cog.data_manager.is_blocked = AsyncMock(return_value=False)
 
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=role.id,
-            initiator_id=initiator.id,
-            count=2,
-            comment="test",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC) + timedelta(minutes=15),
-        )
+        party = _make_party(cog, count=2, initiator_id=initiator.id)
 
         with patch("cogs.party.asyncio.sleep", new=AsyncMock()):
-            delivered = await cog._send_dms(party, role, initiator, "http://jump")
+            delivered = await cog._send_dms(party, role, initiator)
 
         assert delivered == 1
         ok_user.send.assert_awaited_once()
-        # closed_dm попал в send но swallowed
         closed_dm.send.assert_awaited_once()
-        # DM-сообщение зарегистрировано только у успешного
+        # Сохранён только успешный
         assert ok_user.id in party.dm_messages
         assert closed_dm.id not in party.dm_messages
 
     @pytest.mark.asyncio
-    async def test_registers_dm_message_id(
-        self,
-        cog: PartyCog,
-        role: MagicMock,
-        patched_settings: BotSettings,
+    async def test_sends_with_view(
+        self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
     ) -> None:
-        """После успешной отправки DM message_id кладётся в party.dm_messages."""
+        """В send() передаётся View с кнопками."""
         initiator = make_member(100)
         member = make_member(200)
         role.members = [member]
@@ -257,23 +186,178 @@ class TestSendDMs:
         cog.data_manager = MagicMock()
         cog.data_manager.is_blocked = AsyncMock(return_value=False)
 
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=role.id,
-            initiator_id=initiator.id,
-            count=2,
-            comment="test",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC) + timedelta(minutes=15),
-        )
+        party = _make_party(cog, count=2, initiator_id=initiator.id)
 
         with patch("cogs.party.asyncio.sleep", new=AsyncMock()):
-            await cog._send_dms(party, role, initiator, "http://jump")
+            await cog._send_dms(party, role, initiator)
 
-        assert party.dm_messages[200] == 10200
-        assert cog.manager.get_by_dm_message(10200) is party
+        member.send.assert_awaited_once()
+        kwargs = member.send.await_args.kwargs
+        assert "embed" in kwargs
+        assert isinstance(kwargs["view"], PartyView)
+
+    @pytest.mark.asyncio
+    async def test_stores_message_object(
+        self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
+    ) -> None:
+        """Возвращённый Message сохраняется в party.dm_messages для последующих edit."""
+        initiator = make_member(100)
+        member = make_member(200)
+        role.members = [member]
+
+        cog.data_manager = MagicMock()
+        cog.data_manager.is_blocked = AsyncMock(return_value=False)
+
+        party = _make_party(cog, count=2, initiator_id=initiator.id)
+
+        with patch("cogs.party.asyncio.sleep", new=AsyncMock()):
+            await cog._send_dms(party, role, initiator)
+
+        assert party.dm_messages[200] is member.send.return_value
+
+
+class TestRefreshAllEmbeds:
+    """Тесты _refresh_all_embeds — публичный + DM-сообщения."""
+
+    @pytest.mark.asyncio
+    async def test_edits_all_dm_messages(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """edit() вызывается на каждом DM-сообщении в party.dm_messages."""
+        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
+
+        party = _make_party(cog, count=2)
+        msg_a = MagicMock(spec=discord.Message)
+        msg_a.edit = AsyncMock()
+        msg_b = MagicMock(spec=discord.Message)
+        msg_b.edit = AsyncMock()
+        party.dm_messages = {200: msg_a, 300: msg_b}
+
+        await cog._refresh_all_embeds(party)
+
+        msg_a.edit.assert_awaited_once()
+        msg_b.edit.assert_awaited_once()
+        cog._refresh_public_embed.assert_awaited_once_with(party)
+
+    @pytest.mark.asyncio
+    async def test_dm_edit_failure_does_not_break_loop(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Если у одного DM edit упал — остальные всё равно обновляются."""
+        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
+
+        party = _make_party(cog, count=2)
+        broken = MagicMock(spec=discord.Message)
+        broken.edit = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
+        ok = MagicMock(spec=discord.Message)
+        ok.edit = AsyncMock()
+        party.dm_messages = {200: broken, 300: ok}
+
+        await cog._refresh_all_embeds(party)
+
+        ok.edit.assert_awaited_once()
+
+
+class TestPartyView:
+    """Тесты кнопок «Готов» / «Не готов»."""
+
+    @pytest.mark.asyncio
+    async def test_ready_button_marks_ready(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Нажатие «Готов» переводит юзера в joined и вызывает _refresh_all_embeds."""
+        cog._refresh_all_embeds = AsyncMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=3)
+        view = PartyView(cog=cog, party=party)
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=200)
+        interaction.response = MagicMock()
+        interaction.response.defer = AsyncMock()
+        interaction.response.send_message = AsyncMock()
+
+        # discord.py: callback кнопки уже знает свой view (через дескриптор).
+        await view.ready_button.callback(interaction)
+
+        assert 200 in party.joined_order
+        interaction.response.defer.assert_awaited_once()
+        cog._refresh_all_embeds.assert_awaited_once_with(party)
+
+    @pytest.mark.asyncio
+    async def test_decline_button_marks_declined(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Нажатие «Не готов» переводит юзера в declined."""
+        cog._refresh_all_embeds = AsyncMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=3)
+        view = PartyView(cog=cog, party=party)
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=200)
+        interaction.response = MagicMock()
+        interaction.response.defer = AsyncMock()
+        interaction.response.send_message = AsyncMock()
+
+        await view.decline_button.callback(interaction)
+
+        assert 200 in party.declined_order
+        interaction.response.defer.assert_awaited_once()
+        cog._refresh_all_embeds.assert_awaited_once_with(party)
+
+    @pytest.mark.asyncio
+    async def test_cooldown_blocks_repeated_press(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Второе нажатие в пределах кулдауна — отказ ephemeral, embed не трогается."""
+        cog._refresh_all_embeds = AsyncMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=3)
+        view = PartyView(cog=cog, party=party)
+
+        interaction1 = MagicMock(spec=discord.Interaction)
+        interaction1.user = MagicMock(id=200)
+        interaction1.response = MagicMock()
+        interaction1.response.defer = AsyncMock()
+        interaction1.response.send_message = AsyncMock()
+
+        await view.ready_button.callback(interaction1)
+        assert cog._refresh_all_embeds.await_count == 1
+
+        # Второе нажатие сразу же — должно быть отвергнуто.
+        interaction2 = MagicMock(spec=discord.Interaction)
+        interaction2.user = MagicMock(id=200)
+        interaction2.response = MagicMock()
+        interaction2.response.defer = AsyncMock()
+        interaction2.response.send_message = AsyncMock()
+
+        await view.decline_button.callback(interaction2)
+
+        # Defer не вызывался, ephemeral отправлен, embed не обновлялся.
+        interaction2.response.defer.assert_not_called()
+        interaction2.response.send_message.assert_awaited_once()
+        assert "подожди" in interaction2.response.send_message.await_args.args[0]
+        assert cog._refresh_all_embeds.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_finalized_party_blocks_press(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Если пати уже закрыт — кнопка отвечает ephemeral про закрытие."""
+        cog._refresh_all_embeds = AsyncMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=3)
+        view = PartyView(cog=cog, party=party)
+        cog.manager.cancel(party.id)
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=200)
+        interaction.response = MagicMock()
+        interaction.response.defer = AsyncMock()
+        interaction.response.send_message = AsyncMock()
+
+        await view.ready_button.callback(interaction)
+
+        interaction.response.defer.assert_not_called()
+        interaction.response.send_message.assert_awaited_once()
+        assert "закрыт" in interaction.response.send_message.await_args.args[0].lower()
 
 
 class TestFinalize:
@@ -281,10 +365,7 @@ class TestFinalize:
 
     @pytest.mark.asyncio
     async def test_pings_ready_users(
-        self,
-        cog: PartyCog,
-        bot: MagicMock,
-        patched_settings: BotSettings,
+        self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
     ) -> None:
         """Полный состав → пинги по шаблону, роль как plain-text, без `<@&id>`."""
         guild = MagicMock(spec=discord.Guild)
@@ -302,20 +383,8 @@ class TestFinalize:
         channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
         bot.get_channel.return_value = channel
 
-        # count=2 → нужно ровно 2 готовых (инициатор + 1 реакция). Полный состав.
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=role.id,
-            initiator_id=100,
-            count=2,
-            comment="идём ранкед",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC),
-        )
-        cog.manager.register_dm(party.id, user_id=200, dm_message_id=2000)
-        cog.manager.add_reaction(2000, user_id=200, emoji="🎮")
+        party = _make_party(cog, count=2, comment="идём ранкед")
+        cog.manager.mark_ready(party.id, user_id=200)
 
         await cog._finalize(party)
 
@@ -324,17 +393,13 @@ class TestFinalize:
         assert "<@100>" in sent_text
         assert "<@200>" in sent_text
         assert "идём ранкед" in sent_text
-        # Имя роли — да, mention роли — нет
         assert "Гремлины" in sent_text
         assert "<@&42>" not in sent_text
         assert party.finalized is True
 
     @pytest.mark.asyncio
     async def test_incomplete_party_uses_empty_template(
-        self,
-        cog: PartyCog,
-        bot: MagicMock,
-        patched_settings: BotSettings,
+        self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
     ) -> None:
         """Если набрано меньше count — переиспользуем empty_finished_message без пингов."""
         guild = MagicMock(spec=discord.Guild)
@@ -352,203 +417,42 @@ class TestFinalize:
         channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
         bot.get_channel.return_value = channel
 
-        # count=3, но в ready только инициатор (1 < 3) — неполный состав.
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=role.id,
-            initiator_id=100,
-            count=3,
-            comment="тестим",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC),
-        )
+        party = _make_party(cog, count=3, comment="тестим")
 
         await cog._finalize(party)
 
         channel.send.assert_awaited_once()
         sent_text = channel.send.await_args.args[0]
         assert "Никого не собрали" in sent_text
-        # Никого не пингуем — даже инициатора
         assert "<@100>" not in sent_text
-        # И роль остаётся plain-text
         assert "<@&42>" not in sent_text
 
     @pytest.mark.asyncio
-    async def test_empty_pings_uses_empty_template(
-        self,
-        cog: PartyCog,
-        bot: MagicMock,
-        patched_settings: BotSettings,
+    async def test_finalize_disables_dm_buttons(
+        self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
     ) -> None:
-        """Если никого нет — используется empty_finished_message (без пингов)."""
-        guild = MagicMock(spec=discord.Guild)
-        role = MagicMock(spec=discord.Role)
-        role.id = 42
-        role.name = "x"
-        role.mention = "<@&42>"
-        guild.get_role = MagicMock(return_value=role)
-        bot.get_guild.return_value = guild
-
-        channel = MagicMock(spec=discord.TextChannel)
-        channel.send = AsyncMock()
-        channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
-        bot.get_channel.return_value = channel
-
-        # Пати без count = 0 не сделать (min_count=1), но можем эмулировать пустоту
-        # путём искусственного очищения joined_order:
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=role.id,
-            initiator_id=100,
-            count=2,
-            comment="x",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC),
-        )
-        party.joined_order.clear()
+        """Финализация снимает кнопки во всех DM (edit с view=None)."""
+        bot.get_guild.return_value = None  # без публикации в канал — не важно
+        party = _make_party(cog, count=3)
+        msg_a = MagicMock(spec=discord.Message)
+        msg_a.edit = AsyncMock()
+        party.dm_messages = {200: msg_a}
 
         await cog._finalize(party)
 
-        channel.send.assert_awaited_once()
-        sent_text = channel.send.await_args.args[0]
-        assert "Никого не собрали" in sent_text
+        msg_a.edit.assert_awaited_once()
+        kwargs = msg_a.edit.await_args.kwargs
+        assert kwargs.get("view") is None
 
     @pytest.mark.asyncio
     async def test_finalize_idempotent(
-        self,
-        cog: PartyCog,
-        bot: MagicMock,
-        patched_settings: BotSettings,
+        self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
     ) -> None:
         """Повторный _finalize ничего не делает."""
         bot.get_guild.return_value = None
-
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1,
-            role_id=42,
-            initiator_id=100,
-            count=1,
-            comment="",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC),
-        )
+        party = _make_party(cog, count=1)
         party.finalized = True
-
-        # Не должен валиться и не должен ничего делать
         await cog._finalize(party)
-
-
-class TestReactionListeners:
-    """Тесты on_raw_reaction_add / on_raw_reaction_remove."""
-
-    @pytest.mark.asyncio
-    async def test_ignores_guild_reactions(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Реакции на гилдовые сообщения игнорируются."""
-        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
-        payload = MagicMock()
-        payload.guild_id = 555
-        payload.user_id = 1
-        payload.message_id = 9999
-
-        await cog.on_raw_reaction_add(payload)
-        cog._refresh_public_embed.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_ignores_unknown_dm_message(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Реакции на DM, не связанные ни с одним пати — игнорируются."""
-        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
-        payload = MagicMock()
-        payload.guild_id = None
-        payload.user_id = 1
-        payload.message_id = 9999
-
-        await cog.on_raw_reaction_add(payload)
-        cog._refresh_public_embed.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_ignores_self_reactions(
-        self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
-    ) -> None:
-        """Реакции самого бота игнорируются."""
-        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
-        payload = MagicMock()
-        payload.guild_id = None
-        payload.user_id = bot.user.id
-        payload.message_id = 9999
-
-        await cog.on_raw_reaction_add(payload)
-        cog._refresh_public_embed.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_add_reaction_updates_embed(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Валидная реакция → manager обновляется + embed перерисовывается."""
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=42,
-            initiator_id=100,
-            count=2,
-            comment="x",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC) + timedelta(minutes=15),
-        )
-        cog.manager.register_dm(party.id, user_id=200, dm_message_id=2000)
-        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
-
-        payload = MagicMock()
-        payload.guild_id = None
-        payload.user_id = 200
-        payload.message_id = 2000
-        payload.emoji = _make_emoji(id_=None, name="🎮", animated=False)
-
-        await cog.on_raw_reaction_add(payload)
-
-        assert party.reactions[200] == "🎮"
-        cog._refresh_public_embed.assert_awaited_once_with(party)
-
-    @pytest.mark.asyncio
-    async def test_remove_reaction_updates_embed(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Снятие реакции → юзер выбивается + embed перерисовывается."""
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=42,
-            initiator_id=100,
-            count=2,
-            comment="x",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC) + timedelta(minutes=15),
-        )
-        cog.manager.register_dm(party.id, user_id=200, dm_message_id=2000)
-        cog.manager.add_reaction(2000, user_id=200, emoji="🎮")
-        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
-
-        payload = MagicMock()
-        payload.guild_id = None
-        payload.user_id = 200
-        payload.message_id = 2000
-        payload.emoji = _make_emoji(id_=None, name="🎮", animated=False)
-
-        await cog.on_raw_reaction_remove(payload)
-
-        assert 200 not in party.reactions
-        cog._refresh_public_embed.assert_awaited_once_with(party)
 
 
 class TestBlocklistCommands:
@@ -629,7 +533,7 @@ class TestBlocklistCommands:
 
 
 class TestPartyCommandGuards:
-    """Проверки входной валидации команды /party (без вызова Discord)."""
+    """Проверки входной валидации команды /party."""
 
     @pytest.mark.asyncio
     async def test_blocked_user_rejected(
@@ -641,7 +545,7 @@ class TestPartyCommandGuards:
         ctx.guild = MagicMock(spec=discord.Guild, id=1)
         ctx.author = MagicMock(spec=discord.Member, id=100)
 
-        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", members=[])
+        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", name="ok", members=[])
 
         with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
             await cog.party.callback(cog, ctx, role=role, when=15, count=3, comment="x")
@@ -659,7 +563,7 @@ class TestPartyCommandGuards:
         ctx.guild = MagicMock(spec=discord.Guild, id=1)
         ctx.author = MagicMock(spec=discord.Member, id=100)
 
-        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", members=[])
+        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", name="ok", members=[])
 
         with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
             await cog.party.callback(cog, ctx, role=role, when=0, count=3, comment="x")
@@ -677,7 +581,7 @@ class TestPartyCommandGuards:
         ctx.guild = MagicMock(spec=discord.Guild, id=1)
         ctx.author = MagicMock(spec=discord.Member, id=100)
 
-        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", members=[])
+        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", name="ok", members=[])
 
         with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
             await cog.party.callback(cog, ctx, role=role, when=999, count=3, comment="x")
@@ -695,7 +599,7 @@ class TestPartyCommandGuards:
         ctx.guild = MagicMock(spec=discord.Guild, id=1)
         ctx.author = MagicMock(spec=discord.Member, id=100)
 
-        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", members=[])
+        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", name="ok", members=[])
 
         with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
             await cog.party.callback(cog, ctx, role=role, when=15, count=1000, comment="x")
@@ -717,7 +621,6 @@ class TestPartyCommandGuards:
         ctx.guild = MagicMock(spec=discord.Guild, id=1)
         ctx.author = MagicMock(spec=discord.Member, id=100)
 
-        # role.id=999 — НЕ из allowlist
         role = MagicMock(spec=discord.Role, id=999, mention="<@&999>", name="random", members=[])
 
         with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
@@ -725,31 +628,6 @@ class TestPartyCommandGuards:
 
         send_err.assert_awaited_once()
         assert "role_assign" in send_err.await_args.args[1]
-
-    @pytest.mark.asyncio
-    async def test_role_in_allowlist_passes_role_check(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Если роль в allowlist — проверка роли проходит, ошибка приходит уже от
-        дальнейших шагов (тут — длительность вне границ).
-        """
-        cog.data_manager.is_blocked = AsyncMock(return_value=False)
-        cog.role_reaction_manager.get_all_role_reactions = AsyncMock(
-            return_value=[{"role_id": 42, "emoji": "🎮", "message_id": 1}]
-        )
-
-        ctx = MagicMock(spec=commands.Context)
-        ctx.guild = MagicMock(spec=discord.Guild, id=1)
-        ctx.author = MagicMock(spec=discord.Member, id=100)
-
-        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", name="ok", members=[])
-
-        with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
-            await cog.party.callback(cog, ctx, role=role, when=0, count=2, comment="x")
-
-        send_err.assert_awaited_once()
-        # Сообщение про минимум — не про allowlist
-        assert "role_assign" not in send_err.await_args.args[1]
 
     @pytest.mark.asyncio
     async def test_dm_invocation_rejected(
@@ -761,7 +639,7 @@ class TestPartyCommandGuards:
         ctx.guild = None
         ctx.author = MagicMock(spec=discord.User, id=100)
 
-        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", members=[])
+        role = MagicMock(spec=discord.Role, id=42, mention="<@&42>", name="ok", members=[])
 
         with patch("cogs.party.safe_send_error", new_callable=AsyncMock) as send_err:
             await cog.party.callback(cog, ctx, role=role, when=15, count=3, comment="x")
@@ -790,17 +668,7 @@ class TestPartyCancel:
     ) -> None:
         """Если есть активное — отменяется и таймер тоже."""
         bot.get_guild.return_value = None
-        party = cog.manager.create(
-            guild_id=1,
-            channel_id=10,
-            public_message_id=1000,
-            role_id=42,
-            initiator_id=100,
-            count=1,
-            comment="",
-            created_at=datetime.now(UTC),
-            deadline=datetime.now(UTC) + timedelta(minutes=15),
-        )
+        party = _make_party(cog, count=1)
         timer = MagicMock()
         timer.cancel = MagicMock()
         cog._timers[party.id] = timer
