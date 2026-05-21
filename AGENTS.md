@@ -7,7 +7,7 @@ Multifunctional Discord bot built with Python 3.13+ and `discord.py`. Features D
 - **Runtime**: Python 3.13+
 - **Framework**: `discord.py[voice] >= 2.7` (with the `davey` E2EE library for the new Voice Gateway)
 - **Config**: Pydantic v2 + `pydantic-settings` (`.env` + `config/bot_settings.yaml`)
-- **DB**: SQLite via Tortoise ORM (+ aerich for migrations)
+- **DB**: SQLite via Tortoise ORM; миграции схемы делаются вручную при изменении моделей
 - **Audio**: Lavalink v4 (separate JVM container) + `wavelink 3.x` Python client; plugins `youtube-source 1.18.x` (OAuth + multi-client bot-detection bypass) and `LavaSrc 4.x` (Spotify/Apple Music/Deezer/Yandex)
 - **Lint/Format**: Ruff (line-length 100, double quotes)
 - **Type-check**: mypy (strict-ish; see `pyproject.toml` overrides)
@@ -128,7 +128,7 @@ Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
 - Deleting files or directories
 - Editing `.env`, `.env.example` secret values, anything under `.github/workflows/`
 - `docker compose up/down`, manual deploy actions
-- Touching `aerich` migrations or DB schema of `utils/models.py` without confirming a migration plan
+- Изменение DB schema (`utils/models.py`) без согласованного плана ручной миграции прод-БД
 
 ## Git & PR Conventions
 

@@ -8,6 +8,12 @@ import aiohttp
 
 logger = logging.getLogger("bot.utils.twitch_api")
 
+# Таймауты на сетевые запросы к Twitch API.
+# Без них зависшее соединение блокирует фоновую задачу check_streams навсегда,
+# и уведомления о стримах перестают приходить до рестарта бота.
+# total — суммарное время на запрос, connect — время на установление TCP/TLS-соединения.
+_TWITCH_TIMEOUT = aiohttp.ClientTimeout(total=15, connect=5)
+
 
 class TwitchAPI:
     """
@@ -43,9 +49,9 @@ class TwitchAPI:
         self.session: aiohttp.ClientSession | None = None
 
     def _ensure_session(self) -> aiohttp.ClientSession:
-        """Гарантирует наличие открытой сессии."""
+        """Гарантирует наличие открытой сессии с настроенным таймаутом."""
         if self.session is None or self.session.closed:
-            self.session = aiohttp.ClientSession()
+            self.session = aiohttp.ClientSession(timeout=_TWITCH_TIMEOUT)
         return self.session
 
     async def initialize(self) -> None:
@@ -103,6 +109,9 @@ class TwitchAPI:
                         f"Ошибка при получении токена доступа: {response.status} - {error_text}"
                     )
                     return False
+        except TimeoutError:
+            logger.error("Таймаут при получении токена Twitch API (>%s)", _TWITCH_TIMEOUT.total)
+            return False
         except Exception as e:
             logger.error(f"Исключение при получении токена доступа: {e}", exc_info=True)
             return False
@@ -153,6 +162,9 @@ class TwitchAPI:
                     error_text = await response.text()
                     logger.error(f"Ошибка API: {response.status} - {error_text}")
                     return None
+        except TimeoutError:
+            logger.error("Таймаут запроса к Twitch API (>%s сек): %s", _TWITCH_TIMEOUT.total, url)
+            return None
         except Exception as e:
             logger.error(f"Исключение при запросе к API: {e}", exc_info=True)
             return None

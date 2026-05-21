@@ -79,6 +79,44 @@ class TestUpdateActivity:
             # Не должно выбрасывать исключение, а логировать ошибку
             await manager.update_activity(123, "Dota 2", 3600)
 
+    @pytest.mark.asyncio
+    async def test_update_activity_race_condition_recovers(self, manager):
+        """Тест восстановления после race condition между update→0 и create().
+
+        Имитируем ситуацию: первый update вернул 0 (записи нет), но между ним
+        и нашим create() параллельный вызов успел создать запись — наш create()
+        падает на IntegrityError. Менеджер должен повторить update, чтобы наша
+        дельта секунд не потерялась.
+        """
+        from tortoise.exceptions import IntegrityError
+
+        first_update = AsyncMock(return_value=0)  # сначала записи не было
+        retry_update = AsyncMock(return_value=1)  # после конфликта повторный update
+        # filter() вызывается дважды: первый раз — попытка update,
+        # второй раз — повторный update после IntegrityError.
+        filter_mock = MagicMock()
+        filter_mock.side_effect = [
+            MagicMock(update=first_update),
+            MagicMock(update=retry_update),
+        ]
+
+        with (
+            patch("utils.activity_data_manager.DailyActivity.filter", filter_mock),
+            patch(
+                "utils.activity_data_manager.DailyActivity.create",
+                new_callable=AsyncMock,
+                side_effect=IntegrityError("UNIQUE constraint failed"),
+            ) as mock_create,
+        ):
+            await manager.update_activity(123, "Dota 2", 3600)
+
+            # Первый update попытался прибавить дельту, но строки не было.
+            first_update.assert_awaited_once()
+            # Create упал из-за race condition.
+            mock_create.assert_awaited_once()
+            # После IntegrityError повторный update сработал и прибавил секунды.
+            retry_update.assert_awaited_once()
+
 
 class TestGetDailyStats:
     """Тесты метода get_daily_stats."""

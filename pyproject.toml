@@ -26,7 +26,6 @@ dependencies = [
     "ujson",
     "wavelink>=3.5.2",
     "tortoise-orm",
-    "aerich",
 ]
 
 [tool.setuptools]

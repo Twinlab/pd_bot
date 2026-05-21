@@ -2,6 +2,7 @@
 
 import logging
 import time
+from typing import Any
 
 from .models import TwitchStreamer
 
@@ -213,7 +214,7 @@ class TwitchDataManager:
             twitch_username = twitch_username.lower()
             current_time = int(time.time())
 
-            update_data = {"last_notification_time": current_time}
+            update_data: dict[str, Any] = {"last_notification_time": current_time}
             if stream_id:
                 update_data["last_stream_id"] = stream_id
 

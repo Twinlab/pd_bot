@@ -7,10 +7,15 @@
 """
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("bot.utils.dota_utils")
+
+# Stratz GraphQL отдаёт позицию игрока в виде строки вида "POSITION_1", "POSITION_2" и т.д.
+# Этот паттерн извлекает цифру, чтобы привести её к ключам словаря ролей.
+_POSITION_PATTERN = re.compile(r"^POSITION_(\d+)$")
 
 # --- Функции форматирования данных Dota 2 ---
 
@@ -18,16 +23,24 @@ logger = logging.getLogger("bot.utils.dota_utils")
 def get_role(player_position: str | None) -> str:
     """Преобразует номер позиции игрока в читаемое название роли.
 
+    Принимает как короткий формат ('1'–'5'), так и формат Stratz ('POSITION_1'–'POSITION_5').
+
     Args:
-        player_position: Строка с номером позиции ('1'-'5'), либо None.
+        player_position: Строка с позицией игрока, либо None.
 
     Returns:
         Название роли ('Керри', 'Мидер', 'Оффлейнер', 'Саппорт') или 'Неизвестно'.
     """
     if not player_position:
         return "Неизвестно"
+
+    value = str(player_position)
+    match = _POSITION_PATTERN.match(value)
+    if match:
+        value = match.group(1)
+
     roles = {"1": "Керри", "2": "Мидер", "3": "Оффлейнер", "4": "Саппорт", "5": "Саппорт"}
-    return roles.get(str(player_position), "Неизвестно")
+    return roles.get(value, "Неизвестно")
 
 
 def convert_average_rank_to_medal(average_rank: int | None) -> str:

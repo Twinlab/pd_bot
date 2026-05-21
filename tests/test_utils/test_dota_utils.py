@@ -1,14 +1,34 @@
+import pytest
+
 from utils.dota_utils import convert_average_rank_to_medal, get_game_mode, get_role, get_win_rates
 
 
-def test_get_role() -> None:
-    assert get_role("1") == "Керри"
-    assert get_role("2") == "Мидер"
-    assert get_role("3") == "Оффлейнер"
-    assert get_role("4") == "Саппорт"
-    assert get_role("5") == "Саппорт"
-    assert get_role(None) == "Неизвестно"
-    assert get_role("unknown") == "Неизвестно"
+@pytest.mark.parametrize(
+    "player_position,expected",
+    [
+        # Короткий формат (legacy / OpenDota совместимость).
+        ("1", "Керри"),
+        ("2", "Мидер"),
+        ("3", "Оффлейнер"),
+        ("4", "Саппорт"),
+        ("5", "Саппорт"),
+        # Реальный формат Stratz GraphQL.
+        ("POSITION_1", "Керри"),
+        ("POSITION_2", "Мидер"),
+        ("POSITION_3", "Оффлейнер"),
+        ("POSITION_4", "Саппорт"),
+        ("POSITION_5", "Саппорт"),
+        # Неизвестные/пустые значения.
+        (None, "Неизвестно"),
+        ("", "Неизвестно"),
+        ("unknown", "Неизвестно"),
+        ("POSITION_0", "Неизвестно"),
+        ("POSITION_6", "Неизвестно"),
+        ("position_1", "Неизвестно"),  # регистр важен — Stratz всегда ВЕРХНИЙ
+    ],
+)
+def test_get_role(player_position: str | None, expected: str) -> None:
+    assert get_role(player_position) == expected
 
 
 def test_convert_average_rank_to_medal() -> None:

@@ -6,7 +6,7 @@
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, cast
 
 import aiohttp
 
@@ -16,7 +16,24 @@ logger = logging.getLogger("bot.utils.dota_api")
 
 CACHE_TTL = 300  # 5 минут
 
+# Лимиты ретраев. На 429 ждём Retry-After (но не больше потолка),
+# на 5xx — обычный экспоненциальный backoff.
+_MAX_RETRY_AFTER_SECONDS = 60.0
+_DEFAULT_RETRY_AFTER = 5.0
+
 _session: aiohttp.ClientSession | None = None
+
+
+class StratzRateLimited(Exception):
+    """Stratz API вернул 429. Нужно подождать `retry_after` секунд."""
+
+    def __init__(self, retry_after: float) -> None:
+        super().__init__(f"Stratz rate limit, retry after {retry_after}s")
+        self.retry_after = retry_after
+
+
+class StratzNonRetryable(Exception):
+    """Невозвратная ошибка Stratz API: 4xx (кроме 429), GraphQL-ошибки и т.п."""
 
 
 def _get_session() -> aiohttp.ClientSession:
@@ -43,7 +60,7 @@ async def get_cached_response(key: str) -> dict[str, Any] | None:
             current_time = time.time()
             if cache_entry.timestamp + cache_entry.ttl > current_time:
                 logger.debug(f"Кэш найден для {key}")
-                return cache_entry.data
+                return cast(dict[str, Any], cache_entry.data)
             else:
                 # Кэш протух, удаляем
                 await cache_entry.delete()
@@ -68,6 +85,21 @@ async def save_to_cache(key: str, data: dict[str, Any], ttl: int = CACHE_TTL) ->
         logger.error(f"Ошибка при сохранении кэша: {e}")
 
 
+def _parse_retry_after(value: str | None) -> float:
+    """Парсит заголовок Retry-After (секунды) с потолком и дефолтом.
+
+    Stratz обычно отдаёт целое число секунд. HTTP-Date формат не поддерживаем —
+    в этом случае возвращаем дефолт.
+    """
+    if not value:
+        return _DEFAULT_RETRY_AFTER
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return _DEFAULT_RETRY_AFTER
+    return max(0.0, min(seconds, _MAX_RETRY_AFTER_SECONDS))
+
+
 async def query_api(
     query: str,
     url: str,
@@ -75,7 +107,12 @@ async def query_api(
     variables: dict[str, Any] | None = None,
     cache_key: str | None = None,
 ) -> dict[str, Any] | None:
-    """Выполняет GraphQL-запрос к API Stratz."""
+    """Выполняет GraphQL-запрос к API Stratz.
+
+    Возвращает данные при успехе или None для transient-ошибок (5xx, сеть,
+    timeout) — их имеет смысл ретраить. Для нон-retryable случаев бросает
+    `StratzRateLimited` (429) или `StratzNonRetryable` (4xx, GraphQL errors).
+    """
     # 1. Проверка кэша
     if cache_key:
         cached_data = await get_cached_response(cache_key)
@@ -94,15 +131,37 @@ async def query_api(
             headers=request_headers,
             timeout=aiohttp.ClientTimeout(total=10),
         ) as response:
-            if response.status != 200:
-                logger.error(f"HTTP ошибка: {response.status}")
+            status = response.status
+
+            # 429: получили rate limit — отдаём Retry-After через исключение,
+            # чтобы retry-обёртка могла подождать ровно столько, сколько нужно,
+            # вместо слепого backoff.
+            if status == 429:
+                retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+                logger.warning(
+                    "Stratz API rate limit (429): ждём %s сек перед повтором",
+                    retry_after,
+                )
+                raise StratzRateLimited(retry_after)
+
+            # 4xx (кроме 429): запрос некорректен или не авторизован —
+            # ретрай не поможет.
+            if 400 <= status < 500:
+                error_text = await response.text()
+                logger.error("Stratz API клиентская ошибка %s: %s", status, error_text[:200])
+                raise StratzNonRetryable(f"HTTP {status}")
+
+            # 5xx и прочее: transient, имеет смысл ретраить.
+            if status != 200:
+                logger.error(f"HTTP ошибка: {status}")
                 return None
 
             json_data = await response.json()
 
             if "errors" in json_data:
+                # GraphQL-ошибки: формат запроса/прав, ретрай не поможет.
                 logger.error(f"Ошибки GraphQL: {json_data['errors']}")
-                return None
+                raise StratzNonRetryable("GraphQL errors")
 
             data = json_data.get("data")
             if not data:
@@ -112,8 +171,14 @@ async def query_api(
             if cache_key:
                 await save_to_cache(cache_key, data)
 
-            return data
+            return cast(dict[str, Any], data)
 
+    except (StratzRateLimited, StratzNonRetryable):
+        # Пробрасываем в retry-обёртку — она решит, что делать.
+        raise
+    except TimeoutError:
+        logger.warning("Таймаут запроса к Stratz API")
+        return None
     except Exception as e:
         logger.error(f"Ошибка API: {e}")
         return None
@@ -127,16 +192,37 @@ async def query_api_with_retry(
     cache_key: str | None = None,
     max_retries: int = 3,
 ) -> dict[str, Any] | None:
-    """Обертка с повторными попытками."""
-    retry_delay = 1
+    """Обёртка с повторными попытками.
+
+    Поведение:
+        - успех → возвращаем результат;
+        - transient-ошибка (None из `query_api`) → экспоненциальный backoff;
+        - 429 (`StratzRateLimited`) → ждём Retry-After, попытка не считается
+          обычным retry;
+        - non-retryable (`StratzNonRetryable`) → сразу возвращаем None,
+          чтобы не долбить API с заведомо неправильным запросом.
+    """
+    retry_delay: float = 1.0
     for attempt in range(max_retries):
-        result = await query_api(query, url, headers, variables, cache_key)
+        try:
+            result = await query_api(query, url, headers, variables, cache_key)
+        except StratzRateLimited as exc:
+            await asyncio.sleep(exc.retry_after)
+            # Не увеличиваем счётчик попыток — мы просто ждали лимит.
+            continue
+        except StratzNonRetryable:
+            # 4xx или GraphQL-ошибка — повторять бесполезно.
+            return None
+
         if result is not None:
             return result
 
-        logger.warning(f"Попытка {attempt + 1}/{max_retries} не удалась. Ждем {retry_delay}с...")
-        await asyncio.sleep(retry_delay)
-        retry_delay *= 2
+        if attempt < max_retries - 1:
+            logger.warning(
+                "Попытка %s/%s не удалась. Ждём %sс...", attempt + 1, max_retries, retry_delay
+            )
+            await asyncio.sleep(retry_delay)
+            retry_delay *= 2
 
     return None
 

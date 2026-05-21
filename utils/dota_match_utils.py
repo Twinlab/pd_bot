@@ -5,6 +5,7 @@
 Включает GraphQL запросы, функции форматирования данных и создания интерактивных сообщений.
 """
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 
@@ -113,28 +114,39 @@ async def get_match_data(
         f"Используется ключ Stratz API: ...{stratz_api_key[-4:] if stratz_api_key else 'None'}"
     )
 
-    # 1. Находим самый последний матч среди всех привязанных Steam ID пользователя
-    latest_match = {"id": None, "startDateTime": 0}  # Храним ID и время последнего найденного матча
-    latest_player_id = None  # Steam ID, которому принадлежит последний матч
-
+    # 1. Находим самый последний матч среди всех привязанных Steam ID пользователя.
+    # Запросы Stratz по разным Steam ID не зависят друг от друга, поэтому пускаем
+    # их параллельно через asyncio.gather. Latency = max(t_i), а не sum(t_i).
     logger.debug(
         f"Поиск последнего матча для Discord ID {user_id} среди Steam ID: {user_links[user_id]}"
     )
-    # Перебираем все привязанные Steam ID
-    for player_id in user_links[user_id]:
-        # Запрашиваем последний матч для текущего Steam ID (используем кэш)
-        cache_key = f"matches_{player_id}_latest"
-        response = await query_api_with_retry(
-            QUERY_MATCHES, url, headers, {"player_id": player_id}, cache_key
-        )
+    player_ids = list(user_links[user_id])
+    matches_responses = await asyncio.gather(
+        *(
+            query_api_with_retry(
+                QUERY_MATCHES,
+                url,
+                headers,
+                {"player_id": player_id},
+                f"matches_{player_id}_latest",
+            )
+            for player_id in player_ids
+        ),
+        return_exceptions=True,
+    )
 
-        # Проверяем валидность ответа и наличие матчей
+    latest_match: dict = {"id": None, "startDateTime": 0}
+    latest_player_id: int | None = None
+
+    for player_id, response in zip(player_ids, matches_responses, strict=True):
+        if isinstance(response, BaseException):
+            logger.warning("Ошибка при запросе матчей для Steam ID %s: %s", player_id, response)
+            continue
         if response and response.get("player") and response["player"].get("matches"):
-            match = response["player"]["matches"][0]  # Берем первый (последний) матч
-            # Если этот матч новее, чем сохраненный `latest_match`, обновляем
+            match = response["player"]["matches"][0]
             if match["startDateTime"] > latest_match["startDateTime"]:
                 latest_match = match
-                latest_player_id = player_id  # Запоминаем Steam ID этого матча
+                latest_player_id = player_id
                 logger.debug(f"Найден более новый матч {match['id']} для Steam ID {player_id}")
 
     # Если не найдено ни одного матча ни для одного Steam ID
@@ -146,26 +158,33 @@ async def get_match_data(
         f"Последний матч для {user_id}: ID {latest_match['id']} (Steam ID: {latest_player_id})"
     )
 
-    # 2. Получаем детальную информацию о найденном последнем матче
+    # 2. Параллельно тянем три независимых запроса:
+    #    - детали матча (QUERY_MATCH);
+    #    - недельную статистику игрока (QUERY_WEEKLY);
+    #    - словарь предметов (fetch_items_data, чаще всего из кэша).
     match_id = latest_match["id"]
-    cache_key = f"match_{match_id}_{latest_player_id}"
-    match_data = await query_api_with_retry(
-        QUERY_MATCH, url, headers, {"player_id": latest_player_id, "match_id": match_id}, cache_key
+    match_data, weekly_data, items_dict = await asyncio.gather(
+        query_api_with_retry(
+            QUERY_MATCH,
+            url,
+            headers,
+            {"player_id": latest_player_id, "match_id": match_id},
+            f"match_{match_id}_{latest_player_id}",
+        ),
+        query_api_with_retry(
+            QUERY_WEEKLY,
+            url,
+            headers,
+            {"player_id": latest_player_id},
+            f"matches_week_{latest_player_id}",
+        ),
+        fetch_items_data(url, headers),
     )
 
-    # Проверяем валидность ответа
+    # Проверяем валидность ответа по матчу
     if not match_data or not match_data.get("match") or not match_data["match"].get("players"):
         logger.error(f"Не удалось получить полные данные для матча {match_id}")
         return None, None, None, None
-
-    # 3. Получаем статистику матчей за последнюю неделю для расчета винрейта
-    cache_key = f"matches_week_{latest_player_id}"
-    weekly_data = await query_api_with_retry(
-        QUERY_WEEKLY, url, headers, {"player_id": latest_player_id}, cache_key
-    )
-
-    # 4. Получаем данные о предметах (из кэша или API)
-    items_dict = await fetch_items_data(url, headers)
 
     # Возвращаем все собранные данные
     return match_data, weekly_data, match_id, items_dict

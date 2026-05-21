@@ -3,7 +3,9 @@
 import json
 import logging
 import os
+import re
 import sys
+import time
 import traceback
 from collections.abc import Callable
 from datetime import datetime
@@ -18,6 +20,14 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 # Настройка логгера для модуля
 logger = logging.getLogger("bot.utils.logging_utils")
+
+# Параметры ретеншена логов: каждый рестарт бота создаёт новый файл, поэтому
+# простой RotatingFileHandler здесь не подходит. Удаляем старые файлы при старте.
+LOG_RETENTION_DAYS = 14
+LOG_RETENTION_MAX_FILES = 30
+
+# Имена файлов логов: "YYYY-MM-DD_HH-MM-SS.log".
+_LOG_FILENAME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.log$")
 
 
 # Класс для JSON-форматирования логов
@@ -59,6 +69,63 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(log_data)
 
 
+def cleanup_old_logs(
+    log_dir: Path,
+    max_age_days: int = LOG_RETENTION_DAYS,
+    max_files: int = LOG_RETENTION_MAX_FILES,
+) -> int:
+    """Удаляет старые лог-файлы, чтобы они не заполняли диск.
+
+    Удаляются только файлы, у которых имя соответствует шаблону рестарт-логов
+    (`YYYY-MM-DD_HH-MM-SS.log`), чтобы случайно не зацепить чужие файлы и
+    симлинк `latest.log`.
+
+    Применяются два правила (любое из них достаточно для удаления):
+        - файл старше `max_age_days` (по mtime);
+        - файл выпал из топ-`max_files` самых свежих по mtime.
+
+    Args:
+        log_dir: Директория с логами.
+        max_age_days: Максимальный возраст файла в днях.
+        max_files: Сколько последних файлов оставить.
+
+    Returns:
+        Количество удалённых файлов.
+    """
+    if not log_dir.is_dir():
+        return 0
+
+    candidates = [
+        path
+        for path in log_dir.iterdir()
+        if path.is_file() and _LOG_FILENAME_PATTERN.match(path.name)
+    ]
+    if not candidates:
+        return 0
+
+    # Сортируем по времени последней модификации, новые — первыми.
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
+    cutoff_ts = time.time() - max_age_days * 86400
+    removed = 0
+
+    for index, path in enumerate(candidates):
+        too_old = path.stat().st_mtime < cutoff_ts
+        too_many = index >= max_files
+        if not (too_old or too_many):
+            continue
+        try:
+            path.unlink()
+            removed += 1
+        except OSError as exc:
+            logger.warning("Не удалось удалить старый лог %s: %s", path, exc)
+
+    if removed:
+        logger.info("Удалено старых лог-файлов: %s", removed)
+
+    return removed
+
+
 def setup_logging(
     log_dir: str = "logs",
     log_level: int = logging.INFO,
@@ -75,14 +142,23 @@ def setup_logging(
         enable_console_logs: Включить вывод в консоль.
     """
     # Создаем директорию для логов, если она не существует
-    Path(log_dir).mkdir(exist_ok=True)
+    log_dir_path = Path(log_dir)
+    log_dir_path.mkdir(exist_ok=True)
+
+    # Подчищаем старые лог-файлы, чтобы директория не разрасталась бесконечно.
+    # Делаем это до создания нового файла, чтобы не удалить только что созданный.
+    try:
+        cleanup_old_logs(log_dir_path)
+    except Exception as exc:
+        # Не фейлим запуск из-за проблем с уборкой логов.
+        logger.warning("Ошибка при очистке старых логов: %s", exc)
 
     # Создаем уникальное имя файла для текущего запуска
     log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
-    log_path = Path(log_dir) / log_filename
+    log_path = log_dir_path / log_filename
 
     # Создаем/обновляем симлинк на последний лог
-    latest_symlink = Path(log_dir) / "latest.log"
+    latest_symlink = log_dir_path / "latest.log"
     try:
         if latest_symlink.exists() or latest_symlink.is_symlink():
             latest_symlink.unlink(missing_ok=True)

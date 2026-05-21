@@ -4,6 +4,7 @@ import logging
 from collections import defaultdict
 from datetime import date
 
+from tortoise.exceptions import IntegrityError
 from tortoise.expressions import F
 from tortoise.functions import Sum
 
@@ -27,6 +28,10 @@ class ActivityDataManager:
         """Обновляет дневную статистику активности в БД.
 
         Добавляет время к записи за текущий день или создает новую.
+        Защищено от race condition: если параллельный вызов успевает создать
+        запись между нашими update(→0) и create(), второй create() получит
+        IntegrityError, и мы повторяем update — теперь строка уже существует
+        и наша дельта прибавится атомарно.
 
         Args:
             user_id: ID пользователя Discord.
@@ -39,29 +44,32 @@ class ActivityDataManager:
         today_str = date.today().isoformat()  # Формат YYYY-MM-DD
 
         try:
-            # Используем update_or_create с F-выражением для атомарного обновления
-            # Но update_or_create не поддерживает F() в defaults при создании?
-            # Tortoise ORM update_or_create работает так:
-            # 1. Пытается найти запись по kwargs (кроме defaults)
-            # 2. Если нашел - обновляет полями из defaults
-            # 3. Если не нашел - создает с kwargs + defaults
-
-            # Проблема: нам нужно прибавить к существующему значению, если запись есть.
-            # F() работает в update(), но в update_or_create defaults это значения.
-
-            # Пытаемся обновить существующую запись атомарно
+            # Шаг 1: пытаемся обновить существующую запись атомарно через F-выражение.
             updated_count = await DailyActivity.filter(
                 discord_user_id=user_id, game_name=game_name, date=today_str
             ).update(seconds_played_today=F("seconds_played_today") + elapsed_seconds)
 
-            # Если запись не найдена (updated_count == 0), создаем новую
+            # Шаг 2: если строки не было — создаём, защищаясь от race condition.
             if not updated_count:
-                await DailyActivity.create(
-                    discord_user_id=user_id,
-                    game_name=game_name,
-                    date=today_str,
-                    seconds_played_today=elapsed_seconds,
-                )
+                try:
+                    await DailyActivity.create(
+                        discord_user_id=user_id,
+                        game_name=game_name,
+                        date=today_str,
+                        seconds_played_today=elapsed_seconds,
+                    )
+                except IntegrityError:
+                    # Конкурирующий вызов успел создать запись между нашими
+                    # update→0 и create(). Повторяем update — теперь строка есть.
+                    logger.debug(
+                        "Race condition в update_activity для %s/%s/%s — повторяем update",
+                        user_id,
+                        game_name,
+                        today_str,
+                    )
+                    await DailyActivity.filter(
+                        discord_user_id=user_id, game_name=game_name, date=today_str
+                    ).update(seconds_played_today=F("seconds_played_today") + elapsed_seconds)
 
             logger.debug(
                 f"Обновлена дневная активность в БД для {user_id} - {game_name} "

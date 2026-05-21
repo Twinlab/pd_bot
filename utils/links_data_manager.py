@@ -8,6 +8,7 @@
 
 import logging
 from collections import defaultdict
+from typing import cast
 
 from .models import Link
 
@@ -114,11 +115,13 @@ class LinksDataManager:
             Список Steam ID, привязанных к указанному Discord ID.
         """
         try:
+            # values_list(..., flat=True) возвращает плоский список значений,
+            # но Tortoise type-stubs декларируют list[tuple[Any, ...]] — приходится cast.
             links = await Link.filter(discord_user_id=discord_user_id).values_list(
                 "steam_id", flat=True
             )
             logger.debug(f"Загружено {len(links)} привязок для {discord_user_id}")
-            return links
+            return cast(list[int], links)
         except Exception as e:
             logger.error(f"Ошибка при получении привязок для {discord_user_id}: {e}", exc_info=True)
             return []

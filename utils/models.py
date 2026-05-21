@@ -1,5 +1,7 @@
 """Модели базы данных Tortoise ORM."""
 
+from typing import Any
+
 from tortoise import fields, models
 
 
@@ -90,7 +92,9 @@ class APICache(models.Model):
     """Кеш ответов API (Dota, Twitch и др.)."""
 
     key = fields.TextField(pk=True)
-    data = fields.JSONField()
+    # Tortoise JSONField принимает любой JSON-сериализуемый тип; в нашем коде
+    # всегда кладём JSON-объекты (dict[str, Any]).
+    data: dict[str, Any] = fields.JSONField()
     timestamp = fields.FloatField()
     ttl = fields.IntField()  # Время жизни в секундах
 

@@ -14,10 +14,9 @@ MessageReactor (записи о конкретных реакциях user × em
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from tortoise import Tortoise
-from tortoise.expressions import RawSQL
 
 from .models import MessageReactor, ReactedMessage
 
@@ -73,6 +72,21 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
     if month == 12:
         return year + 1, 1
     return year, month + 1
+
+
+def _to_datetime(value: Any) -> datetime:
+    """Приводит значение из raw SQL-результата к datetime.
+
+    Tortoise хранит DatetimeField в SQLite как ISO-строку, но через
+    ``execute_query`` мы обходим ORM-десериализацию и можем получить как
+    готовый datetime, так и строку. Принимаем оба варианта.
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        # SQLite иногда хранит timestamp с пробелом вместо 'T'.
+        return datetime.fromisoformat(value.replace(" ", "T"))
+    raise TypeError(f"Не могу привести {type(value).__name__} к datetime")
 
 
 def resolve_period_range(
@@ -314,6 +328,11 @@ class TopReactionsDataManager:
             - Иначе используем historical_reaction_count (для исторических сообщений).
             - Если оба пустые — сообщение не попадает в выдачу.
 
+        Реализация — один проход с LEFT JOIN + GROUP BY + HAVING + ORDER BY на
+        стороне БД (вместо двух correlated subquery на каждую строку, как было
+        раньше). Стоимость не растёт линейно от размера ``message_reactors`` для
+        каждого сообщения — оптимизатор использует индексы по `(message_id)`.
+
         Args:
             period: 'month', 'year' или 'all' — используется только если ни ``year``
                 ни ``month`` не указаны явно.
@@ -328,65 +347,78 @@ class TopReactionsDataManager:
             Список LeaderboardEntry, отсортированный по убыванию счётчика.
         """
         try:
-            qs = ReactedMessage.filter(is_deleted=False)
-            if excluded_message_ids:
-                qs = qs.exclude(message_id__in=list(excluded_message_ids))
-
             start, end = resolve_period_range(period, year=year, month=month)
+
+            where_clauses = ["rm.is_deleted = 0"]
+            params: list[object] = []
             if start is not None and end is not None:
-                qs = qs.filter(posted_at__gte=start, posted_at__lt=end)
-            # else: "all" без явных year/month — без time-фильтра
+                where_clauses.append("rm.posted_at >= ?")
+                where_clauses.append("rm.posted_at < ?")
+                params.extend([start, end])
+            if excluded_message_ids:
+                placeholders = ",".join(["?"] * len(excluded_message_ids))
+                where_clauses.append(f"rm.message_id NOT IN ({placeholders})")
+                params.extend(excluded_message_ids)
 
-            # Подзапрос на COUNT(DISTINCT user_id) для каждого сообщения.
-            live_count_sql = (
-                "(SELECT COUNT(DISTINCT user_id) FROM message_reactors "
-                "WHERE message_reactors.message_id = reacted_messages.message_id)"
-            )
-            # Эффективный счётчик для сортировки: live, иначе historical, иначе 0.
-            # Дублируем подзапрос (вместо ссылки на alias `live_count`), потому что
-            # SQLite/большинство SQL не позволяет ссылаться на alias из той же SELECT-секции.
-            effective_count_sql = (
-                f"CASE WHEN {live_count_sql} > 0 THEN {live_count_sql} "
-                "ELSE COALESCE(historical_reaction_count, 0) END"
-            )
-            qs = qs.annotate(
-                live_count=RawSQL(live_count_sql),
-                effective_count=RawSQL(effective_count_sql),
-            )
+            where_sql = " AND ".join(where_clauses)
 
-            # Берём с запасом — чтобы после фильтрации (live_count > 0 OR historical > 0)
-            # точно осталось `limit` записей. Запас x3 достаточно для практики.
-            fetch_limit = max(limit * 3, limit + 50)
-            # order_by принимает только строковые имена полей/аннотаций; передавать
-            # RawSQL напрямую нельзя — pypika бросит TypeError на ordering[0].
-            rows = await qs.order_by("-effective_count").limit(fetch_limit)
+            # Один проход: LEFT JOIN тащит все записи о реакциях, GROUP BY
+            # по message_id агрегирует уникальных пользователей. HAVING отсекает
+            # сообщения без реакций (и без historical_reaction_count). ORDER BY
+            # сортирует по эффективному счётчику в самой БД.
+            sql = f"""
+                SELECT
+                    rm.message_id,
+                    rm.channel_id,
+                    rm.author_id,
+                    rm.content,
+                    rm.jump_url,
+                    rm.posted_at,
+                    rm.historical_reaction_count,
+                    COUNT(DISTINCT mr.user_id) AS live_count
+                FROM reacted_messages AS rm
+                LEFT JOIN message_reactors AS mr ON mr.message_id = rm.message_id
+                WHERE {where_sql}
+                GROUP BY
+                    rm.message_id, rm.channel_id, rm.author_id, rm.content,
+                    rm.jump_url, rm.posted_at, rm.historical_reaction_count
+                HAVING live_count > 0 OR COALESCE(rm.historical_reaction_count, 0) > 0
+                ORDER BY
+                    CASE WHEN live_count > 0 THEN live_count
+                         ELSE COALESCE(rm.historical_reaction_count, 0) END DESC
+                LIMIT ?
+            """
+            params.append(limit)
+
+            conn = Tortoise.get_connection("default")
+            _, rows = await conn.execute_query(sql, params)
 
             entries: list[LeaderboardEntry] = []
             for row in rows:
-                live = getattr(row, "live_count", 0) or 0
+                live = int(row["live_count"] or 0)
+                historical = row["historical_reaction_count"]
                 if live > 0:
                     count = live
                     is_hist = False
-                elif row.historical_reaction_count:
-                    count = row.historical_reaction_count
+                elif historical:
+                    count = int(historical)
                     is_hist = True
                 else:
+                    # HAVING-фильтр уже отсёк такие случаи, но на всякий — пропускаем.
                     continue
 
                 entries.append(
                     LeaderboardEntry(
-                        message_id=row.message_id,
-                        channel_id=row.channel_id,
-                        author_id=row.author_id,
-                        content=row.content,
-                        jump_url=row.jump_url,
-                        posted_at=row.posted_at,
+                        message_id=int(row["message_id"]),
+                        channel_id=int(row["channel_id"]),
+                        author_id=int(row["author_id"]),
+                        content=row["content"],
+                        jump_url=row["jump_url"],
+                        posted_at=_to_datetime(row["posted_at"]),
                         reactor_count=count,
                         is_historical=is_hist,
                     )
                 )
-                if len(entries) >= limit:
-                    break
 
             return entries
         except Exception as e:
