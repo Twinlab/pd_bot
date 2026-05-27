@@ -19,7 +19,7 @@ class TestDatabase:
         with patch("tortoise.Tortoise.init", new_callable=AsyncMock) as mock_init, patch(
             "tortoise.Tortoise.generate_schemas", new_callable=AsyncMock
         ) as mock_generate, patch("pathlib.Path.mkdir") as mock_mkdir, patch(
-            "utils.database.connections.get", return_value=mock_conn
+            "utils.database.Tortoise.get_connection", return_value=mock_conn
         ):
             await initialize_database()
 

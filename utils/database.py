@@ -7,7 +7,7 @@
 import logging
 from pathlib import Path
 
-from tortoise import Tortoise, connections
+from tortoise import Tortoise
 
 logger: logging.Logger = logging.getLogger("bot.utils.database")
 
@@ -34,7 +34,9 @@ async def initialize_database() -> None:
         await Tortoise.generate_schemas()
         # WAL даёт параллельные чтения с записью; busy_timeout снимает
         # `database is locked` при коротких конкурентных транзакциях.
-        conn = connections.get("default")
+        # Tortoise.get_connection — кросс-совместимо с 0.25.x и 1.x; модульный
+        # `from tortoise import connections` в 1.x требует активного контекста.
+        conn = Tortoise.get_connection("default")
         await conn.execute_script(
             "PRAGMA journal_mode=WAL;PRAGMA synchronous=NORMAL;PRAGMA busy_timeout=5000;"
         )
