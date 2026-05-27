@@ -12,7 +12,23 @@ import logging
 import discord
 from discord.ext import commands
 
+from utils.error_handler import get_error_message, safe_send_error
+
 logger = logging.getLogger("bot.handlers.events")
+
+# Какие исключения мы считаем «штатными» для префиксных команд — их не нужно
+# валить в лог со стеком, достаточно ответа пользователю.
+_KNOWN_PREFIX_ERRORS = (
+    commands.MissingRequiredArgument,
+    commands.BadArgument,
+    commands.MissingPermissions,
+    commands.BotMissingPermissions,
+    commands.CommandOnCooldown,
+    commands.NotOwner,
+    commands.MemberNotFound,
+    commands.ChannelNotFound,
+    commands.RoleNotFound,
+)
 
 
 class Events(commands.Cog):
@@ -96,54 +112,22 @@ class Events(commands.Cog):
     async def on_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
         """Глобальный обработчик ошибок для префиксных команд.
 
-        Args:
-            ctx: Контекст команды, в которой произошла ошибка.
-            error: Объект ошибки.
+        Тексты сообщений берём из общего :data:`utils.error_handler.ERROR_MESSAGES`,
+        чтобы пользователь видел одинаковые формулировки независимо от того,
+        дошёл ли запрос до ``@command_error_handler`` или упал раньше.
         """
         if isinstance(error, commands.CommandNotFound):
             return
 
-        if isinstance(error, commands.MissingRequiredArgument):
-            message = f"Отсутствует аргумент: `{error.param.name}`"
-        elif isinstance(error, commands.BadArgument):
-            message = "Неверный аргумент команды"
-        elif isinstance(error, commands.MissingPermissions):
-            message = "Нет прав для выполнения команды"
-        elif isinstance(error, commands.BotMissingPermissions):
-            message = f"У бота нет прав: {', '.join(error.missing_permissions)}"
-        elif isinstance(error, commands.CommandOnCooldown):
-            message = f"Перезарядка. Попробуйте через {error.retry_after:.1f} сек."
-        elif isinstance(error, commands.NotOwner):
-            message = "Команда только для владельца бота"
-        else:
+        # Неизвестные программные баги логируем со стеком — пользователю
+        # уйдёт обобщённое «непредвиденная ошибка» из get_error_message.
+        if not any(isinstance(error, etype) for etype in _KNOWN_PREFIX_ERRORS):
             logger.error(
                 f"Необработанная ошибка в префиксной команде '{ctx.command}': {error}",
                 exc_info=True,
             )
-            message = f"Произошла ошибка: {error}"
-        await self._send_error(ctx, message)
 
-    async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError) -> None:
-        """Обработчик ошибок для команд этого кога.
-
-        Args:
-            ctx: Контекст команды, в которой произошла ошибка.
-            error: Объект ошибки.
-        """
-        # Делегируем обработку глобальному обработчику
-        await self.on_command_error(ctx, error)
-
-    async def _send_error(self, ctx: commands.Context, message: str) -> None:
-        """Вспомогательный метод для отправки сообщения об ошибке (для префиксных команд).
-
-        Args:
-            ctx: Контекст команды.
-            message: Сообщение об ошибке для отправки.
-        """
-        try:
-            await ctx.send(f"❌ {message}")
-        except Exception as e:
-            logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {e}")
+        await safe_send_error(ctx, get_error_message(error))
 
 
 async def setup(bot: commands.Bot) -> None:

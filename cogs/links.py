@@ -14,10 +14,10 @@ import logging
 from discord.ext import commands
 
 from config import get_settings
-from utils.error_handler import command_error_handler
+from utils.error_handler import command_error_handler, safe_send
 from utils.links_data_manager import LinksDataManager
 
-logger = logging.getLogger("bot.cogs.links")  # Иерархическое имя логгера
+logger = logging.getLogger("bot.cogs.links")
 
 
 class LinksCog(commands.Cog):
@@ -35,34 +35,8 @@ class LinksCog(commands.Cog):
         self.links_manager = LinksDataManager()
 
     async def send_response(self, ctx: commands.Context, message: str) -> None:
-        """Отправляет ответ пользователю, пытаясь использовать наиболее подходящий метод.
-
-        Сначала пытается отправить как ephemeral сообщение через interaction,
-        затем как обычное сообщение в канал, и в крайнем случае - в ЛС автору.
-
-        Args:
-            ctx: Контекст команды.
-            message: Текст сообщения для отправки.
-        """
-        try:
-            is_interaction = hasattr(ctx, "interaction") and ctx.interaction is not None
-            if is_interaction:
-                if not ctx.interaction.response.is_done():
-                    await ctx.interaction.response.send_message(message, ephemeral=True)
-                else:
-                    await ctx.interaction.followup.send(message, ephemeral=True)
-            else:
-                await ctx.send(message)
-        except Exception as e:
-            logger.error(f"Ошибка при отправке ответа: {e}")
-            try:
-                await ctx.author.send(message)
-            except Exception:
-                logger.error("Не удалось отправить приватный ответ")
-                try:
-                    await ctx.send(message)
-                except Exception:
-                    logger.error("Не удалось отправить ответ вообще")
+        """Тонкая обёртка над :func:`safe_send` — оставлена для обратной совместимости вызывающего кода."""
+        await safe_send(ctx, message, ephemeral=True)
 
     @commands.hybrid_command(description="Привязать аккаунт Dota 2")
     @command_error_handler
@@ -220,27 +194,6 @@ class LinksCog(commands.Cog):
         """Вызывается при выгрузке кога."""
         # В данном коге нет активных задач или ресурсов, требующих освобождения.
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
-
-    async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """Обрабатывает ошибки, возникающие при выполнении команд в этом коге.
-
-        Args:
-            ctx: Контекст команды, где произошла ошибка.
-            error: Объект ошибки.
-        """
-        if isinstance(error, commands.MissingPermissions):
-            await self.send_response(ctx, "У вас нет прав для выполнения этой команды.")
-        elif isinstance(error, commands.CommandInvokeError):
-            logger.error(
-                f"Ошибка при выполнении команды {ctx.command}: {error.original}",
-                exc_info=True,
-            )
-            await self.send_response(ctx, f"Произошла ошибка: {str(error.original)}")
-        elif isinstance(error, commands.BadArgument):
-            await self.send_response(ctx, f"Неверный аргумент: {error}")
-        else:
-            logger.error(f"Необработанная ошибка в команде {ctx.command}: {error}", exc_info=True)
-            await self.send_response(ctx, f"Произошла неизвестная ошибка: {str(error)}")
 
 
 async def setup(bot: commands.Bot) -> None:

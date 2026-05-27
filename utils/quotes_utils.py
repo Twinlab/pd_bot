@@ -11,6 +11,7 @@ import asyncio
 import io
 import logging
 import random
+import time
 from pathlib import Path
 
 import discord
@@ -19,6 +20,19 @@ from discord.ext import commands
 from config.settings import get_settings
 
 logger = logging.getLogger("bot.utils.quotes_utils")
+
+# TTL для кэша содержимого папок (секунды). Папки меняются редко — нет смысла
+# каждый раз сканировать диск ради списка файлов.
+_FOLDER_CACHE_TTL = 60.0
+_folder_listing_cache: dict[str, tuple[float, list[Path]]] = {}
+_folders_list_cache: tuple[float, list[str]] | None = None
+
+
+def _invalidate_quotes_cache() -> None:
+    """Сбрасывает кэш (для тестов и явных перечитываний)."""
+    global _folders_list_cache
+    _folder_listing_cache.clear()
+    _folders_list_cache = None
 
 
 class QuotesError(Exception):
@@ -69,11 +83,19 @@ def scan_quotes_folders() -> list[str]:
         >>> scan_quotes_folders()
         ['odji', 'fineser', 'qustic', 'ifuwanna']
     """
+    global _folders_list_cache
+    now = time.monotonic()
+    if _folders_list_cache is not None:
+        ts, cached = _folders_list_cache
+        if now - ts < _FOLDER_CACHE_TTL:
+            return list(cached)
+
     quotes_path = get_quotes_path()
     supported_extensions = get_supported_extensions()
 
     if not quotes_path.exists():
         logger.warning(f"Папка quotes не найдена: {quotes_path}")
+        _folders_list_cache = (now, [])
         return []
 
     folders = []
@@ -90,15 +112,13 @@ def scan_quotes_folders() -> list[str]:
 
                 if has_images:
                     folders.append(item.name)
-                    logger.debug(f"Найдена папка с изображениями: {item.name}")
-                else:
-                    logger.debug(f"Папка {item.name} не содержит изображений")
 
     except Exception as e:
         logger.error(f"Ошибка при сканировании папок quotes: {e}", exc_info=True)
         return []
 
     folders.sort()  # Сортируем для консистентности
+    _folders_list_cache = (now, list(folders))
     logger.info(f"Найдено папок с изображениями: {len(folders)}")
     return folders
 
@@ -155,6 +175,15 @@ def get_images_from_folder(folder_name: str) -> list[Path]:
         FolderNotFoundError: Если папка не найдена
         NoImagesFoundError: Если в папке нет изображений
     """
+    now = time.monotonic()
+    cached = _folder_listing_cache.get(folder_name)
+    if cached is not None:
+        ts, images = cached
+        if now - ts < _FOLDER_CACHE_TTL:
+            if not images:
+                raise NoImagesFoundError(f"В папке '{folder_name}' не найдено изображений")
+            return list(images)
+
     if not validate_folder_exists(folder_name):
         raise FolderNotFoundError(f"Папка '{folder_name}' не найдена или не содержит изображений")
 
@@ -173,8 +202,10 @@ def get_images_from_folder(folder_name: str) -> list[Path]:
         raise NoImagesFoundError(f"Не удалось получить изображения из папки '{folder_name}'") from e
 
     if not images:
+        _folder_listing_cache[folder_name] = (now, [])
         raise NoImagesFoundError(f"В папке '{folder_name}' не найдено изображений")
 
+    _folder_listing_cache[folder_name] = (now, list(images))
     return images
 
 

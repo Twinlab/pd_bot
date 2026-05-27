@@ -176,37 +176,30 @@ class TestTransferDailyToMonthly:
             game_name="Dota 2",
             seconds_played_today=3600
         )
-        
+
         # Мокаем транзакцию
         mock_transaction = AsyncMock()
         mock_transaction.__aenter__ = AsyncMock()
         mock_transaction.__aexit__ = AsyncMock()
-        
+
         with patch("tortoise.transactions.in_transaction", return_value=mock_transaction):
             with patch("utils.activity_data_manager.DailyActivity.filter") as mock_daily_filter:
-                # Мокаем получение записей (первый вызов filter)
-                # И удаление (второй вызов filter)
-                # Используем side_effect для разных возвращаемых значений
-                
-                # Нам нужно замокать filter().all() и filter().delete()
-                # И filter().update() для MonthlyActivity
-                
                 mock_daily_queryset = MagicMock()
                 mock_daily_queryset.all = AsyncMock(return_value=[mock_daily_record])
                 mock_daily_queryset.delete = AsyncMock()
-                
                 mock_daily_filter.return_value = mock_daily_queryset
 
-                with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_monthly_filter:
-                    # Мокаем update, возвращаем 0 (запись не найдена)
+                with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_monthly_filter, \
+                     patch("utils.activity_data_manager.MonthlyActivity.bulk_create", new_callable=AsyncMock) as mock_bulk_create:
+                    # Существующих записей нет — будет INSERT.
+                    mock_monthly_filter.return_value.all = AsyncMock(return_value=[])
                     mock_monthly_filter.return_value.update = AsyncMock(return_value=0)
-                    
-                    with patch("utils.activity_data_manager.MonthlyActivity.create", new_callable=AsyncMock) as mock_monthly_create:
-                        target_date = date(2024, 5, 26)
-                        result = await manager.transfer_daily_to_monthly(target_date)
-                        
-                        assert result is True
-                        mock_monthly_create.assert_called_once()
+
+                    target_date = date(2024, 5, 26)
+                    result = await manager.transfer_daily_to_monthly(target_date)
+
+                    assert result is True
+                    mock_bulk_create.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_transfer_daily_to_monthly_update_existing(self, manager):
@@ -216,28 +209,31 @@ class TestTransferDailyToMonthly:
             game_name="Dota 2",
             seconds_played_today=3600
         )
-        
+
         mock_transaction = AsyncMock()
         mock_transaction.__aenter__ = AsyncMock()
         mock_transaction.__aexit__ = AsyncMock()
-        
+
+        existing_monthly = MagicMock(discord_user_id=123, game_name="Dota 2")
+
         with patch("tortoise.transactions.in_transaction", return_value=mock_transaction):
             with patch("utils.activity_data_manager.DailyActivity.filter") as mock_daily_filter:
                 mock_daily_queryset = MagicMock()
                 mock_daily_queryset.all = AsyncMock(return_value=[mock_daily_record])
                 mock_daily_queryset.delete = AsyncMock()
                 mock_daily_filter.return_value = mock_daily_queryset
-                
-                with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_monthly_filter:
-                    # Мокаем update, возвращаем 1 (запись обновлена)
+
+                with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_monthly_filter, \
+                     patch("utils.activity_data_manager.MonthlyActivity.bulk_create", new_callable=AsyncMock) as mock_bulk_create:
+                    # Существующая запись уже есть — будет UPDATE, не INSERT.
+                    mock_monthly_filter.return_value.all = AsyncMock(return_value=[existing_monthly])
                     mock_monthly_filter.return_value.update = AsyncMock(return_value=1)
-                    
-                    with patch("utils.activity_data_manager.MonthlyActivity.create", new_callable=AsyncMock) as mock_monthly_create:
-                        target_date = date(2024, 5, 26)
-                        result = await manager.transfer_daily_to_monthly(target_date)
-                        
-                        assert result is True
-                        mock_monthly_create.assert_not_called()
+
+                    target_date = date(2024, 5, 26)
+                    result = await manager.transfer_daily_to_monthly(target_date)
+
+                    assert result is True
+                    mock_bulk_create.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_transfer_daily_to_monthly_error(self, manager):

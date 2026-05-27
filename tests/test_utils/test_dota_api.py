@@ -1,5 +1,6 @@
 """Тесты для модуля dota_api."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -8,6 +9,7 @@ import utils.dota_api as dota_api_module
 from utils.dota_api import (
     StratzNonRetryable,
     StratzRateLimited,
+    _get_session,
     _parse_retry_after,
     close_session,
     fetch_items_data,
@@ -23,10 +25,38 @@ class TestDotaAPI:
 
     @pytest.fixture(autouse=True)
     def reset_session(self):
-        """Сбрасывает модульную сессию между тестами."""
+        """Сбрасывает модульную сессию и Lock между тестами."""
         dota_api_module._session = None
+        dota_api_module._session_lock = None
         yield
         dota_api_module._session = None
+        dota_api_module._session_lock = None
+
+    @pytest.mark.asyncio
+    async def test_get_session_concurrent_creates_single_session(self):
+        """Конкурентные вызовы _get_session должны вернуть ОДНУ и ту же сессию.
+
+        Регрессия: раньше функция была синхронной и без локa, две корутины могли
+        обе увидеть `_session is None` и каждая создавала свою ClientSession —
+        одна потом утекала (висящий коннектор/TCP-соединение).
+        """
+        created: list[MagicMock] = []
+
+        def _factory(*_args, **_kwargs) -> MagicMock:
+            session = MagicMock()
+            session.closed = False
+            created.append(session)
+            return session
+
+        with patch("utils.dota_api.aiohttp.ClientSession", side_effect=_factory):
+            sessions = await asyncio.gather(
+                _get_session(),
+                _get_session(),
+                _get_session(),
+            )
+
+        assert len({id(s) for s in sessions}) == 1
+        assert len(created) == 1
 
     @pytest.mark.asyncio
     async def test_get_cached_response_found(self):

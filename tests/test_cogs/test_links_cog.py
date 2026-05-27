@@ -50,67 +50,23 @@ class TestLinksCogInit:
 
 
 class TestSendResponse:
-    """Тесты метода send_response."""
+    """Тесты метода send_response.
+
+    После рефакторинга это тонкая обёртка над ``utils.error_handler.safe_send``.
+    Прежняя ветвистая логика interaction/followup/DM-fallback живёт уже
+    внутри safe_send и покрыта своими тестами. Здесь оставлена только
+    проверка делегирования.
+    """
 
     @pytest.mark.asyncio
-    async def test_send_response_interaction_not_done(self, links_cog, mock_context):
-        """Тест отправки ответа через interaction (не завершен)."""
-        # Настраиваем interaction
-        mock_interaction = MagicMock()
-        mock_interaction.response.is_done.return_value = False
-        mock_interaction.response.send_message = AsyncMock()
-        mock_context.interaction = mock_interaction
-        
-        await links_cog.send_response(mock_context, "Тестовое сообщение")
-        
-        mock_interaction.response.send_message.assert_called_once_with(
-            "Тестовое сообщение", ephemeral=True
+    async def test_send_response_delegates_to_safe_send(self, links_cog, mock_context):
+        """send_response должен звать safe_send с ephemeral=True."""
+        with patch("cogs.links.safe_send", new_callable=AsyncMock) as mock_safe_send:
+            await links_cog.send_response(mock_context, "Тестовое сообщение")
+
+        mock_safe_send.assert_awaited_once_with(
+            mock_context, "Тестовое сообщение", ephemeral=True
         )
-
-    @pytest.mark.asyncio
-    async def test_send_response_interaction_done(self, links_cog, mock_context):
-        """Тест отправки ответа через interaction (уже завершен)."""
-        # Настраиваем interaction
-        mock_interaction = MagicMock()
-        mock_interaction.response.is_done.return_value = True
-        mock_interaction.followup.send = AsyncMock()
-        mock_context.interaction = mock_interaction
-        
-        await links_cog.send_response(mock_context, "Тестовое сообщение")
-        
-        mock_interaction.followup.send.assert_called_once_with(
-            "Тестовое сообщение", ephemeral=True
-        )
-
-    @pytest.mark.asyncio
-    async def test_send_response_no_interaction(self, links_cog, mock_context):
-        """Тест отправки ответа без interaction."""
-        mock_context.interaction = None
-        
-        await links_cog.send_response(mock_context, "Тестовое сообщение")
-        
-        mock_context.send.assert_called_once_with("Тестовое сообщение")
-
-    @pytest.mark.asyncio
-    async def test_send_response_fallback_to_dm(self, links_cog, mock_context):
-        """Тест отправки в ЛС при ошибке в канале."""
-        mock_context.interaction = None
-        mock_context.send.side_effect = Exception("Ошибка отправки")
-        mock_context.author.send = AsyncMock()
-        
-        await links_cog.send_response(mock_context, "Тестовое сообщение")
-        
-        mock_context.author.send.assert_called_once_with("Тестовое сообщение")
-
-    @pytest.mark.asyncio
-    async def test_send_response_all_methods_fail(self, links_cog, mock_context):
-        """Тест когда все методы отправки не работают."""
-        mock_context.interaction = None
-        mock_context.send.side_effect = Exception("Ошибка отправки")
-        mock_context.author.send.side_effect = Exception("Ошибка ЛС")
-        
-        # Не должно вызывать исключение
-        await links_cog.send_response(mock_context, "Тестовое сообщение")
 
 
 class TestLinkCommand:
@@ -396,69 +352,8 @@ class TestLinksCommand:
         )
 
 
-class TestCogErrorHandling:
-    """Тесты обработки ошибок кога."""
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_missing_permissions(self, links_cog, mock_context):
-        """Тест обработки ошибки отсутствия прав."""
-        error = commands.MissingPermissions(["administrator"])
-        
-        with patch.object(links_cog, 'send_response', new_callable=AsyncMock) as mock_send:
-            await links_cog.cog_command_error(mock_context, error)
-        
-        mock_send.assert_called_once_with(
-            mock_context, "У вас нет прав для выполнения этой команды."
-        )
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_command_invoke_error(self, links_cog, mock_context):
-        """Тест обработки ошибки выполнения команды."""
-        # Добавляем недостающий атрибут command
-        mock_command = MagicMock()
-        mock_command.name = "test_command"
-        mock_context.command = mock_command
-        
-        original_error = ValueError("Тестовая ошибка")
-        error = commands.CommandInvokeError(original_error)
-        
-        with patch.object(links_cog, 'send_response', new_callable=AsyncMock) as mock_send:
-            await links_cog.cog_command_error(mock_context, error)
-        
-        mock_send.assert_called_once()
-        message = mock_send.call_args[0][1]
-        assert "Произошла ошибка:" in message
-        assert "Тестовая ошибка" in message
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_bad_argument(self, links_cog, mock_context):
-        """Тест обработки ошибки неверного аргумента."""
-        error = commands.BadArgument("Неверный аргумент")
-        
-        with patch.object(links_cog, 'send_response', new_callable=AsyncMock) as mock_send:
-            await links_cog.cog_command_error(mock_context, error)
-        
-        mock_send.assert_called_once_with(
-            mock_context, "Неверный аргумент: Неверный аргумент"
-        )
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_unknown_error(self, links_cog, mock_context):
-        """Тест обработки неизвестной ошибки."""
-        # Добавляем недостающий атрибут command
-        mock_command = MagicMock()
-        mock_command.name = "test_command"
-        mock_context.command = mock_command
-        
-        error = RuntimeError("Неизвестная ошибка")
-        
-        with patch.object(links_cog, 'send_response', new_callable=AsyncMock) as mock_send:
-            await links_cog.cog_command_error(mock_context, error)
-        
-        mock_send.assert_called_once()
-        message = mock_send.call_args[0][1]
-        assert "Произошла неизвестная ошибка:" in message
-        assert "Неизвестная ошибка" in message
+# Локальный cog_command_error удалён — обработка ошибок централизована
+# в handlers/events.py. Старые тесты вместе с ним выпилены.
 
 
 class TestCogLifecycle:

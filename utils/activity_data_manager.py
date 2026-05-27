@@ -144,30 +144,55 @@ class ActivityDataManager:
                     date=target_date_str, seconds_played_today__gt=0
                 ).all()
 
-                for record in daily_records:
-                    # Обновляем или создаем запись в monthly_activity атомарно
-                    updated_count = await MonthlyActivity.filter(
-                        discord_user_id=record.discord_user_id,
-                        game_name=record.game_name,
-                        year=year,
-                        month=month,
-                    ).update(
-                        total_seconds_in_month=F("total_seconds_in_month")
-                        + record.seconds_played_today
-                    )
+                if not daily_records:
+                    logger.info(f"Нет данных за {target_date_str} для переноса.")
+                    return True
 
-                    if not updated_count:
-                        await MonthlyActivity.create(
+                # Преимущественно UPDATE → INSERT новых: на горячих юзерах большинство строк
+                # уже есть, и оптом обновлять-вставлять заметно быстрее, чем по одному.
+                existing = await MonthlyActivity.filter(
+                    year=year,
+                    month=month,
+                    discord_user_id__in=[r.discord_user_id for r in daily_records],
+                    game_name__in=[r.game_name for r in daily_records],
+                ).all()
+                existing_keys = {(m.discord_user_id, m.game_name) for m in existing}
+
+                to_create: list[MonthlyActivity] = []
+                for record in daily_records:
+                    key = (record.discord_user_id, record.game_name)
+                    if key in existing_keys:
+                        await MonthlyActivity.filter(
                             discord_user_id=record.discord_user_id,
                             game_name=record.game_name,
                             year=year,
                             month=month,
-                            total_seconds_in_month=record.seconds_played_today,
+                        ).update(
+                            total_seconds_in_month=F("total_seconds_in_month")
+                            + record.seconds_played_today
                         )
+                    else:
+                        to_create.append(
+                            MonthlyActivity(
+                                discord_user_id=record.discord_user_id,
+                                game_name=record.game_name,
+                                year=year,
+                                month=month,
+                                total_seconds_in_month=record.seconds_played_today,
+                            )
+                        )
+                        # Чтобы не пытаться вставить дубль ещё раз в том же батче,
+                        # если в daily вдруг есть две записи с тем же ключом.
+                        existing_keys.add(key)
+
+                if to_create:
+                    await MonthlyActivity.bulk_create(to_create)
 
                 logger.info(
                     f"Данные за {target_date_str} агрегированы и добавлены в "
-                    f"monthly_activity за {year}-{month:02d}."
+                    f"monthly_activity за {year}-{month:02d} "
+                    f"(обновлено: {len(daily_records) - len(to_create)}, "
+                    f"создано: {len(to_create)})."
                 )
 
                 # 2. Удаляем обработанные записи из daily_activity

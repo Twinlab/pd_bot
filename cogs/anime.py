@@ -20,6 +20,7 @@ from datetime import time
 from typing import Any
 
 import aiohttp
+import discord
 from discord.ext import commands, tasks
 
 from config import get_settings
@@ -270,8 +271,14 @@ class AnimeCog(commands.Cog):
             if not await self._check_channel_exists():
                 return False
 
-            # Получаем объект канала по ID
+            # Канал мог исчезнуть между _check_channel_exists и этой точкой.
             channel = self.bot.get_channel(self.channel_id)
+            if not isinstance(channel, discord.TextChannel):
+                logger.error(
+                    "Канал %s не найден или не является текстовым на момент публикации.",
+                    self.channel_id,
+                )
+                return False
 
             # Получаем URL изображения
             image_data = await self.get_anime_image()
@@ -351,8 +358,10 @@ class AnimeCog(commands.Cog):
 
         if success:
             channel = self.bot.get_channel(self.channel_id)
+            channel_label = channel.name if isinstance(channel, discord.TextChannel) else "?"
             await ctx.send(
-                f"Аниме-изображение успешно опубликовано в канале #{channel.name}!", ephemeral=True
+                f"Аниме-изображение успешно опубликовано в канале #{channel_label}!",
+                ephemeral=True,
             )
         else:
             await ctx.send(
@@ -376,22 +385,6 @@ class AnimeCog(commands.Cog):
             return False
 
         return True
-
-    async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """Обрабатывает ошибки, возникающие при выполнении команд в этом коге.
-
-        Args:
-            ctx: Контекст команды, где произошла ошибка.
-            error: Объект ошибки.
-        """
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("У вас нет прав для выполнения этой команды.", ephemeral=True)
-        elif isinstance(error, commands.CommandInvokeError):
-            logger.error(f"Ошибка при выполнении команды: {error.original}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {error.original}", ephemeral=True)
-        else:
-            logger.error(f"Необработанная ошибка в команде: {error}", exc_info=True)
-            await ctx.send(f"Произошла неизвестная ошибка: {error}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

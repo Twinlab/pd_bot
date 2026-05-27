@@ -73,64 +73,68 @@ class TestCreate:
 class TestMarkReady:
     """Кнопка «Готов»."""
 
-    def test_first_press_adds_user(self, manager: PartyManager, party: Party) -> None:
+    async def test_first_press_adds_user(self, manager: PartyManager, party: Party) -> None:
         """Первое нажатие «Готов» добавляет юзера в joined_order."""
-        result = manager.mark_ready(party.id, user_id=200)
+        result = await manager.mark_ready(party.id, user_id=200)
         assert result is party
         assert party.joined_order == [100, 200]
 
-    def test_repeated_press_is_noop(self, manager: PartyManager, party: Party) -> None:
+    async def test_repeated_press_is_noop(self, manager: PartyManager, party: Party) -> None:
         """Повторное «Готов» от того же юзера ничего не меняет."""
-        manager.mark_ready(party.id, user_id=200)
-        result = manager.mark_ready(party.id, user_id=200)
+        await manager.mark_ready(party.id, user_id=200)
+        result = await manager.mark_ready(party.id, user_id=200)
         assert result is None
         assert party.joined_order == [100, 200]
 
-    def test_ready_after_declined_moves_user(self, manager: PartyManager, party: Party) -> None:
+    async def test_ready_after_declined_moves_user(
+        self, manager: PartyManager, party: Party
+    ) -> None:
         """«Готов» после «Не готов» убирает юзера из declined и кладёт в joined."""
-        manager.mark_declined(party.id, user_id=200)
+        await manager.mark_declined(party.id, user_id=200)
         assert 200 in party.declined_order
-        result = manager.mark_ready(party.id, user_id=200)
+        result = await manager.mark_ready(party.id, user_id=200)
         assert result is party
         assert 200 in party.joined_order
         assert 200 not in party.declined_order
 
-    def test_unknown_party_returns_none(self, manager: PartyManager) -> None:
+    async def test_unknown_party_returns_none(self, manager: PartyManager) -> None:
         """Неизвестный party_id безопасен."""
-        assert manager.mark_ready("nope", user_id=200) is None
+        assert await manager.mark_ready("nope", user_id=200) is None
 
-    def test_finalized_party_ignores(self, manager: PartyManager, party: Party) -> None:
+    async def test_finalized_party_ignores(self, manager: PartyManager, party: Party) -> None:
         """После cancel mark_ready не работает."""
-        manager.cancel(party.id)
-        assert manager.mark_ready(party.id, user_id=200) is None
+        await manager.cancel(party.id)
+        assert await manager.mark_ready(party.id, user_id=200) is None
 
 
 class TestMarkDeclined:
     """Кнопка «Не готов»."""
 
-    def test_first_press_adds_user(self, manager: PartyManager, party: Party) -> None:
+    async def test_first_press_adds_user(self, manager: PartyManager, party: Party) -> None:
         """Первое нажатие «Не готов» кладёт юзера в declined_order."""
-        result = manager.mark_declined(party.id, user_id=200)
+        result = await manager.mark_declined(party.id, user_id=200)
         assert result is party
         assert party.declined_order == [200]
 
-    def test_repeated_press_is_noop(self, manager: PartyManager, party: Party) -> None:
+    async def test_repeated_press_is_noop(self, manager: PartyManager, party: Party) -> None:
         """Повторный «Не готов» ничего не меняет."""
-        manager.mark_declined(party.id, user_id=200)
-        result = manager.mark_declined(party.id, user_id=200)
+        await manager.mark_declined(party.id, user_id=200)
+        result = await manager.mark_declined(party.id, user_id=200)
         assert result is None
 
-    def test_declined_after_ready_moves_user(self, manager: PartyManager, party: Party) -> None:
+    async def test_declined_after_ready_moves_user(
+        self, manager: PartyManager, party: Party
+    ) -> None:
         """«Не готов» после «Готов» убирает юзера из joined и кладёт в declined."""
-        manager.mark_ready(party.id, user_id=200)
-        result = manager.mark_declined(party.id, user_id=200)
+        await manager.mark_ready(party.id, user_id=200)
+        result = await manager.mark_declined(party.id, user_id=200)
         assert result is party
         assert 200 not in party.joined_order
         assert 200 in party.declined_order
 
-    def test_initiator_cannot_decline(self, manager: PartyManager, party: Party) -> None:
+    async def test_initiator_cannot_decline(self, manager: PartyManager, party: Party) -> None:
         """Инициатор не может попасть в declined (защита от ломки логики)."""
-        result = manager.mark_declined(party.id, user_id=100)
+        result = await manager.mark_declined(party.id, user_id=100)
         assert result is None
         assert 100 in party.joined_order
         assert party.declined_order == []
@@ -139,22 +143,22 @@ class TestMarkDeclined:
 class TestReadyAndBench:
     """Свойства ready / bench пересчитываются по count."""
 
-    def test_ready_takes_first_count(self, manager: PartyManager, party: Party) -> None:
+    async def test_ready_takes_first_count(self, manager: PartyManager, party: Party) -> None:
         """ready = первые count из joined_order; остальные — bench."""
         for uid in (200, 300, 400, 500):
-            manager.mark_ready(party.id, user_id=uid)
+            await manager.mark_ready(party.id, user_id=uid)
 
         assert party.ready == [100, 200, 300]
         assert party.bench == [400, 500]
 
-    def test_decline_from_ready_promotes_first_bench(
+    async def test_decline_from_ready_promotes_first_bench(
         self, manager: PartyManager, party: Party
     ) -> None:
         """Если готовый нажал «Не готов» — первый из начинки занимает его место."""
         for uid in (200, 300, 400, 500):
-            manager.mark_ready(party.id, user_id=uid)
+            await manager.mark_ready(party.id, user_id=uid)
 
-        manager.mark_declined(party.id, user_id=200)
+        await manager.mark_declined(party.id, user_id=200)
 
         assert party.ready == [100, 300, 400]
         assert party.bench == [500]
@@ -164,15 +168,15 @@ class TestReadyAndBench:
 class TestCancel:
     """cancel убирает пати из активных и финализирует."""
 
-    def test_cancel_removes_party(self, manager: PartyManager, party: Party) -> None:
+    async def test_cancel_removes_party(self, manager: PartyManager, party: Party) -> None:
         """После cancel пати недоступен через get."""
-        manager.cancel(party.id)
+        await manager.cancel(party.id)
         assert manager.get(party.id) is None
         assert party.finalized is True
 
-    def test_cancel_unknown_returns_none(self, manager: PartyManager) -> None:
+    async def test_cancel_unknown_returns_none(self, manager: PartyManager) -> None:
         """Cancel на несуществующее party_id безопасен."""
-        assert manager.cancel("nope") is None
+        assert await manager.cancel("nope") is None
 
 
 class TestListForInitiator:

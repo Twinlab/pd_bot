@@ -101,43 +101,39 @@ else:
 
 
 async def load_cogs() -> None:
-    """
-    Сканирует директорию cogs/ для загрузки когов команд и загружает обработчики из handlers/.
+    """Сканирует ``cogs/`` и загружает все коги + обработчики из ``handlers/``.
 
-    Функция выполняет:
-    1. Загрузку всех Python-файлов из директории cogs/ как расширения бота
-    2. Загрузку обработчика событий из handlers.events
-    3. Загрузку обработчика сообщений из handlers.message_handler
-
-    Raises:
-        Exception: При ошибке загрузки кога или обработчика, ошибка логируется,
-                  но выполнение продолжается.
+    Fail-fast: при ошибке загрузки любого кога или обработчика выбрасывает
+    исключение наружу. Молча проглатывать импорт-ошибки опасно — бот мог
+    запуститься без половины функционала и об этом узнавали только в проде.
     """
     logger.info("Загрузка когов команд...")
     cogs_dir = Path("./cogs")
     for filepath in cogs_dir.glob("*.py"):
-        if filepath.name != "__init__.py":
-            cog_module = f"cogs.{filepath.stem}"
-            try:
-                await bot.load_extension(cog_module)
-                # Мы не логируем загрузку здесь, так как это делается в самих когах
-                # Утилита should_log_cog_load используется в когах для предотвращения дублирования
-            except Exception as e:
-                logger.error(f"Ошибка при загрузке кога {filepath.name}: {e}")
+        if filepath.name == "__init__.py":
+            continue
+        cog_module = f"cogs.{filepath.stem}"
+        try:
+            await bot.load_extension(cog_module)
+        except Exception:
+            logger.exception("Ошибка при загрузке кога %s", filepath.name)
+            raise
 
     logger.info("Загрузка обработчиков событий...")
     try:
         await bot.load_extension("handlers.events")
         logger.info("Загружены обработчики событий")
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке обработчиков событий: {e}")
+    except Exception:
+        logger.exception("Ошибка при загрузке handlers.events")
+        raise
 
     logger.info("Загрузка обработчика сообщений...")
     try:
         await bot.load_extension("handlers.message_handler")
         logger.info("Загружен обработчик сообщений")
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке обработчика сообщений: {e}")
+    except Exception:
+        logger.exception("Ошибка при загрузке handlers.message_handler")
+        raise
 
 
 async def main() -> None:
@@ -167,9 +163,14 @@ async def main() -> None:
     finally:
         if not bot.is_closed():
             await bot.close()
-        from utils.dota_api import close_session
 
-        await close_session()
+        # Закрываем шаренные aiohttp-сессии модулей, чтобы не светить
+        # «Unclosed client session» в логи при shutdown.
+        from utils.deathbattle_utils import close_session as close_deathbattle_session
+        from utils.dota_api import close_session as close_dota_session
+
+        await close_dota_session()
+        await close_deathbattle_session()
         await close_database()
 
 

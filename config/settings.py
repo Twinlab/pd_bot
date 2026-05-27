@@ -23,18 +23,23 @@ class Environment(StrEnum):
 class ChannelConfig(BaseModel):
     """Конфигурация каналов Discord.
 
+    Значения ID каналов всегда переопределяются в ``config/bot_settings.yaml``.
+    Нулевые дефолты ниже — это «sentinel», который заставит код, наткнувшийся
+    на неконфигурированный канал, явно упасть или залогировать ошибку,
+    вместо того чтобы случайно слать в чужой канал по хардкодному ID.
+
     Attributes:
-        logging: ID канала для логов бота
-        anime: ID канала для публикации аниме (опционально)
-        twitch: ID канала для уведомлений Twitch
-        activity_reports: ID канала для отчетов активности
-        role_reactions_default: ID канала по умолчанию для ролей (опционально)
+        logging: ID канала для логов бота.
+        anime: ID канала для публикации аниме (опционально).
+        twitch: ID канала для уведомлений Twitch.
+        activity_reports: ID канала для отчетов активности.
+        role_reactions_default: ID канала по умолчанию для ролей (опционально).
     """
 
-    logging: int = 1365045098785542224
+    logging: int = 0
     anime: int | None = None
-    twitch: int = 1113813039083442296
-    activity_reports: int = 573665353327181824
+    twitch: int = 0
+    activity_reports: int = 0
     role_reactions_default: int | None = None
 
 

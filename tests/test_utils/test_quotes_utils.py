@@ -9,6 +9,7 @@ import pytest
 from utils.quotes_utils import (
     FolderNotFoundError,
     NoImagesFoundError,
+    _invalidate_quotes_cache,
     get_folder_stats,
     get_images_from_folder,
     get_quotes_path,
@@ -18,6 +19,14 @@ from utils.quotes_utils import (
     send_random_quote_image,
     validate_folder_exists,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_quotes_cache():
+    """TTL-кэш sсcan_quotes_folders/get_images_from_folder может протечь между тестами."""
+    _invalidate_quotes_cache()
+    yield
+    _invalidate_quotes_cache()
 
 
 class TestQuotesUtilsBasic:

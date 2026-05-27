@@ -85,6 +85,11 @@ Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
 - **Wavelink usage**: stick to wavelink 3.x conventions — `await wavelink.Playable.search(query)` for resolution, `wavelink.Pool.connect(...)` for nodes, event listeners via `@commands.Cog.listener()` (`on_wavelink_track_start`, `on_wavelink_inactive_player`, etc.). Use our `MusicPlayer` subclass (`utils/music/player.py`) instead of bare `wavelink.Player` so the now-playing message and requester attribution work consistently.
 - **Single guild**: do not write multi-guild logic, do not iterate `bot.guilds`
 - **Imports**: stdlib → third-party → local, separated by blank lines (Ruff/isort enforced)
+- **Комментарии**: пиши только то, что объясняет *почему* (нетривиальное намерение, гонка, обход бага, важный инвариант). Не дублируй то, что и так видно из кода или имени функции/переменной.
+ - Запрещено: «# Импортируем X», «# Получаем Y», «# Возвращаем результат», «# Проверяем что X не None», «# Создаём экземпляр», «# Логируем», «# TODO без контекста», построчные «what»-комментарии над очевидными выражениями.
+ - Запрещено вставлять «отчётные» комментарии вида «// Added missing check», «# Исправлено», «# Refactored to use safe_send» — историю правок несёт git, а не код.
+ - Запрещено заменять docstring цепочкой однострочных комментариев: для публичных функций — Google-style docstring, для непубличных и внутри тел функций — минимум, объясняющий замысел.
+ - Старые подробные комментарии, которые ты переписываешь, лучше укоротить до одной фразы или удалить, а не «дополнить» новыми абзацами.
 
 ## Testing
 

@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -76,10 +77,22 @@ class Party:
 
 
 class PartyManager:
-    """Коллекция активных пати с лукапом по id."""
+    """Коллекция активных пати с лукапом по id.
+
+    Все мутирующие операции (``mark_ready``, ``mark_declined``, ``cancel``)
+    идут под общим :class:`asyncio.Lock`, чтобы быстрая серия кликов
+    не перемешала ``joined_order`` / ``declined_order``.
+    """
 
     def __init__(self) -> None:
         self._active: dict[str, Party] = {}
+        # Лениво — на момент __init__ event loop может ещё не существовать.
+        self._lock: asyncio.Lock | None = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     def create(
         self,
@@ -111,63 +124,66 @@ class PartyManager:
         self._active[party.id] = party
         return party
 
-    def mark_ready(self, party_id: str, user_id: int) -> Party | None:
+    async def mark_ready(self, party_id: str, user_id: int) -> Party | None:
         """Юзер нажал «Готов».
 
         Возвращает :class:`Party` если состояние реально изменилось (надо
         перерисовать embed), иначе ``None``. ``None`` также если пати
         не найден или уже закрыт.
         """
-        party = self._active.get(party_id)
-        if party is None or party.finalized:
-            return None
+        async with self._get_lock():
+            party = self._active.get(party_id)
+            if party is None or party.finalized:
+                return None
 
-        was_declined = user_id in party.declined_order
-        already_ready = user_id in party.joined_order
+            was_declined = user_id in party.declined_order
+            already_ready = user_id in party.joined_order
 
-        if already_ready and not was_declined:
-            return None  # ничего не поменялось
+            if already_ready and not was_declined:
+                return None  # ничего не поменялось
 
-        if was_declined:
-            party.declined_order.remove(user_id)
-        if not already_ready:
-            party.joined_order.append(user_id)
-        return party
+            if was_declined:
+                party.declined_order.remove(user_id)
+            if not already_ready:
+                party.joined_order.append(user_id)
+            return party
 
-    def mark_declined(self, party_id: str, user_id: int) -> Party | None:
+    async def mark_declined(self, party_id: str, user_id: int) -> Party | None:
         """Юзер нажал «Не готов».
 
         Инициатор НЕ может попасть в declined — у него нет DM с кнопками,
         но на всякий случай отдельно его не пускаем.
         """
-        party = self._active.get(party_id)
-        if party is None or party.finalized:
-            return None
-        if user_id == party.initiator_id:
-            return None
+        async with self._get_lock():
+            party = self._active.get(party_id)
+            if party is None or party.finalized:
+                return None
+            if user_id == party.initiator_id:
+                return None
 
-        was_ready = user_id in party.joined_order
-        already_declined = user_id in party.declined_order
+            was_ready = user_id in party.joined_order
+            already_declined = user_id in party.declined_order
 
-        if already_declined and not was_ready:
-            return None
+            if already_declined and not was_ready:
+                return None
 
-        if was_ready:
-            party.joined_order.remove(user_id)
-        if not already_declined:
-            party.declined_order.append(user_id)
-        return party
+            if was_ready:
+                party.joined_order.remove(user_id)
+            if not already_declined:
+                party.declined_order.append(user_id)
+            return party
 
-    def cancel(self, party_id: str) -> Party | None:
-        """Удаляет пати из активных и помечает финализированным."""
-        party = self._active.pop(party_id, None)
-        if party is None:
-            return None
-        party.finalized = True
-        return party
+    async def cancel(self, party_id: str) -> Party | None:
+        """Удаляет пати из активных и помечает финализированным (атомарно)."""
+        async with self._get_lock():
+            party = self._active.pop(party_id, None)
+            if party is None:
+                return None
+            party.finalized = True
+            return party
 
     def get(self, party_id: str) -> Party | None:
-        """Достаёт пати по идентификатору."""
+        """Достаёт пати по идентификатору (read-only, lock не нужен)."""
         return self._active.get(party_id)
 
     def list_for_initiator(self, initiator_id: int) -> list[Party]:

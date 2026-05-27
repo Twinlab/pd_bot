@@ -1,11 +1,10 @@
 """Тесты для кога ActivityTracker."""
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-import pytz
 from discord.ext import commands
 
 from cogs.activity import ActivityTracker
@@ -90,7 +89,7 @@ class TestActivityTracking:
             # Патчим is_application
             with patch("cogs.activity.is_application", return_value=False):
                 # Переопределяем метод scan_all_users_activity для тестирования
-                now_utc = datetime.now(pytz.UTC)
+                now_utc = datetime.now(UTC)
 
                 # Создаем тестовую реализацию метода
                 async def test_scan_implementation():
@@ -120,11 +119,11 @@ class TestActivityTracking:
             # Добавляем тестовые данные в current_activities
             user_id = 123456789
             game_name = "Test Game"
-            start_time = datetime.now(pytz.UTC) - timedelta(minutes=30)  # 30 минут назад
+            start_time = datetime.now(UTC) - timedelta(minutes=30)  # 30 минут назад
             activity_tracker.current_activities[user_id] = (game_name, start_time)
 
             # Патчим data_manager.update_activity
-            now_utc = datetime.now(pytz.UTC)
+            now_utc = datetime.now(UTC)
             with patch.object(activity_tracker.data_manager, "update_activity") as mock_update:
                 # Создаем тестовую реализацию метода
                 async def test_update_implementation(final_save=False):
@@ -192,7 +191,7 @@ class TestActivityTracking:
         # Добавляем тестовые данные в current_activities
         user_id = 123456789
         game_name = "Test Game"
-        start_time = datetime.now(pytz.UTC) - timedelta(minutes=30)  # 30 минут назад
+        start_time = datetime.now(UTC) - timedelta(minutes=30)  # 30 минут назад
         activity_tracker.current_activities[user_id] = (game_name, start_time)
 
         # Создаем моки для before и after
@@ -761,7 +760,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
         # Добавляем тестовые данные с временем в будущем
         user_id = 123456789
         game_name = "Test Game"
-        future_time = datetime.now(pytz.UTC) + timedelta(minutes=30)  # Время в будущем
+        future_time = datetime.now(UTC) + timedelta(minutes=30)  # Время в будущем
         activity_tracker.current_activities[user_id] = (game_name, future_time)
 
         # Вызываем метод update_current_activities
@@ -771,7 +770,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
         assert user_id in activity_tracker.current_activities
         assert activity_tracker.current_activities[user_id][0] == game_name
         # Время должно быть обновлено на текущее
-        assert activity_tracker.current_activities[user_id][1] <= datetime.now(pytz.UTC)
+        assert activity_tracker.current_activities[user_id][1] <= datetime.now(UTC)
 
     @pytest.mark.asyncio
     async def test_update_current_activities_too_long_session(self, mock_bot):
@@ -782,7 +781,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
         # Добавляем тестовые данные со слишком старым временем
         user_id = 123456789
         game_name = "Test Game"
-        old_time = datetime.now(pytz.UTC) - timedelta(days=3)  # 3 дня назад
+        old_time = datetime.now(UTC) - timedelta(days=3)  # 3 дня назад
         activity_tracker.current_activities[user_id] = (game_name, old_time)
 
         # Настраиваем конфиг бота
@@ -803,7 +802,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
         # Добавляем тестовые данные с очень коротким временем
         user_id = 123456789
         game_name = "Test Game"
-        recent_time = datetime.now(pytz.UTC) - timedelta(seconds=5)  # 5 секунд назад
+        recent_time = datetime.now(UTC) - timedelta(seconds=5)  # 5 секунд назад
         activity_tracker.current_activities[user_id] = (game_name, recent_time)
 
         # Настраиваем конфиг бота
@@ -828,7 +827,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
             # Добавляем тестовые данные
             user_id = 123456789
             game_name = "Test Game"
-            start_time = datetime.now(pytz.UTC) - timedelta(minutes=30)
+            start_time = datetime.now(UTC) - timedelta(minutes=30)
             activity_tracker.current_activities[user_id] = (game_name, start_time)
 
             # Патчим data_manager.update_activity для выброса исключения
@@ -855,7 +854,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
             # Добавляем тестовые данные
             user_id = 123456789
             game_name = "Test Game"
-            start_time = datetime.now(pytz.UTC) - timedelta(minutes=30)
+            start_time = datetime.now(UTC) - timedelta(minutes=30)
             activity_tracker.current_activities[user_id] = (game_name, start_time)
 
             # Патчим data_manager.update_activity
@@ -1127,39 +1126,8 @@ class TestCommandsEdgeCases:
             # Патч
 
 
-class TestCommandErrorHandler:
-    """Тесты для обработчика ошибок команд."""
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_delegates_to_utils(self, mock_bot, mock_context):
-        """Тест делегирования обработки ошибок в utils.error_handler."""
-        # Патчим tasks.loop, чтобы избежать проблем с циклом событий
-        with patch("discord.ext.tasks.loop", return_value=MagicMock()):
-            # Создаем экземпляр ActivityTracker
-            activity_tracker = ActivityTracker(mock_bot)
-
-            # Создаем ошибку
-            error = commands.CommandError("Test error")
-
-            # Настраиваем mock_context.command для логирования
-            mock_context.command = MagicMock()
-            mock_context.command.__str__.return_value = "test_command"
-
-            # Патчим safe_send_error и get_error_message
-            with (
-                patch(
-                    "utils.error_handler.safe_send_error", new_callable=AsyncMock
-                ) as mock_safe_send,
-                patch(
-                    "utils.error_handler.get_error_message", return_value="Error message"
-                ) as mock_get_msg,
-            ):
-                # Вызываем обработчик ошибок
-                await activity_tracker.cog_command_error(mock_context, error)
-
-                # Проверяем, что вызваны утилиты
-                mock_get_msg.assert_called_once_with(error)
-                mock_safe_send.assert_called_once_with(mock_context, "Error message")
+# Локальный cog_command_error удалён — обработка ошибок централизована
+# в handlers/events.py.
 
 
 class TestReportCommandsEdgeCases:
@@ -1401,7 +1369,7 @@ class TestMystatsCommandEdgeCases:
             # Добавляем текущую сессию
             user_id = mock_member.id
             game_name = "Current Game"
-            start_time = datetime.now(pytz.UTC) - timedelta(minutes=15)  # 15 минут назад
+            start_time = datetime.now(UTC) - timedelta(minutes=15)  # 15 минут назад
             activity_tracker.current_activities[user_id] = (game_name, start_time)
 
             # Настраиваем mock_context
@@ -1507,7 +1475,7 @@ class TestOnPresenceUpdateComplexScenarios:
         # Добавляем существующую сессию
         user_id = 123456789
         old_game = "Old Game"
-        start_time = datetime.now(pytz.UTC) - timedelta(minutes=30)
+        start_time = datetime.now(UTC) - timedelta(minutes=30)
         activity_tracker.current_activities[user_id] = (old_game, start_time)
 
         # Создаем моки для before и after
@@ -1557,7 +1525,7 @@ class TestOnPresenceUpdateComplexScenarios:
         # Добавляем короткую сессию
         user_id = 123456789
         game_name = "Short Game"
-        start_time = datetime.now(pytz.UTC) - timedelta(seconds=5)  # 5 секунд назад
+        start_time = datetime.now(UTC) - timedelta(seconds=5)  # 5 секунд назад
         activity_tracker.current_activities[user_id] = (game_name, start_time)
 
         # Настраиваем конфиг бота
@@ -1606,7 +1574,7 @@ class TestOnMemberRemove:
 
         user_id = 384486431680364545
         game_name = "Clair Obscur: Expedition 33"
-        start_time = datetime.now(pytz.UTC) - timedelta(minutes=10)
+        start_time = datetime.now(UTC) - timedelta(minutes=10)
         activity_tracker.current_activities[user_id] = (game_name, start_time)
 
         # Настраиваем пороги
@@ -1656,7 +1624,7 @@ class TestOnMemberRemove:
         member.id = 111111111
 
         # Добавляем фиктивную сессию для бота (не должно быть в реальности)
-        activity_tracker.current_activities[111111111] = ("Bot Game", datetime.now(pytz.UTC))
+        activity_tracker.current_activities[111111111] = ("Bot Game", datetime.now(UTC))
 
         await activity_tracker.on_member_remove(member)
 
@@ -1670,7 +1638,7 @@ class TestOnMemberRemove:
 
         user_id = 123456789
         game_name = "Quick Game"
-        start_time = datetime.now(pytz.UTC) - timedelta(seconds=3)
+        start_time = datetime.now(UTC) - timedelta(seconds=3)
         activity_tracker.current_activities[user_id] = (game_name, start_time)
 
         mock_bot.settings.timeouts.activity_min_record = 10
@@ -1698,7 +1666,7 @@ class TestStaleSessionCleanup:
 
         stale_user_id = 384486431680364545
         game_name = "Ghost Game"
-        start_time = datetime.now(pytz.UTC) - timedelta(minutes=10)
+        start_time = datetime.now(UTC) - timedelta(minutes=10)
         activity_tracker.current_activities[stale_user_id] = (game_name, start_time)
 
         mock_bot.settings.timeouts.activity_min_record = 10

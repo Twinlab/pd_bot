@@ -127,7 +127,7 @@ class TwitchAPI:
             params: Параметры запроса
 
         Returns:
-            Optional[Dict]: Данные ответа или None в случае ошибки
+            dict | None: Данные ответа или None в случае ошибки
         """
         if not await self.get_access_token():
             return None
@@ -177,7 +177,7 @@ class TwitchAPI:
             usernames: Список имен пользователей Twitch
 
         Returns:
-            List[Dict]: Список словарей с информацией о пользователях
+            list[dict]: Список словарей с информацией о пользователях
         """
         if not usernames:
             return []
@@ -204,7 +204,7 @@ class TwitchAPI:
             user_ids: Список ID пользователей Twitch
 
         Returns:
-            List[Dict]: Список словарей с информацией о стримах
+            list[dict]: Список словарей с информацией о стримах
         """
         if not user_ids:
             return []
@@ -231,7 +231,7 @@ class TwitchAPI:
             username: Имя пользователя Twitch
 
         Returns:
-            Optional[Dict]: Словарь с информацией о пользователе или None
+            dict | None: Словарь с информацией о пользователе или None
         """
         users = await self.get_users([username])
         return users[0] if users else None
@@ -244,7 +244,7 @@ class TwitchAPI:
             user_id: ID пользователя Twitch
 
         Returns:
-            Tuple[bool, Optional[Dict]]:
+            tuple[bool, dict | None]:
                 (True, данные стрима) если пользователь онлайн,
                 (False, None) если оффлайн
         """

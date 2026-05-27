@@ -372,36 +372,8 @@ class TestRestartCommand:
         mock_bot.close.assert_called_once()
 
 
-class TestCogErrorHandling:
-    """Тесты для обработчика ошибок кога."""
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_missing_permissions(self, admin_cog: AdminCog, mock_context: commands.Context):
-        """Тест обработки MissingPermissions."""
-        error = commands.MissingPermissions(["manage_messages"])
-        await admin_cog.cog_command_error(mock_context, error)
-        mock_context.send.assert_called_once_with("У вас нет прав для выполнения этой команды.", ephemeral=True)
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_command_invoke_error(self, admin_cog: AdminCog, mock_context: commands.Context):
-        """Тест обработки CommandInvokeError."""
-        original_error = ValueError("Test original error")
-        error = commands.CommandInvokeError(original_error)
-        with patch("cogs.admin.logger.error") as mock_logger_error:
-            await admin_cog.cog_command_error(mock_context, error)
-            mock_context.send.assert_called_once_with(f"Произошла ошибка: {original_error}", ephemeral=True)
-            mock_logger_error.assert_called_once_with(
-                f"Ошибка при выполнении команды: {original_error}", exc_info=True
-            )
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_other_error(self, admin_cog: AdminCog, mock_context: commands.Context):
-        """Тест обработки других ошибок."""
-        error = TypeError("Some other type error")
-        with patch("cogs.admin.logger.error") as mock_logger_error:
-            await admin_cog.cog_command_error(mock_context, error)
-            mock_context.send.assert_called_once_with(f"Произошла неизвестная ошибка: {error}", ephemeral=True)
-            mock_logger_error.assert_called_once_with(f"Необработанная ошибка в команде: {error}", exc_info=True)
+# Локальный cog_command_error удалён — обработка ошибок централизована
+# в handlers/events.py (`on_command_error`).
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@
 import asyncio
 import datetime
 import logging
+from datetime import UTC
 from typing import Any
 
 import discord
@@ -74,7 +75,7 @@ class TwitchCog(commands.Cog):
         # Кеш для хранения информации о стримерах
         self.streamers_cache: dict[
             str, dict[str, Any]
-        ] = {}  # {username: {'user_id': str, 'is_live': bool, 'stream_data': Optional[Dict[str, Any]]}}
+        ] = {}  # {username: {'user_id': str, 'is_live': bool, 'stream_data': dict[str, Any] | None}}
 
         # Получаем настройки из конфигурации
         settings = get_settings()
@@ -286,12 +287,16 @@ class TwitchCog(commands.Cog):
                 logger.error(f"Бот не готов при попытке отправить уведомление о стриме {username}")
                 return
 
-            # Получаем объект сервера (первый сервер, так как бот работает только на одном сервере)
-            if not self.bot.guilds:
-                logger.error("Бот не подключен ни к одному серверу")
-                return
-
-            guild = self.bot.guilds[0]
+            # Сначала по переданному guild_id, иначе fallback на единственную (single-guild).
+            guild = self.bot.get_guild(guild_id) if guild_id else None
+            if guild is None:
+                if not self.bot.guilds:
+                    logger.error("Бот не подключен ни к одному серверу")
+                    return
+                guild = self.bot.guilds[0]
+                logger.warning(
+                    "Гильдия с ID %s не найдена, используем fallback %s", guild_id, guild.id
+                )
             logger.info(f"Используем сервер: {guild.name} (ID: {guild.id})")
 
             # Получаем объект канала
@@ -321,7 +326,7 @@ class TwitchCog(commands.Cog):
                 title=stream_data["title"],
                 url=f"https://twitch.tv/{username}",
                 color=int(settings.twitch.embed_color.replace("#", ""), 16),
-                timestamp=datetime.datetime.now(),
+                timestamp=datetime.datetime.now(UTC),
             )
 
             # Добавляем информацию о стримере
@@ -650,7 +655,7 @@ class TwitchCog(commands.Cog):
         embed = discord.Embed(
             title="Отслеживаемые Twitch-стримеры",
             color=int(settings.twitch.embed_color.replace("#", ""), 16),
-            timestamp=datetime.datetime.now(),
+            timestamp=datetime.datetime.now(UTC),
         )
 
         # Группируем стримеров по каналу для уведомлений

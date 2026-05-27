@@ -178,30 +178,6 @@ class TestMessageHandlerMethods:
             mock_logger.error.assert_called_once()
             assert "Ошибка при обработке сообщения" in mock_logger.error.call_args[0][0]
 
-    @pytest.mark.asyncio
-    async def test_cog_command_error(self, mock_bot, mock_context):
-        """Тест обработки ошибки команды."""
-        handler = MessageHandler(mock_bot)
-        
-        # Создаем ошибку
-        error = Exception("Test error")
-        
-        # Настраиваем mock_context
-        mock_context.command = "test_command"
-        
-        # Патчим logger
-        with patch("handlers.message_handler.logger") as mock_logger:
-            # Вызываем метод
-            await handler.cog_command_error(mock_context, error)
-            
-            # Проверяем, что logger.error был вызван
-            mock_logger.error.assert_called_once()
-            
-            # Проверяем, что ctx.send был вызван
-            mock_context.send.assert_called_once()
-            assert "Произошла ошибка" in mock_context.send.call_args[0][0]
-
-
 class TestSetup:
     """Тесты для функции setup."""
 

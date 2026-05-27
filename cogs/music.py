@@ -62,7 +62,8 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
 
     async def cog_unload(self) -> None:
         """Отключает плеер от голосового канала и закрывает Lavalink-ноду."""
-        for guild in self.bot.guilds:
+        guild = self.bot.guilds[0] if self.bot.guilds else None
+        if guild is not None:
             vc = guild.voice_client
             if isinstance(vc, MusicPlayer):
                 try:

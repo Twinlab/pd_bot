@@ -108,7 +108,7 @@ class TwitchDataManager:
             guild_id: ID сервера Discord
 
         Returns:
-            List[Dict]: Список словарей с информацией о стримерах.
+            list[dict]: Список словарей с информацией о стримерах.
         """
         streamers = []
         try:
@@ -138,7 +138,7 @@ class TwitchDataManager:
         Получает список всех отслеживаемых стримеров для всех серверов.
 
         Returns:
-            List[Dict]: Список словарей с информацией о стримерах.
+            list[dict]: Список словарей с информацией о стримерах.
         """
         streamers = []
         try:

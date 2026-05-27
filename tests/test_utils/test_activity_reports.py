@@ -21,6 +21,10 @@ def mock_bot():
     """Создает мок для бота Discord."""
     bot = MagicMock()
     bot.get_channel = MagicMock(return_value=None)  # По умолчанию канал не найден
+    # _get_report_channel читает bot.settings.channels.activity_reports и
+    # bot.settings.timeouts.activity_monthly_min_time — настраиваем дефолты.
+    bot.settings.channels.activity_reports = 123456789
+    bot.settings.timeouts.activity_monthly_min_time = 1800
     return bot
 
 
@@ -65,7 +69,12 @@ def mock_data_manager():
 
 @pytest.fixture
 def mock_config():
-    """Создает мок для конфигурации бота."""
+    """Заглушка для совместимости — _get_report_channel больше не читает dict-конфиг.
+
+    Оставлено, чтобы не переписывать сигнатуры существующих тестов; реально
+    используется только как фиктивный аргумент-маркер там, где старые тесты
+    его передавали.
+    """
     return {"REPORT_CHANNEL_ID": 123456789}
 
 
@@ -108,38 +117,48 @@ def long_activity_data():
 
 
 @pytest.mark.asyncio
-async def test_get_report_channel_not_found(mock_bot, mock_config):
+async def test_get_report_channel_not_found(mock_bot):
     """Проверяет, что функция возвращает None, если канал не найден."""
     mock_bot.get_channel.return_value = None
-    channel = await _get_report_channel(mock_bot, mock_config)
+    channel = await _get_report_channel(mock_bot)
     assert channel is None
-    mock_bot.get_channel.assert_called_once_with(mock_config["REPORT_CHANNEL_ID"])
+    mock_bot.get_channel.assert_called_once_with(
+        mock_bot.settings.channels.activity_reports
+    )
 
 
 @pytest.mark.asyncio
-async def test_get_report_channel_not_text_channel(mock_bot, mock_config):
+async def test_get_report_channel_not_text_channel(mock_bot):
     """Проверяет, что функция возвращает None, если канал не является текстовым."""
     voice_channel = MagicMock(spec=discord.VoiceChannel)
     mock_bot.get_channel.return_value = voice_channel
-    channel = await _get_report_channel(mock_bot, mock_config)
+    channel = await _get_report_channel(mock_bot)
     assert channel is None
 
 
 @pytest.mark.asyncio
-async def test_get_report_channel_success(mock_bot, mock_channel, mock_config):
+async def test_get_report_channel_success(mock_bot, mock_channel):
     """Проверяет, что функция возвращает канал, если он найден и является текстовым."""
     mock_bot.get_channel.return_value = mock_channel
-    channel = await _get_report_channel(mock_bot, mock_config)
+    channel = await _get_report_channel(mock_bot)
     assert channel is mock_channel
 
 
 @pytest.mark.asyncio
-async def test_get_report_channel_default_id(mock_bot):
-    """Проверяет, что функция использует ID канала по умолчанию, если он не указан в конфиге."""
+async def test_get_report_channel_reads_from_bot_settings(mock_bot):
+    """Канал должен браться из bot.settings.channels.activity_reports."""
+    mock_bot.settings.channels.activity_reports = 999111222
     mock_bot.get_channel.return_value = None
-    await _get_report_channel(mock_bot, {})  # Пустой конфиг
-    # Проверяем, что был вызван get_channel с ID по умолчанию
-    mock_bot.get_channel.assert_called_once_with(573665353327181824)
+    await _get_report_channel(mock_bot)
+    mock_bot.get_channel.assert_called_once_with(999111222)
+
+
+@pytest.mark.asyncio
+async def test_get_report_channel_without_bot_settings(mock_bot):
+    """Если у бота нет settings — функция возвращает None и не падает."""
+    del mock_bot.settings
+    channel = await _get_report_channel(mock_bot)
+    assert channel is None
 
 
 # --- Тесты для _get_monthly_summary_text ---
@@ -193,20 +212,20 @@ def test_get_monthly_summary_text_same_popular_and_time_game(sample_activity_dat
 
 
 @pytest.mark.asyncio
-async def test_send_daily_report_channel_not_found(mock_bot, mock_data_manager, mock_config):
+async def test_send_daily_report_channel_not_found(mock_bot, mock_data_manager):
     """Проверяет, что функция возвращает False, если канал не найден."""
     mock_bot.get_channel.return_value = None
-    result = await send_daily_report(date.today(), mock_bot, mock_data_manager, mock_config)
+    result = await send_daily_report(date.today(), mock_bot, mock_data_manager)
     assert result is False
 
 
 @pytest.mark.asyncio
-async def test_send_daily_report_no_data(mock_bot, mock_channel, mock_data_manager, mock_config):
+async def test_send_daily_report_no_data(mock_bot, mock_channel, mock_data_manager):
     """Проверяет отправку сообщения при отсутствии данных."""
     mock_bot.get_channel.return_value = mock_channel
     mock_data_manager.get_daily_stats.return_value = {}  # Пустые данные
 
-    result = await send_daily_report(date.today(), mock_bot, mock_data_manager, mock_config)
+    result = await send_daily_report(date.today(), mock_bot, mock_data_manager)
 
     assert result is True
     mock_channel.send.assert_called_once()
@@ -216,7 +235,7 @@ async def test_send_daily_report_no_data(mock_bot, mock_channel, mock_data_manag
 
 @pytest.mark.asyncio
 async def test_send_daily_report_with_data(
-    mock_bot, mock_channel, mock_data_manager, mock_config, sample_activity_data
+    mock_bot, mock_channel, mock_data_manager, sample_activity_data
 ):
     """Проверяет отправку отчета при наличии данных."""
     mock_bot.get_channel.return_value = mock_channel
@@ -228,7 +247,7 @@ async def test_send_daily_report_with_data(
         mock_view.get_current_content.return_value = "Test Content"
         MockActivityView.return_value = mock_view
 
-        result = await send_daily_report(date.today(), mock_bot, mock_data_manager, mock_config)
+        result = await send_daily_report(date.today(), mock_bot, mock_data_manager)
 
         assert result is True
         # Проверяем, что был создан ActivityView с правильными параметрами
@@ -247,12 +266,12 @@ async def test_send_daily_report_with_data(
 
 
 @pytest.mark.asyncio
-async def test_send_daily_report_exception(mock_bot, mock_channel, mock_data_manager, mock_config):
+async def test_send_daily_report_exception(mock_bot, mock_channel, mock_data_manager):
     """Проверяет обработку исключений при отправке отчета."""
     mock_bot.get_channel.return_value = mock_channel
     mock_data_manager.get_daily_stats.side_effect = Exception("Test error")
 
-    result = await send_daily_report(date.today(), mock_bot, mock_data_manager, mock_config)
+    result = await send_daily_report(date.today(), mock_bot, mock_data_manager)
 
     assert result is False
     # Проверяем, что было отправлено сообщение об ошибке
@@ -266,20 +285,20 @@ async def test_send_daily_report_exception(mock_bot, mock_channel, mock_data_man
 
 
 @pytest.mark.asyncio
-async def test_send_monthly_report_channel_not_found(mock_bot, mock_data_manager, mock_config):
+async def test_send_monthly_report_channel_not_found(mock_bot, mock_data_manager):
     """Проверяет, что функция возвращает False, если канал не найден."""
     mock_bot.get_channel.return_value = None
-    result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager, mock_config)
+    result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager)
     assert result is False
 
 
 @pytest.mark.asyncio
-async def test_send_monthly_report_no_data(mock_bot, mock_channel, mock_data_manager, mock_config):
+async def test_send_monthly_report_no_data(mock_bot, mock_channel, mock_data_manager):
     """Проверяет отправку сообщения при отсутствии данных."""
     mock_bot.get_channel.return_value = mock_channel
     mock_data_manager.get_aggregated_monthly_stats.return_value = {}  # Пустые данные
 
-    result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager, mock_config)
+    result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager)
 
     assert result is True
     mock_channel.send.assert_called_once()
@@ -290,7 +309,7 @@ async def test_send_monthly_report_no_data(mock_bot, mock_channel, mock_data_man
 
 @pytest.mark.asyncio
 async def test_send_monthly_report_with_data(
-    mock_bot, mock_channel, mock_data_manager, mock_config, sample_activity_data
+    mock_bot, mock_channel, mock_data_manager, sample_activity_data
 ):
     """Проверяет отправку отчета при наличии данных."""
     mock_bot.get_channel.return_value = mock_channel
@@ -300,7 +319,7 @@ async def test_send_monthly_report_with_data(
     with patch("utils.activity.reports._get_monthly_summary_text") as mock_summary:
         mock_summary.return_value = "## 📊 Общая статистика\nТестовая статистика"
 
-        result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager, mock_config)
+        result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager)
 
         assert result is True
         # Проверяем, что было отправлено сообщение
@@ -315,7 +334,7 @@ async def test_send_monthly_report_with_data(
 # @pytest.mark.skip(reason="Вызывает рекурсию из-за сложной структуры моков")
 @pytest.mark.asyncio
 async def test_send_monthly_report_long_content(
-    mock_bot, mock_channel, mock_data_manager, mock_config, long_activity_data
+    mock_bot, mock_channel, mock_data_manager, long_activity_data
 ):
     """Проверяет разбивку длинного отчета на части."""
     mock_bot.get_channel.return_value = mock_channel
@@ -328,7 +347,7 @@ async def test_send_monthly_report_long_content(
     ):
         mock_summary.return_value = "## 📊 Общая статистика\nТестовая статистика"
 
-        result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager, mock_config)
+        result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager)
 
         assert result is True
         # Проверяем, что send был вызван несколько раз

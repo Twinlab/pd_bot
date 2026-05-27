@@ -70,7 +70,7 @@ class PartyView(discord.ui.View):
         if not await self._check_cooldown(interaction):
             return
         await interaction.response.defer()
-        updated = self.cog.manager.mark_ready(self.party_id, interaction.user.id)
+        updated = await self.cog.manager.mark_ready(self.party_id, interaction.user.id)
         if updated is not None:
             await self.cog._refresh_all_embeds(updated)
 
@@ -84,7 +84,7 @@ class PartyView(discord.ui.View):
         if not await self._check_cooldown(interaction):
             return
         await interaction.response.defer()
-        updated = self.cog.manager.mark_declined(self.party_id, interaction.user.id)
+        updated = await self.cog.manager.mark_declined(self.party_id, interaction.user.id)
         if updated is not None:
             await self.cog._refresh_all_embeds(updated)
 

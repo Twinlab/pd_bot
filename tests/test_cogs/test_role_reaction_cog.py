@@ -570,6 +570,51 @@ class TestRawReactionListeners:
 
 
     @pytest.mark.asyncio
+    async def test_on_raw_reaction_add_member_not_in_payload_fetched(
+        self, role_reaction_cog: RoleReactionCog, mock_raw_reaction_payload: discord.RawReactionActionEvent,
+        mock_data_manager: RoleReactionDataManager, mock_guild: discord.Guild, mock_role: discord.Role,
+        mock_member: discord.Member, mock_message: discord.Message
+    ):
+        """Когда payload.member=None (некэшированный юзер) — добиваем fetch_member и не падаем.
+
+        Регрессия: раньше код делал ``payload.member.bot`` без проверки и валился с
+        AttributeError на каждом добавлении реакции от некэшированного участника.
+        """
+        mock_raw_reaction_payload.member = None
+        channel_id, message_id = mock_message.channel.id, mock_message.id
+        mock_data_manager.get_message_info.return_value = (channel_id, message_id)
+        mock_data_manager.get_role_by_emoji.return_value = mock_role.id
+        role_reaction_cog.bot.get_guild.return_value = mock_guild
+        mock_guild.get_role.return_value = mock_role
+        mock_guild.get_member.return_value = None
+        mock_guild.fetch_member.return_value = mock_member
+
+        await role_reaction_cog.on_raw_reaction_add(mock_raw_reaction_payload)
+
+        mock_guild.fetch_member.assert_called_once_with(mock_raw_reaction_payload.user_id)
+        mock_member.add_roles.assert_called_once_with(mock_role, reason="Роль по реакции")
+
+    @pytest.mark.asyncio
+    async def test_on_raw_reaction_add_member_not_found_no_crash(
+        self, role_reaction_cog: RoleReactionCog, mock_raw_reaction_payload: discord.RawReactionActionEvent,
+        mock_data_manager: RoleReactionDataManager, mock_guild: discord.Guild, mock_role: discord.Role,
+        mock_message: discord.Message, mock_member: discord.Member
+    ):
+        """fetch_member кинул NotFound → молча выходим, роль не выдаём, не падаем."""
+        mock_raw_reaction_payload.member = None
+        channel_id, message_id = mock_message.channel.id, mock_message.id
+        mock_data_manager.get_message_info.return_value = (channel_id, message_id)
+        mock_data_manager.get_role_by_emoji.return_value = mock_role.id
+        role_reaction_cog.bot.get_guild.return_value = mock_guild
+        mock_guild.get_role.return_value = mock_role
+        mock_guild.get_member.return_value = None
+        mock_guild.fetch_member.side_effect = discord.NotFound(MagicMock(), "Member not found")
+
+        await role_reaction_cog.on_raw_reaction_add(mock_raw_reaction_payload)
+
+        mock_member.add_roles.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_on_raw_reaction_remove_success(
         self, role_reaction_cog: RoleReactionCog, mock_raw_reaction_payload: discord.RawReactionActionEvent,
         mock_data_manager: RoleReactionDataManager, mock_guild: discord.Guild, mock_role: discord.Role,
@@ -862,45 +907,9 @@ class TestUpdateReactionMessage:
             assert "Add reaction failed" in mock_logger_error.call_args[0][0]
 
 
-class TestCogCommandError:
-    @pytest.mark.asyncio
-    async def test_cog_command_error_missing_permissions(self, role_reaction_cog: RoleReactionCog, mock_ctx: commands.Context):
-        error = commands.MissingPermissions(["manage_roles"])
-        with patch("cogs.role_reaction.safe_send", new_callable=AsyncMock) as mock_safe_send:
-            await role_reaction_cog.cog_command_error(mock_ctx, error)
-            mock_safe_send.assert_called_once_with(mock_ctx, "У вас нет прав для выполнения этой команды.", ephemeral=True)
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_command_invoke_error(self, role_reaction_cog: RoleReactionCog, mock_ctx: commands.Context):
-        original_error = ValueError("Test original error")
-        error = commands.CommandInvokeError(original_error)
-        mock_ctx.command = MagicMock(name="test_invoke_command") # Убедимся, что у ctx есть command
-        with patch("cogs.role_reaction.logger.error") as mock_logger_error, \
-             patch("cogs.role_reaction.safe_send", new_callable=AsyncMock) as mock_safe_send:
-            await role_reaction_cog.cog_command_error(mock_ctx, error)
-            mock_safe_send.assert_called_once_with(mock_ctx, f"Произошла ошибка: {original_error}", ephemeral=True)
-            mock_logger_error.assert_called_once_with(
-                f"Ошибка при выполнении команды {mock_ctx.command}: {original_error}", exc_info=True
-            )
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_bad_argument(self, role_reaction_cog: RoleReactionCog, mock_ctx: commands.Context):
-        error = commands.BadArgument("Bad argument provided")
-        with patch("cogs.role_reaction.safe_send", new_callable=AsyncMock) as mock_safe_send:
-            await role_reaction_cog.cog_command_error(mock_ctx, error)
-            mock_safe_send.assert_called_once_with(mock_ctx, f"Неверный аргумент: {error}", ephemeral=True)
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_generic_error(self, role_reaction_cog: RoleReactionCog, mock_ctx: commands.Context):
-        error = Exception("Some generic error")
-        mock_ctx.command = MagicMock(name="test_generic_command")
-        with patch("cogs.role_reaction.logger.error") as mock_logger_error, \
-             patch("cogs.role_reaction.safe_send", new_callable=AsyncMock) as mock_safe_send:
-            await role_reaction_cog.cog_command_error(mock_ctx, error)
-            mock_safe_send.assert_called_once_with(mock_ctx, f"Произошла неизвестная ошибка: {error}", ephemeral=True)
-            mock_logger_error.assert_called_once_with(
-                f"Необработанная ошибка в команде {mock_ctx.command}: {error}", exc_info=True
-            )
+# Локальные cog_command_error удалены — обработка ошибок централизована
+# в handlers/events.py (`on_command_error`). Тесты на старые методы выпилены
+# вместе с самими методами.
 
 
 @pytest.mark.asyncio

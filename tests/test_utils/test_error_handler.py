@@ -1,8 +1,6 @@
 """Тесты для модуля error_handler."""
 
-import sys
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import discord
 import pytest
@@ -172,6 +170,88 @@ class TestCommandErrorHandler:
             # Проверяем, что safe_send_error вызвана с правильными аргументами
             mock_safe_send_error.assert_called_once()
             assert "Original Error" in mock_safe_send_error.call_args[0][1]
+
+    @pytest.mark.asyncio
+    async def test_command_error_handler_swallows_unknown_exception(self):
+        """Декоратор должен проглатывать исключения после ответа юзеру.
+
+        Иначе discord.py обернёт их в CommandInvokeError и вторично дёрнет
+        ``on_command_error`` в handlers/events.py — получим двойной лог
+        и второй embed «Произошла непредвиденная ошибка» в чат.
+        """
+
+        class CustomBoom(Exception):
+            """Что-то неожиданное, чего нет в ERROR_MESSAGES."""
+
+        async def mock_command(self, ctx, *args, **kwargs):
+            raise CustomBoom("boom")
+
+        decorated = command_error_handler(mock_command)
+
+        self_mock = MagicMock()
+        self_mock.bot = MagicMock()
+        ctx_mock = MagicMock()
+        ctx_mock.command = MagicMock()
+        ctx_mock.command.name = "test_command"
+
+        with (
+            patch("utils.error_handler.safe_send_error") as mock_safe_send_error,
+            patch("utils.error_handler.logger") as mock_logger,
+        ):
+            result = await decorated(self_mock, ctx_mock)
+
+        # Исключение проглочено — функция возвращает None, не падает.
+        assert result is None
+        # Юзер всё равно получил уведомление, лог со стеком тоже есть.
+        mock_safe_send_error.assert_called_once()
+        mock_logger.error.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_command_error_handler_propagates_system_exit(self):
+        """SystemExit / KeyboardInterrupt должны пробрасываться (завершают процесс)."""
+
+        async def mock_command(self, ctx, *args, **kwargs):
+            raise KeyboardInterrupt
+
+        decorated = command_error_handler(mock_command)
+
+        self_mock = MagicMock()
+        self_mock.bot = MagicMock()
+        ctx_mock = MagicMock()
+        ctx_mock.command = MagicMock()
+        ctx_mock.command.name = "test_command"
+
+        with (
+            patch("utils.error_handler.safe_send_error"),
+            patch("utils.error_handler.logger"),
+            pytest.raises(KeyboardInterrupt),
+        ):
+            await decorated(self_mock, ctx_mock)
+
+    @pytest.mark.asyncio
+    async def test_command_error_handler_known_error_is_swallowed(self):
+        """А известные ошибки из ERROR_MESSAGES по-прежнему НЕ пробрасываются."""
+
+        async def mock_command(self, ctx, *args, **kwargs):
+            raise commands.BadArgument("плохой аргумент")
+
+        decorated = command_error_handler(mock_command)
+
+        self_mock = MagicMock()
+        self_mock.bot = MagicMock()
+        ctx_mock = MagicMock()
+        ctx_mock.command = MagicMock()
+        ctx_mock.command.name = "test_command"
+
+        with (
+            patch("utils.error_handler.safe_send_error") as mock_safe_send_error,
+            patch("utils.error_handler.logger"),
+        ):
+            # Не должно бросить — известная ошибка.
+            result = await decorated(self_mock, ctx_mock)
+
+        assert result is None
+        mock_safe_send_error.assert_called_once()
 
 
 class TestGetErrorMessage:

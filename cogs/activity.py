@@ -14,10 +14,9 @@
 
 import asyncio
 import logging
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 
 import discord
-import pytz  # type: ignore
 from discord import app_commands
 from discord.ext import commands, tasks
 
@@ -30,14 +29,10 @@ from utils.activity.reports import (
     send_daily_report,
     send_monthly_report,
 )
-
-# Импортируем компоненты из нового пакета utils.activity
 from utils.activity.views import ActivityView, StatsView
-
-# Импортируем менеджер данных
 from utils.activity_data_manager import ActivityDataManager
+from utils.time_utils import MOSCOW_TZ
 
-# Логгер для кога
 logger: logging.Logger = logging.getLogger("bot.cogs.activity")
 
 
@@ -74,10 +69,17 @@ class ActivityTracker(commands.Cog):
         self.scan_scheduled = False
 
         try:
+            # Интервал берём из настроек тут, а не в декораторе — иначе он замораживается
+            # на момент импорта модуля и правки YAML/env не подхватываются.
+            periodic_save_seconds = get_settings().timeouts.activity_periodic_save
+            self.periodic_save.change_interval(seconds=periodic_save_seconds)
             self.periodic_save.start()
             self.daily_report.start()
             self.monthly_report.start()
-            logger.info("Фоновые задачи ActivityTracker запущены.")
+            logger.info(
+                "Фоновые задачи ActivityTracker запущены (periodic_save=%ss).",
+                periodic_save_seconds,
+            )
         except Exception as e:
             logger.error(f"Не удалось запустить фоновые задачи ActivityTracker: {e}", exc_info=True)
 
@@ -90,31 +92,35 @@ class ActivityTracker(commands.Cog):
             asyncio.create_task(self.scan_all_users_activity())
 
     async def scan_all_users_activity(self) -> None:
-        """Сканирует активность всех пользователей на всех серверах при запуске бота."""
+        """Сканирует активность всех пользователей на сервере при запуске бота."""
         try:
             await self.bot.wait_until_ready()
             logger.info("Начинаем сканирование активности всех пользователей после запуска.")
-            now_utc = datetime.now(pytz.UTC)
+            guild = self.bot.guilds[0] if self.bot.guilds else None
+            if guild is None:
+                logger.warning("scan_all_users_activity: бот не подключен ни к одному серверу.")
+                return
+
+            now_utc = datetime.now(UTC)
             found_activities = 0
-            for guild in self.bot.guilds:
-                for member in guild.members:
-                    if member.bot or is_application(member):
-                        continue
+            for member in guild.members:
+                if member.bot or is_application(member):
+                    continue
 
-                    playing_activity = None
-                    for activity in member.activities:
-                        if activity.type == discord.ActivityType.playing:
-                            playing_activity = activity
-                            break
+                playing_activity = None
+                for activity in member.activities:
+                    if activity.type == discord.ActivityType.playing:
+                        playing_activity = activity
+                        break
 
-                    if playing_activity and playing_activity.name:
-                        assert playing_activity.name is not None
-                        self.current_activities[member.id] = (playing_activity.name, now_utc)
-                        found_activities += 1
-                        logger.debug(
-                            f"Обнаружена активная игра у {member.name} ({member.id}): "
-                            f"{playing_activity.name}"
-                        )
+                if playing_activity and playing_activity.name:
+                    assert playing_activity.name is not None
+                    self.current_activities[member.id] = (playing_activity.name, now_utc)
+                    found_activities += 1
+                    logger.debug(
+                        f"Обнаружена активная игра у {member.name} ({member.id}): "
+                        f"{playing_activity.name}"
+                    )
 
             logger.info(
                 f"Сканирование завершено. Обнаружено {found_activities} активных игровых сессий."
@@ -167,7 +173,7 @@ class ActivityTracker(commands.Cog):
             return
 
         game_name, start_time = self.current_activities[user_id]
-        now_utc = datetime.now(pytz.UTC)
+        now_utc = datetime.now(UTC)
         elapsed_seconds = int((now_utc - start_time).total_seconds())
 
         # Удаляем сессию из памяти
@@ -204,7 +210,7 @@ class ActivityTracker(commands.Cog):
             final_save: Если True, выполняется финальное сохранение перед выгрузкой кога.
                         В этом режиме время старта в current_activities не обновляется.
         """
-        now_utc = datetime.now(pytz.UTC)
+        now_utc = datetime.now(UTC)
         tasks_to_run = []
         users_to_update_start_time = {}  # Для обновления времени старта в памяти
 
@@ -322,7 +328,7 @@ class ActivityTracker(commands.Cog):
             return
 
         try:
-            now_utc = datetime.now(pytz.UTC)
+            now_utc = datetime.now(UTC)
             user_id = after.id
 
             # Определяем, в какие игры играл пользователь до и после обновления
@@ -399,7 +405,8 @@ class ActivityTracker(commands.Cog):
 
     # --- Фоновые задачи ---
 
-    @tasks.loop(minutes=get_settings().timeouts.activity_periodic_save // 60)
+    # Реальный интервал ставится в cog_load через change_interval(...).
+    @tasks.loop(seconds=60)
     async def periodic_save(self) -> None:
         """
         Периодически обновляет время текущих активных сессий в БД.
@@ -434,7 +441,7 @@ class ActivityTracker(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка в before_periodic_save: {e}", exc_info=True)
 
-    @tasks.loop(time=time(hour=9, minute=0, tzinfo=pytz.UTC))  # 12:00 МСК (09:00 UTC)
+    @tasks.loop(time=time(hour=9, minute=0, tzinfo=UTC))  # 12:00 МСК (09:00 UTC)
     async def monthly_report(self) -> None:
         """
         Выполняет автоматическую логику ежемесячного отчета.
@@ -467,7 +474,7 @@ class ActivityTracker(commands.Cog):
             logger.error(f"Ошибка в before_monthly_report: {e}", exc_info=True)
 
     # Устанавливаем правильный часовой пояс для времени запуска (UTC)
-    @tasks.loop(time=time(hour=21, minute=0, tzinfo=pytz.UTC))  # 00:00 МСК (21:00 UTC пред. дня)
+    @tasks.loop(time=time(hour=21, minute=0, tzinfo=UTC))  # 00:00 МСК (21:00 UTC пред. дня)
     async def daily_report(self) -> None:
         """
         Выполняет автоматическую логику ежедневного отчета.
@@ -477,14 +484,14 @@ class ActivityTracker(commands.Cog):
         отчета об активности за предыдущий день, а также переноса данных
         из daily_activity в monthly_activity.
         """
-        now = datetime.now(pytz.timezone("Europe/Moscow"))
+        now = datetime.now(MOSCOW_TZ)
         logger.info(
             "daily_report: Запуск автоматической задачи ежедневного отчета... "
             f"(фактическое время: {now.strftime('%Y-%m-%d %H:%M:%S %Z')})"
         )
         # Вызываем перенесенную логику
         await run_automatic_daily_report(self)
-        now_end = datetime.now(pytz.timezone("Europe/Moscow"))
+        now_end = datetime.now(MOSCOW_TZ)
         logger.info(
             "daily_report: Автоматическая задача ежедневного отчета завершена. "
             f"(фактическое время: {now_end.strftime('%Y-%m-%d %H:%M:%S %Z')})"
@@ -653,7 +660,7 @@ class ActivityTracker(commands.Cog):
             # Показываем текущую сессию, если смотрим текущий месяц
             if is_current_month and user_id in self.current_activities:
                 game_name, start_time = self.current_activities[user_id]
-                now_utc = datetime.now(pytz.UTC)
+                now_utc = datetime.now(UTC)
                 current_session_seconds = int((now_utc - start_time).total_seconds())
                 if current_session_seconds > 10:  # Показываем только если сессия длится > 10 сек
                     current_info = (
@@ -747,11 +754,10 @@ class ActivityTracker(commands.Cog):
 
         try:
             await ctx.defer(ephemeral=True)  # Даем боту время на генерацию
-            config = getattr(self.bot, "config", {})
             report_channel = ctx.channel if isinstance(ctx.channel, discord.TextChannel) else None
             # Передаем текущий канал в функцию send_daily_report
             success = await send_daily_report(
-                target_date, self.bot, self.data_manager, config, channel=report_channel
+                target_date, self.bot, self.data_manager, channel=report_channel
             )
 
             if success:
@@ -828,11 +834,10 @@ class ActivityTracker(commands.Cog):
 
         try:
             await ctx.defer(ephemeral=True)  # Даем боту время на генерацию
-            config = getattr(self.bot, "config", {})
             report_channel = ctx.channel if isinstance(ctx.channel, discord.TextChannel) else None
             # Передаем текущий канал в функцию send_monthly_report
             success = await send_monthly_report(
-                year, month, self.bot, self.data_manager, config, channel=report_channel
+                year, month, self.bot, self.data_manager, channel=report_channel
             )
 
             if success:
@@ -877,19 +882,6 @@ class ActivityTracker(commands.Cog):
                     await ctx.send(f"Произошла критическая ошибка при выполнении команды: {e}")
             except Exception as send_error:
                 logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
-
-    # --- Обработчики ошибок для команд кога ---
-
-    async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """Локальный обработчик ошибок для команд этого кога."""
-        from utils.error_handler import get_error_message, safe_send_error
-
-        logger.error(
-            f"Ошибка в команде {ctx.command}: {error}",
-            exc_info=True,
-        )
-        error_message = get_error_message(error)
-        await safe_send_error(ctx, error_message)
 
 
 async def setup(bot: commands.Bot) -> None:

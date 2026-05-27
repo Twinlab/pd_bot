@@ -217,7 +217,15 @@ class PartyCog(commands.Cog):
         channel = self.bot.get_channel(party.channel_id) if guild else None
         role = guild.get_role(party.role_id) if guild else None
 
-        ready_ids = list(party.ready)
+        # cancel() атомарно помечает финализированным и удаляет из активных —
+        # только после него снимаем snapshot ready_ids, иначе клик "Готов" между
+        # snapshot и cancel мог бы потеряться в финальном пинге.
+        cancelled = await self.manager.cancel(party.id)
+        if cancelled is None:
+            # Уже финализировано параллельным /party_cancel — отдаём раунд.
+            return
+
+        ready_ids = list(cancelled.ready)
         # Имя роли, а не mention — иначе в финальном сообщении она выглядит как кликабельный
         # пинг (даже с allowed_mentions roles=False это всё равно подсвечивается и раздражает).
         role_name = role.name if role else f"роль #{party.role_id}"
@@ -225,17 +233,17 @@ class PartyCog(commands.Cog):
         # Пати считается собранным только если набрали запрошенный состав (включая инициатора).
         # Если ready меньше count — переиспользуем шаблон "никого не собрали": раз состав
         # не набран, пинговать частично собравшихся бессмысленно.
-        if len(ready_ids) >= party.count:
+        if len(ready_ids) >= cancelled.count:
             ready_pings = " ".join(f"<@{uid}>" for uid in ready_ids)
             text = settings.party.finished_message_template.format(
                 ready_pings=ready_pings,
                 role=role_name,
-                comment=party.comment,
+                comment=cancelled.comment,
             )
         else:
             text = settings.party.empty_finished_message.format(
                 role=role_name,
-                comment=party.comment,
+                comment=cancelled.comment,
             )
 
         if isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
@@ -249,10 +257,9 @@ class PartyCog(commands.Cog):
             except discord.HTTPException as e:
                 logger.warning(f"Не удалось отправить финальное сообщение пати {party.id}: {e}")
 
-        self.manager.cancel(party.id)
         # Сначала снимаем кнопки в DM (с серым embed-ом), потом обновляем публичный.
-        await self._disable_dm_buttons(party)
-        await self._refresh_public_embed(party)
+        await self._disable_dm_buttons(cancelled)
+        await self._refresh_public_embed(cancelled)
         self._timers.pop(party.id, None)
 
     @commands.hybrid_command(
@@ -377,9 +384,11 @@ class PartyCog(commands.Cog):
         task = self._timers.pop(party.id, None)
         if task is not None:
             task.cancel()
-        self.manager.cancel(party.id)
-        await self._disable_dm_buttons(party)
-        await self._refresh_public_embed(party)
+        cancelled = await self.manager.cancel(party.id)
+        # None означает что таймер _finalize уже всё снял — просто рапортуем.
+        if cancelled is not None:
+            await self._disable_dm_buttons(cancelled)
+            await self._refresh_public_embed(cancelled)
         await safe_send(ctx, "Сбор пати отменён.", ephemeral=True)
         logger.info(f"Пати {party.id} отменено инициатором {ctx.author.id}")
 

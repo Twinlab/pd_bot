@@ -395,8 +395,9 @@ class TestSendStreamNotification:
     ):
         username = "teststreamer"
         stream_data = {"title": "Test Stream", "user_name": "TestStreamer", "game_name": "Test Game", "viewer_count": 10, "thumbnail_url": "http://example.com/{width}x{height}.jpg"}
-        
+
         mock_bot.guilds = [mock_guild] # Убедимся, что у бота есть гильдии
+        mock_bot.get_guild = MagicMock(return_value=mock_guild)  # bot.get_guild(guild_id) → mock_guild
         mock_guild.get_channel.return_value = mock_text_channel # get_channel находит наш канал
 
         await twitch_cog.send_stream_notification(mock_guild.id, mock_text_channel.id, username, stream_data)
@@ -426,6 +427,7 @@ class TestSendStreamNotification:
     @pytest.mark.asyncio
     async def test_send_notification_no_guilds(self, twitch_cog: TwitchCog, mock_bot: commands.Bot):
         mock_bot.guilds = []
+        mock_bot.get_guild = MagicMock(return_value=None)  # ни в кэше, ни в guilds
         stream_data = {"title": "T", "user_name": "U", "thumbnail_url": "http://x/{width}x{height}", "game_name": "G", "viewer_count": 0}
         with patch("cogs.twitch.logger.error") as mock_logger_error:
             await twitch_cog.send_stream_notification(1, 301, "test", stream_data)
@@ -437,8 +439,9 @@ class TestSendStreamNotification:
     ):
         username = "teststreamer"
         stream_data = {"title": "Test Stream", "user_name": "TestStreamer", "game_name": "Test Game", "viewer_count": 10, "thumbnail_url": "http://example.com/{width}x{height}.jpg"}
-        
+
         mock_bot.guilds = [mock_guild]
+        mock_bot.get_guild = MagicMock(return_value=mock_guild)
         # Первый get_channel (для channel_id) вернет None
         # Второй get_channel (для default_channel_id) вернет mock_text_channel
         mock_guild.get_channel.side_effect = [None, mock_text_channel]
@@ -455,6 +458,7 @@ class TestSendStreamNotification:
         username = "teststreamer"
         stream_data = {"title": "Test Stream", "user_name": "TestStreamer", "game_name": "Test Game", "viewer_count": 10, "thumbnail_url": "http://example.com/{width}x{height}.jpg"}
         mock_bot.guilds = [mock_guild]
+        mock_bot.get_guild = MagicMock(return_value=mock_guild)
         mock_guild.get_channel.return_value = mock_text_channel
         mock_text_channel.permissions_for.return_value = MagicMock(send_messages=True, embed_links=False) # Нет прав на эмбеды
 

@@ -10,16 +10,16 @@ from collections import defaultdict  # Используется в _get_monthly_
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from cogs.activity import ActivityTracker
-
 import discord
-import pytz  # type: ignore
 
 from utils.activity_data_manager import ActivityDataManager
+from utils.time_utils import MOSCOW_TZ
 
 from .helpers import format_time_short
 from .views import ActivityView
+
+if TYPE_CHECKING:
+    from cogs.activity import ActivityTracker
 
 logger = logging.getLogger("bot.utils.activity")
 
@@ -40,21 +40,21 @@ MONTH_NAMES_RU = {
 }
 
 
-async def _get_report_channel(
-    bot: discord.Client, config: dict[str, Any]
-) -> discord.TextChannel | None:
-    """Находит и возвращает канал для отправки отчетов.
+async def _get_report_channel(bot: discord.Client) -> discord.TextChannel | None:
+    """Находит и возвращает канал для отправки отчетов из ``bot.settings``.
 
     Args:
-        bot: Экземпляр бота Discord.
-        config: Словарь конфигурации бота (для получения ID канала).
+        bot: Экземпляр бота Discord (ожидается атрибут ``settings``).
 
     Returns:
         Объект discord.TextChannel или None, если канал не найден.
     """
-    # ID канала по умолчанию, если не найден в конфиге
-    default_channel_id = 573665353327181824
-    report_channel_id = config.get("REPORT_CHANNEL_ID", default_channel_id)
+    settings = getattr(bot, "settings", None)
+    if settings is None:
+        logger.error("У бота нет атрибута settings — не могу определить канал для отчётов.")
+        return None
+
+    report_channel_id = settings.channels.activity_reports
     channel = bot.get_channel(report_channel_id)
     if not channel:
         logger.error(f"Канал для отчетов (ID: {report_channel_id}) не найден.")
@@ -69,7 +69,6 @@ async def send_daily_report(
     target_date: date,
     bot: discord.Client,
     data_manager: ActivityDataManager,
-    config: dict[str, Any],
     channel: discord.TextChannel | None = None,
 ) -> bool:
     """Получает данные за указанную дату и отправляет ежедневный отчет в виде ActivityView.
@@ -78,8 +77,7 @@ async def send_daily_report(
         target_date: Дата, за которую нужно отправить отчет.
         bot: Экземпляр бота Discord.
         data_manager: Экземпляр ActivityDataManager.
-        config: Словарь конфигурации бота.
-        channel: Канал для отправки отчета. Если None, будет использован канал из конфигурации.
+        channel: Канал для отправки отчета. Если None, будет использован канал из bot.settings.
 
     Returns:
         True, если отчет успешно отправлен (или данных не было), False при ошибке.
@@ -88,7 +86,7 @@ async def send_daily_report(
 
     # Если канал не указан, получаем его из конфигурации
     if channel is None:
-        channel = await _get_report_channel(bot, config)
+        channel = await _get_report_channel(bot)
         if not channel:
             return False  # Ошибка уже залогирована в _get_report_channel
 
@@ -204,7 +202,6 @@ async def send_monthly_report(
     month: int,
     bot: discord.Client,
     data_manager: ActivityDataManager,
-    config: dict[str, Any],
     channel: discord.TextChannel | None = None,
 ) -> bool:
     """Получает данные за указанный месяц/год и отправляет ежемесячный отчет.
@@ -214,8 +211,7 @@ async def send_monthly_report(
         month: Месяц.
         bot: Экземпляр бота Discord.
         data_manager: Экземпляр ActivityDataManager.
-        config: Словарь конфигурации бота.
-        channel: Канал для отправки отчета. Если None, будет использован канал из конфигурации.
+        channel: Канал для отправки отчета. Если None, будет использован канал из bot.settings.
 
     Returns:
         True, если отчет успешно отправлен (или данных не было), False при ошибке.
@@ -225,7 +221,7 @@ async def send_monthly_report(
 
     # Если канал не указан, получаем его из конфигурации
     if channel is None:
-        channel = await _get_report_channel(bot, config)
+        channel = await _get_report_channel(bot)
         if not channel:
             return False
 
@@ -249,8 +245,11 @@ async def send_monthly_report(
 
         # Получаем имена пользователей для сортировки по алфавиту
         users_with_names = []
-        # Получаем порог из конфига, используем 1800 секунд (30 минут) по умолчанию
-        min_time_threshold = config.get("ACTIVITY_MONTHLY_REPORT_MIN_TIME_SECONDS", 1800)
+        # Порог берём из bot.settings, дефолт 1800 секунд (30 минут).
+        settings = getattr(bot, "settings", None)
+        min_time_threshold = (
+            settings.timeouts.activity_monthly_min_time if settings is not None else 1800
+        )
 
         for user_id, activities in data.items():
             member = guild.get_member(user_id)
@@ -379,12 +378,10 @@ async def run_automatic_daily_report(cog_instance: "ActivityTracker") -> None:
     """
     bot = cog_instance.bot
     data_manager = cog_instance.data_manager
-    config = getattr(bot, "config", {})  # Получаем конфиг из бота
 
     try:
         # Получаем текущую дату в московском часовом поясе
-        moscow_tz = pytz.timezone("Europe/Moscow")
-        moscow_now = datetime.now(moscow_tz)
+        moscow_now = datetime.now(MOSCOW_TZ)
         today = moscow_now.date()
         yesterday = today - timedelta(days=1)
         logger.info(
@@ -398,7 +395,7 @@ async def run_automatic_daily_report(cog_instance: "ActivityTracker") -> None:
         logger.debug("run_automatic_daily_report: Обновление текущих активностей завершено.")
 
         # 2. Отправляем отчет
-        await send_daily_report(yesterday, bot, data_manager, config)
+        await send_daily_report(yesterday, bot, data_manager)
 
         # 3. Переносим данные daily -> monthly и очищаем daily
         logger.info(
@@ -437,12 +434,10 @@ async def run_automatic_monthly_report(cog_instance: "ActivityTracker") -> None:
     """
     bot = cog_instance.bot
     data_manager = cog_instance.data_manager
-    config = getattr(bot, "config", {})
 
     try:
         # Получаем текущую дату в московском часовом поясе
-        moscow_tz = pytz.timezone("Europe/Moscow")
-        moscow_now = datetime.now(moscow_tz)
+        moscow_now = datetime.now(MOSCOW_TZ)
         today = moscow_now.date()
         logger.info(
             f"run_automatic_monthly_report: Проверка даты. Текущая дата (МСК): "
@@ -463,7 +458,7 @@ async def run_automatic_monthly_report(cog_instance: "ActivityTracker") -> None:
         prev_year = last_day_of_prev_month.year
 
         # Отправляем отчет
-        await send_monthly_report(prev_year, prev_month, bot, data_manager, config)
+        await send_monthly_report(prev_year, prev_month, bot, data_manager)
 
     except Exception as e:
         logger.error(

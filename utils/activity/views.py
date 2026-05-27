@@ -7,7 +7,7 @@
 
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import UTC, datetime
 
 import discord
 from discord import ButtonStyle, Interaction, ui
@@ -476,7 +476,7 @@ class StatsView(ui.View):
         embed = discord.Embed(
             title=self.title,
             color=discord.Color.blue(),
-            timestamp=datetime.now(),  # Время генерации эмбеда
+            timestamp=datetime.now(UTC),
         )
         if self.user:
             embed.set_thumbnail(url=self.user.display_avatar.url)

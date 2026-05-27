@@ -86,17 +86,6 @@ class MessageHandler(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}", exc_info=True)
 
-    async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """
-        Обработчик ошибок для команд этого кога.
-
-        Args:
-            ctx: Контекст команды, в которой произошла ошибка.
-            error: Объект ошибки.
-        """
-        logger.error(f"Ошибка в команде {ctx.command}: {error}", exc_info=True)
-        await ctx.send(f"❌ Произошла ошибка при выполнении команды: {error}")
-
 
 async def setup(bot: commands.Bot) -> None:
     """

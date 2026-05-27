@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, cast
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 logger = logging.getLogger("bot.utils.error_handler")
@@ -23,6 +24,10 @@ ERROR_MESSAGES: dict[type, str] = {
     commands.ChannelNotFound: "Канал не найден: {error.argument}",
     commands.RoleNotFound: "Роль не найдена: {error.argument}",
     commands.CommandNotFound: "Команда не найдена.",
+    app_commands.MissingPermissions: "У вас недостаточно прав для выполнения этой команды.",
+    app_commands.BotMissingPermissions: "У бота недостаточно прав для выполнения этой команды.",
+    app_commands.CommandOnCooldown: "Команда на перезарядке. Попробуйте через "
+    "{error.retry_after:.1f} сек.",
     discord.Forbidden: "У бота нет прав для выполнения этого действия.",
     discord.NotFound: "Ресурс не найден: {error}",
     discord.HTTPException: "Ошибка Discord API: {error}",
@@ -38,22 +43,28 @@ ERROR_MESSAGES: dict[type, str] = {
 
 
 def command_error_handler[F: Callable[..., Any]](func: F) -> F:
-    """
-    Декоратор для обработки ошибок команд.
+    """Декоратор: ловит исключения внутри тела команды, логирует и отвечает пользователю.
 
-    Args:
-        func: Функция команды.
+    Семантика подобрана так, чтобы НЕ дублировать работу глобального
+    ``on_command_error`` из ``handlers/events.py``:
 
-    Returns:
-        Декорированная функция.
+    - Ошибки до входа в тело (parsing/check/cooldown) сюда не доходят —
+      их ловит ``on_command_error``.
+    - Ошибки внутри тела ловятся здесь, логируются со стеком, юзер получает
+      одно дружелюбное сообщение, исключение **проглатывается**. Иначе
+      discord.py обернёт его в ``CommandInvokeError`` и вторично дёрнет
+      ``on_command_error``, дав двойной лог и второй embed в чат.
+    - ``SystemExit`` / ``KeyboardInterrupt`` всё равно пробрасываем —
+      ими завершают процесс.
     """
 
     @functools.wraps(func)
     async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> Any:
         try:
             return await func(self, ctx, *args, **kwargs)
+        except (SystemExit, KeyboardInterrupt):
+            raise
         except Exception as error:
-            # Логируем ошибку
             logger.error(
                 f"Ошибка в команде {ctx.command}: {error}",
                 exc_info=True,
@@ -70,25 +81,16 @@ def command_error_handler[F: Callable[..., Any]](func: F) -> F:
                 },
             )
 
-            # Получаем сообщение об ошибке
-            error_message = get_error_message(error)
+            await safe_send_error(ctx, get_error_message(error))
 
-            # Отправляем сообщение об ошибке
-            await safe_send_error(ctx, error_message)
-
-            # Если это критическая ошибка, пересылаем её дальше
-            if isinstance(error, (commands.CommandInvokeError, commands.HybridCommandError)):
-                original = error.original
-                if isinstance(original, (SystemExit, KeyboardInterrupt)):
-                    raise original from None
-
-            # Записываем метрики ошибки, если есть
             if hasattr(self.bot, "metrics"):
                 self.bot.metrics.record_error(
                     command_name=ctx.command.name if ctx.command else "unknown",
                     error_type=type(error).__name__,
                     user_id=ctx.author.id,
                 )
+
+            return None
 
     return cast(F, wrapper)
 

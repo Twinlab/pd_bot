@@ -19,6 +19,49 @@ from PIL import Image
 
 logger = logging.getLogger("bot.utils.deathbattle_utils")
 
+# Шарим одну aiohttp-сессию между вызовами — каждый раз создавать новую дорого
+# (новый TCP-handshake и FD на каждую битву).
+_session: aiohttp.ClientSession | None = None
+_session_lock: asyncio.Lock | None = None
+
+
+def _get_session_lock() -> asyncio.Lock:
+    global _session_lock
+    if _session_lock is None:
+        _session_lock = asyncio.Lock()
+    return _session_lock
+
+
+async def _get_session() -> aiohttp.ClientSession:
+    global _session
+    if _session is not None and not _session.closed:
+        return _session
+    async with _get_session_lock():
+        if _session is None or _session.closed:
+            _session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15, connect=5))
+    return _session
+
+
+async def close_session() -> None:
+    """Закрывает шаренную aiohttp-сессию (при выгрузке кога)."""
+    global _session
+    if _session and not _session.closed:
+        await _session.close()
+    _session = None
+
+
+def _compose_image(background_bytes: bytes, avatar1: bytes, avatar2: bytes) -> bytes:
+    """Синхронная PIL-сборка. Вызывается через asyncio.to_thread."""
+    background = Image.open(BytesIO(background_bytes))
+    m1 = Image.open(BytesIO(avatar1))
+    m2 = Image.open(BytesIO(avatar2))
+    background.paste(m1, (20, 133))
+    background.paste(m2, (241, 133))
+    buf = BytesIO()
+    background.save(buf, "PNG")
+    return buf.getvalue()
+
+
 # Списки возможных событий для разных уровней урона в deathbattle
 event_group_1 = [  # Низкий урон
     "**{attacker}** бьёт кулаком **{defender}** и наносит **{damage}** урона!",
@@ -89,7 +132,7 @@ async def create_deathbattle_image(
         member2: Второй участник.
 
     Returns:
-        Optional[BytesIO]: BytesIO буфер с PNG-изображением или None в случае ошибки.
+        BytesIO | None: BytesIO буфер с PNG-изображением или None в случае ошибки.
     """
     # Путь к фоновому изображению (относительно корня проекта)
     image_path = "assets/deathbattle.jpg"
@@ -100,51 +143,46 @@ async def create_deathbattle_image(
         return None
 
     try:
-        # Открываем фоновое изображение
-        background = Image.open(image_path)
+        from config.settings import get_settings
 
-        # Загрузка и обработка аватарки первого участника
-        # Используем aiohttp для асинхронной загрузки
-        async with aiohttp.ClientSession() as session:
-            # Загрузка аватара 1
-            # Получаем настройки для размера аватара
-            from config.settings import get_settings
+        avatar_size = get_settings().fun.deathbattle.avatar_size
 
-            settings = get_settings()
-            avatar_size = settings.fun.deathbattle.avatar_size
+        # Фон читаем с диска в потоке — PIL не любит async.
+        background_bytes = await asyncio.to_thread(_read_file_bytes, image_path)
 
-            member1_avatar_url = str(
-                member1.display_avatar.replace(size=avatar_size, format="png").url
-            )  # Запрашиваем нужный размер и формат
-            async with session.get(member1_avatar_url) as resp1:
-                resp1.raise_for_status()  # Проверка на ошибки HTTP
-                avatar1_data = await resp1.read()
-                member1_avatar = Image.open(BytesIO(avatar1_data))
+        member1_url = str(member1.display_avatar.replace(size=avatar_size, format="png").url)
+        member2_url = str(member2.display_avatar.replace(size=avatar_size, format="png").url)
 
-            # Загрузка аватара 2
-            member2_avatar_url = str(
-                member2.display_avatar.replace(size=avatar_size, format="png").url
-            )
-            async with session.get(member2_avatar_url) as resp2:
-                resp2.raise_for_status()
-                avatar2_data = await resp2.read()
-                member2_avatar = Image.open(BytesIO(avatar2_data))
+        session = await _get_session()
+        avatar1_data, avatar2_data = await asyncio.gather(
+            _fetch_bytes(session, member1_url),
+            _fetch_bytes(session, member2_url),
+        )
 
-        # Накладываем аватары на фон в заданных координатах
-        background.paste(member1_avatar, (20, 133))  # Координаты для левого аватара
-        background.paste(member2_avatar, (241, 133))  # Координаты для правого аватара
-
-        # Сохраняем результат в буфер BytesIO в формате PNG
-        image_buffer = BytesIO()
-        background.save(image_buffer, "PNG")
-        image_buffer.seek(0)  # Перемещаем указатель в начало буфера
-        return image_buffer
-    except aiohttp.ClientError as http_err:  # Ловим ошибки aiohttp
+        # Сборка изображения в отдельном потоке — PIL блокирует event loop.
+        png_bytes = await asyncio.to_thread(
+            _compose_image, background_bytes, avatar1_data, avatar2_data
+        )
+        return BytesIO(png_bytes)
+    except aiohttp.ClientError as http_err:
         logger.error(f"Ошибка HTTP при загрузке аватара для deathbattle: {http_err}")
         return None
     except Exception as e:
         logger.error(f"Ошибка при создании изображения deathbattle: {e}", exc_info=True)
         return None
+
+
+def _read_file_bytes(path: str) -> bytes:
+    """Синхронное чтение файла (в потоке)."""
+    with open(path, "rb") as f:
+        return f.read()
+
+
+async def _fetch_bytes(session: aiohttp.ClientSession, url: str) -> bytes:
+    """Загружает байты по URL с проверкой статуса."""
+    async with session.get(url) as resp:
+        resp.raise_for_status()
+        return await resp.read()
 
 
 async def run_battle(

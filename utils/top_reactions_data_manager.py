@@ -219,6 +219,37 @@ class TopReactionsDataManager:
             )
             return False
 
+    async def add_reactors_bulk(self, *, message_id: int, reactors: list[tuple[int, str]]) -> int:
+        """Bulk-вставка реакций. Идемпотентна за счёт ``ignore_conflicts``.
+
+        Используется на backfill старого сообщения, где обычный
+        ``add_reactor`` дал бы по запросу на каждую пару (user, emoji).
+
+        Args:
+            message_id: ID сообщения.
+            reactors: Список пар ``(user_id, emoji_str)``.
+
+        Returns:
+            Количество переданных в запрос строк (НЕ число фактически вставленных:
+            ``bulk_create(ignore_conflicts=True)`` сам не сообщает, сколько было
+            пропущено как дубли). Возвращаем 0 только при ошибке БД.
+        """
+        if not reactors:
+            return 0
+        try:
+            rows = [
+                MessageReactor(message_id=message_id, user_id=user_id, emoji=emoji)
+                for user_id, emoji in reactors
+            ]
+            await MessageReactor.bulk_create(rows, ignore_conflicts=True)
+            return len(rows)
+        except Exception as e:
+            logger.error(
+                f"Ошибка add_reactors_bulk msg={message_id} count={len(reactors)}: {e}",
+                exc_info=True,
+            )
+            return 0
+
     async def remove_reactor(self, *, message_id: int, user_id: int, emoji: str) -> bool:
         """Удаляет конкретную запись (message_id, user_id, emoji).
 

@@ -114,37 +114,5 @@ class TestCommands:
             mock_display.assert_called_once_with(mock_context, mock_member)
 
 
-class TestErrorHandling:
-    """Тесты для обработки ошибок в FunCog."""
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("error_class,expected_substring", [
-        (commands.MissingPermissions, "нет прав"),
-        (commands.CommandInvokeError, "Произошла ошибка"),
-        (Exception, "неизвестная ошибка"),
-    ])
-    async def test_cog_command_error(self, mock_bot, mock_context, error_class, expected_substring):
-        """Тест обработчика ошибок cog_command_error."""
-        # Создаем экземпляр FunCog
-        fun_cog = FunCog(mock_bot)
-        
-        # Создаем ошибку
-        if error_class == commands.CommandInvokeError:
-            error = error_class(Exception("Test error"))
-        elif error_class == commands.MissingPermissions:
-            error = error_class(["manage_messages"])
-        else:
-            error = error_class()
-        
-        # Патчим logger
-        with patch("cogs.fun.logger") as mock_logger:
-            # Вызываем обработчик cog_command_error
-            await fun_cog.cog_command_error(mock_context, error)
-            
-            # Проверяем, что ctx.send был вызван с правильными аргументами
-            mock_context.send.assert_called_once()
-            assert expected_substring in mock_context.send.call_args[0][0]
-            
-            # Проверяем, что logger был вызван для CommandInvokeError и Exception
-            if error_class != commands.MissingPermissions:
-                mock_logger.error.assert_called_once()
+# Локальный cog_command_error удалён — обработка ошибок централизована
+# в handlers/events.py (`on_command_error`).

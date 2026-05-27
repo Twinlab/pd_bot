@@ -15,13 +15,13 @@ import logging
 from datetime import UTC, datetime, time
 
 import discord
-import pytz
 from discord import ButtonStyle, Interaction, app_commands, ui
 from discord.ext import commands, tasks
 
 from config import get_settings
 from utils.error_handler import command_error_handler
 from utils.role_reaction_data_manager import RoleReactionDataManager
+from utils.time_utils import MOSCOW_TZ
 from utils.top_reactions_data_manager import (
     AuthorLeaderboardEntry,
     LeaderboardEntry,
@@ -387,6 +387,7 @@ class TopReactionsCog(commands.Cog):
         )
 
         bot_id = self.bot.user.id if self.bot.user else 0
+        reactors: list[tuple[int, str]] = []
 
         for reaction in message.reactions:
             emoji_str = str(reaction.emoji)
@@ -394,14 +395,16 @@ class TopReactionsCog(commands.Cog):
                 async for user in reaction.users():
                     if user.id == bot_id:
                         continue
-                    await self.manager.add_reactor(
-                        message_id=message.id, user_id=user.id, emoji=emoji_str
-                    )
+                    reactors.append((user.id, emoji_str))
             except discord.HTTPException as e:
                 logger.warning(
                     f"Не удалось получить пользователей для реакции {emoji_str} "
                     f"на сообщении {message.id}: {e}"
                 )
+
+        # Один bulk-insert вместо одной INSERT-транзакции на каждого реактора.
+        if reactors:
+            await self.manager.add_reactors_bulk(message_id=message.id, reactors=reactors)
 
     async def _ensure_message_known(
         self, channel_id: int, message_id: int
@@ -655,7 +658,7 @@ class TopReactionsCog(commands.Cog):
             empty_embed_factory=_build_authors_embed,
         )
 
-    @tasks.loop(time=time(hour=9, minute=0, tzinfo=pytz.UTC))  # 12:00 МСК (как activity)
+    @tasks.loop(time=time(hour=9, minute=0, tzinfo=UTC))  # 12:00 МСК (как activity)
     async def monthly_report(self) -> None:
         """Фоновая задача: 1-го числа в 12:00 МСК шлёт топ за прошлый месяц.
 
@@ -663,8 +666,7 @@ class TopReactionsCog(commands.Cog):
         фильтр по 1-му числу делаем сами, по аналогии с ActivityTracker.
         """
         try:
-            moscow_tz = pytz.timezone("Europe/Moscow")
-            today = datetime.now(moscow_tz).date()
+            today = datetime.now(MOSCOW_TZ).date()
             if today.day != 1:
                 logger.debug(f"monthly_report: сегодня {today.isoformat()} (не 1-е), пропускаем.")
                 return
@@ -757,22 +759,20 @@ class TopReactionsCog(commands.Cog):
         return True
 
     async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """Обрабатывает ошибки команд кога.
+        """Обрабатывает MissingPermissions с понятным «тест-режим» сообщением.
 
-        В тест-режиме команда `/topreactions` ограничена админами; обычные
-        пользователи получают понятное сообщение вместо traceback.
+        Всё остальное отдаём глобальному обработчику в ``handlers/events.py``.
         """
         if isinstance(error, commands.MissingPermissions):
-            await ctx.send(
+            from utils.error_handler import safe_send_error
+
+            await safe_send_error(
+                ctx,
                 "Команда сейчас в тест-режиме и доступна только администраторам сервера.",
-                ephemeral=True,
             )
-        elif isinstance(error, commands.CommandInvokeError):
-            logger.error(f"Ошибка при выполнении команды: {error.original}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {error.original}", ephemeral=True)
-        else:
-            logger.error(f"Необработанная ошибка в команде: {error}", exc_info=True)
-            await ctx.send(f"Произошла неизвестная ошибка: {error}", ephemeral=True)
+            return
+        # Пробрасываем дальше — поднимется в Bot.on_command_error → handlers/events.py.
+        raise error
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -58,11 +58,14 @@ class RoleReactionCog(commands.Cog):
 
     async def load_message_cache(self) -> None:
         """Загружает кеш сообщений с реакциями из БД в атрибут self.message_cache."""
-        for guild in self.bot.guilds:
-            message_info = await self.data_manager.get_message_info(guild.id)
-            if message_info:
-                self.message_cache[guild.id] = message_info
-                logger.info(f"Загружена информация о сообщении с реакциями для сервера {guild.id}")
+        guild = self.bot.guilds[0] if self.bot.guilds else None
+        if guild is None:
+            logger.warning("load_message_cache: бот ещё не подключен ни к одному серверу.")
+            return
+        message_info = await self.data_manager.get_message_info(guild.id)
+        if message_info:
+            self.message_cache[guild.id] = message_info
+            logger.info(f"Загружена информация о сообщении с реакциями для сервера {guild.id}")
 
     async def update_reaction_message(self, guild_id: int) -> bool:
         """Обновляет существующее сообщение с реакциями на сервере.
@@ -407,8 +410,7 @@ class RoleReactionCog(commands.Cog):
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         """Обрабатывает добавление реакции для выдачи роли."""
-        # Игнорируем реакции от ботов
-        if payload.member.bot:
+        if payload.guild_id is None:
             return
 
         # Проверяем, есть ли информация о сообщении с реакциями для этого сервера
@@ -439,21 +441,38 @@ class RoleReactionCog(commands.Cog):
             logger.warning(f"Не найдена роль с ID {role_id} на сервере {payload.guild_id}")
             return
 
+        # payload.member может быть None для некэшированных юзеров — fetch как fallback.
+        member = payload.member or guild.get_member(payload.user_id)
+        if member is None:
+            try:
+                member = await guild.fetch_member(payload.user_id)
+            except discord.NotFound:
+                logger.warning(
+                    f"Не найден пользователь с ID {payload.user_id} на сервере {payload.guild_id}"
+                )
+                return
+            except Exception as e:
+                logger.error(
+                    f"Ошибка при получении пользователя {payload.user_id}: {e}", exc_info=True
+                )
+                return
+
+        if member.bot:
+            return
+
         try:
-            await payload.member.add_roles(role, reason="Роль по реакции")
+            await member.add_roles(role, reason="Роль по реакции")
             logger.info(
-                f"Выдана роль {role.name} пользователю {payload.member.display_name} "
+                f"Выдана роль {role.name} пользователю {member.display_name} "
                 f"на сервере {guild.name}"
             )
         except discord.Forbidden:
             logger.error(
-                f"Недостаточно прав для выдачи роли {role.name} "
-                f"пользователю {payload.member.display_name}"
+                f"Недостаточно прав для выдачи роли {role.name} пользователю {member.display_name}"
             )
         except Exception as e:
             logger.error(
-                f"Ошибка при выдаче роли {role.name} пользователю "
-                f"{payload.member.display_name}: {e}",
+                f"Ошибка при выдаче роли {role.name} пользователю {member.display_name}: {e}",
                 exc_info=True,
             )
 
@@ -532,25 +551,6 @@ class RoleReactionCog(commands.Cog):
         # В данном коге нет активных задач, требующих остановки,
         # но логируем для единообразия.
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
-
-    async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """Обрабатывает ошибки, возникающие при выполнении команд в этом коге.
-
-        (В основном для гибридной команды setup_role_message)
-        """
-        if isinstance(error, commands.MissingPermissions):
-            await safe_send(ctx, "У вас нет прав для выполнения этой команды.", ephemeral=True)
-        elif isinstance(error, commands.CommandInvokeError):
-            logger.error(
-                f"Ошибка при выполнении команды {ctx.command}: {error.original}",
-                exc_info=True,
-            )
-            await safe_send(ctx, f"Произошла ошибка: {str(error.original)}", ephemeral=True)
-        elif isinstance(error, commands.BadArgument):
-            await safe_send(ctx, f"Неверный аргумент: {error}", ephemeral=True)
-        else:
-            logger.error(f"Необработанная ошибка в команде {ctx.command}: {error}", exc_info=True)
-            await safe_send(ctx, f"Произошла неизвестная ошибка: {str(error)}", ephemeral=True)
 
 
 async def setup(bot: commands.Bot) -> None:

@@ -22,6 +22,14 @@ _MAX_RETRY_AFTER_SECONDS = 60.0
 _DEFAULT_RETRY_AFTER = 5.0
 
 _session: aiohttp.ClientSession | None = None
+# Защищает _get_session от гонки двух корутин.
+_session_lock: asyncio.Lock | None = None
+_DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
+_DEFAULT_CONNECTOR_LIMIT = 20
+
+# Single-flight локи на cache_key: дубли одинаковых запросов ждут общий результат.
+_inflight_locks: dict[str, asyncio.Lock] = {}
+_inflight_locks_mutex: asyncio.Lock | None = None
 
 
 class StratzRateLimited(Exception):
@@ -36,11 +44,27 @@ class StratzNonRetryable(Exception):
     """Невозвратная ошибка Stratz API: 4xx (кроме 429), GraphQL-ошибки и т.п."""
 
 
-def _get_session() -> aiohttp.ClientSession:
+def _get_lock() -> asyncio.Lock:
+    """Лениво создаёт Lock — на import time event loop может ещё не существовать."""
+    global _session_lock
+    if _session_lock is None:
+        _session_lock = asyncio.Lock()
+    return _session_lock
+
+
+async def _get_session() -> aiohttp.ClientSession:
     """Возвращает переиспользуемую сессию aiohttp, создавая при необходимости."""
     global _session
-    if _session is None or _session.closed:
-        _session = aiohttp.ClientSession()
+    if _session is not None and not _session.closed:
+        return _session
+
+    async with _get_lock():
+        # Double-checked locking: между первым check и взятием лока кто-то мог уже создать.
+        if _session is None or _session.closed:
+            _session = aiohttp.ClientSession(
+                timeout=_DEFAULT_TIMEOUT,
+                connector=aiohttp.TCPConnector(limit=_DEFAULT_CONNECTOR_LIMIT),
+            )
     return _session
 
 
@@ -50,6 +74,35 @@ async def close_session() -> None:
     if _session and not _session.closed:
         await _session.close()
     _session = None
+
+
+async def _get_inflight_lock(cache_key: str) -> asyncio.Lock:
+    """Возвращает (или создаёт) Lock для single-flight по cache_key."""
+    global _inflight_locks_mutex
+    if _inflight_locks_mutex is None:
+        _inflight_locks_mutex = asyncio.Lock()
+    async with _inflight_locks_mutex:
+        lock = _inflight_locks.get(cache_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _inflight_locks[cache_key] = lock
+        return lock
+
+
+async def prune_expired_cache() -> int:
+    """Удаляет протухшие записи из APICache. Возвращает количество удалённых."""
+    try:
+        now = time.time()
+        all_entries = await APICache.all().only("key", "timestamp", "ttl")
+        expired_keys = [e.key for e in all_entries if e.timestamp + e.ttl <= now]
+        if not expired_keys:
+            return 0
+        deleted = await APICache.filter(key__in=expired_keys).delete()
+        logger.info(f"prune_expired_cache: удалено {deleted} протухших записей.")
+        return deleted
+    except Exception as e:
+        logger.error(f"Ошибка prune_expired_cache: {e}", exc_info=True)
+        return 0
 
 
 async def get_cached_response(key: str) -> dict[str, Any] | None:
@@ -112,19 +165,40 @@ async def query_api(
     Возвращает данные при успехе или None для transient-ошибок (5xx, сеть,
     timeout) — их имеет смысл ретраить. Для нон-retryable случаев бросает
     `StratzRateLimited` (429) или `StratzNonRetryable` (4xx, GraphQL errors).
+
+    При наличии cache_key используем single-flight: если такой же запрос уже
+    выполняется параллельно, ждём его результат вместо повторного похода в API.
     """
-    # 1. Проверка кэша
-    if cache_key:
+    if cache_key is None:
+        return await _do_query_api(query, url, headers, variables, cache_key=None)
+
+    cached_data = await get_cached_response(cache_key)
+    if cached_data:
+        return cached_data
+
+    # Защита от cache-stampede: пока один запрос летит к API, остальные ждут.
+    lock = await _get_inflight_lock(cache_key)
+    async with lock:
+        # Повторный check — пока ждали лок, кто-то мог уже наполнить кэш.
         cached_data = await get_cached_response(cache_key)
         if cached_data:
             return cached_data
+        return await _do_query_api(query, url, headers, variables, cache_key=cache_key)
 
-    # 2. Запрос к API
+
+async def _do_query_api(
+    query: str,
+    url: str,
+    headers: dict[str, str],
+    variables: dict[str, Any] | None,
+    cache_key: str | None,
+) -> dict[str, Any] | None:
+    """Реальный HTTP-вызов к Stratz без single-flight обвязки."""
     request_headers = headers.copy()
     request_headers["User-Agent"] = "STRATZ_API"
 
     try:
-        session = _get_session()
+        session = await _get_session()
         async with session.post(
             url,
             json={"query": query, "variables": variables},
@@ -241,7 +315,7 @@ async def fetch_items_data(url: str, headers: dict[str, str]) -> dict[int, dict[
     if cached_data:
         # В save_to_cache мы сохраняем то, что передаем.
         # Если мы сохраним items_dict, то получим его обратно.
-        # Но get_cached_response возвращает Dict[str, Any].
+        # Но get_cached_response возвращает dict[str, Any].
         # Нам нужно привести ключи к int.
         return {int(k): v for k, v in cached_data.items()}
 

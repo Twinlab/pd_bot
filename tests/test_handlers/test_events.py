@@ -93,119 +93,56 @@ class TestOnMemberRemove:
 
 
 class TestOnCommandError:
+    """Глобальный обработчик ошибок префиксных команд."""
+
     @pytest.mark.asyncio
     async def test_command_not_found_silenced(
         self, mock_bot: MagicMock, mock_context: MagicMock
     ) -> None:
         events = Events(mock_bot)
-        await events.on_command_error(mock_context, commands.CommandNotFound())
-        mock_context.send.assert_not_called()
+        with patch("handlers.events.safe_send_error", AsyncMock()) as mock_send:
+            await events.on_command_error(mock_context, commands.CommandNotFound())
+            mock_send.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_missing_required_argument(
+    async def test_known_error_uses_safe_send_error(
         self, mock_bot: MagicMock, mock_context: MagicMock
     ) -> None:
+        """Известная ошибка → safe_send_error с текстом из ERROR_MESSAGES."""
         events = Events(mock_bot)
-        error = commands.MissingRequiredArgument(param=MagicMock(name="test_param"))
-        await events.on_command_error(mock_context, error)
-        mock_context.send.assert_called_once()
-        assert "Отсутствует аргумент" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_bad_argument(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
-        events = Events(mock_bot)
-        await events.on_command_error(mock_context, commands.BadArgument())
-        mock_context.send.assert_called_once()
-        assert "Неверный аргумент" in mock_context.send.call_args[0][0]
+        with patch("handlers.events.safe_send_error", AsyncMock()) as mock_send:
+            await events.on_command_error(mock_context, commands.BadArgument())
+            mock_send.assert_awaited_once()
+            sent_message = mock_send.await_args.args[1]
+            assert "Неверный аргумент" in sent_message
 
     @pytest.mark.asyncio
     async def test_missing_permissions(
         self, mock_bot: MagicMock, mock_context: MagicMock
     ) -> None:
         events = Events(mock_bot)
-        await events.on_command_error(
-            mock_context, commands.MissingPermissions(["manage_messages"])
-        )
-        mock_context.send.assert_called_once()
-        assert "Нет прав" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_bot_missing_permissions(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
-        events = Events(mock_bot)
-        await events.on_command_error(
-            mock_context, commands.BotMissingPermissions(["manage_messages"])
-        )
-        mock_context.send.assert_called_once()
-        assert "У бота нет прав" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_command_on_cooldown(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
-        events = Events(mock_bot)
-        error = commands.CommandOnCooldown(
-            cooldown=MagicMock(), retry_after=5.0, type=commands.BucketType.default
-        )
-        await events.on_command_error(mock_context, error)
-        mock_context.send.assert_called_once()
-        assert "Перезарядка" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_not_owner(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
-        events = Events(mock_bot)
-        await events.on_command_error(mock_context, commands.NotOwner())
-        mock_context.send.assert_called_once()
-        assert "Команда только для владельца" in mock_context.send.call_args[0][0]
+        with patch("handlers.events.safe_send_error", AsyncMock()) as mock_send:
+            await events.on_command_error(
+                mock_context, commands.MissingPermissions(["manage_messages"])
+            )
+            mock_send.assert_awaited_once()
+            assert "недостаточно прав" in mock_send.await_args.args[1]
 
     @pytest.mark.asyncio
     async def test_generic_error_logged_and_replied(
         self, mock_bot: MagicMock, mock_context: MagicMock
     ) -> None:
+        """Неизвестная ошибка логируется со стеком и тоже идёт через safe_send_error."""
         events = Events(mock_bot)
         mock_context.command = "test_command"
 
-        with patch("handlers.events.logger") as mock_logger:
+        with (
+            patch("handlers.events.logger") as mock_logger,
+            patch("handlers.events.safe_send_error", AsyncMock()) as mock_send,
+        ):
             await events.on_command_error(mock_context, Exception("Test error"))
             mock_logger.error.assert_called_once()
-            mock_context.send.assert_called_once()
-            assert "Произошла ошибка" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_cog_command_error_delegates(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
-        events = Events(mock_bot)
-        error = commands.BadArgument()
-        with patch.object(events, "on_command_error", AsyncMock()) as mock_handler:
-            await events.cog_command_error(mock_context, error)
-            mock_handler.assert_called_once_with(mock_context, error)
-
-
-class TestSendError:
-    @pytest.mark.asyncio
-    async def test_sends_with_emoji(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
-        events = Events(mock_bot)
-        await events._send_error(mock_context, "Test")
-        mock_context.send.assert_called_once()
-        assert "❌ Test" in mock_context.send.call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_swallows_send_error(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
-        events = Events(mock_bot)
-        mock_context.send.side_effect = Exception("Send error")
-        with patch("handlers.events.logger") as mock_logger:
-            await events._send_error(mock_context, "Test")
-            mock_logger.error.assert_called_once()
+            mock_send.assert_awaited_once()
 
 
 class TestSetup:

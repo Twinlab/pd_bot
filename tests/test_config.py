@@ -62,7 +62,8 @@ class TestNewConfigSystem:
                 assert settings.stratz_api_key == 'test_key'
                 # Проверяем значения по умолчанию
                 assert settings.prefix == '!'
-                assert settings.channels.logging == 1365045098785542224
+                # Дефолт каналов теперь sentinel (0), а не хардкод ID прод-сервера.
+                assert settings.channels.logging == 0
 
     def test_get_settings_yaml_override(self):
         """Тест переопределения настроек через YAML."""

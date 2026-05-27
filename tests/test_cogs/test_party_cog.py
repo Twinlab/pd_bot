@@ -345,7 +345,7 @@ class TestPartyView:
         cog._refresh_all_embeds = AsyncMock()  # type: ignore[method-assign]
         party = _make_party(cog, count=3)
         view = PartyView(cog=cog, party=party)
-        cog.manager.cancel(party.id)
+        await cog.manager.cancel(party.id)
 
         interaction = MagicMock(spec=discord.Interaction)
         interaction.user = MagicMock(id=200)
@@ -384,7 +384,7 @@ class TestFinalize:
         bot.get_channel.return_value = channel
 
         party = _make_party(cog, count=2, comment="идём ранкед")
-        cog.manager.mark_ready(party.id, user_id=200)
+        await cog.manager.mark_ready(party.id, user_id=200)
 
         await cog._finalize(party)
 

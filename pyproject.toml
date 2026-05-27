@@ -20,10 +20,8 @@ dependencies = [
     "Pillow",
     "pydantic[email]>=2.5.0",
     "pydantic-settings>=2.1.0",
-    "pytz",
     "PyYAML>=6.0.1",
     "typing-extensions",
-    "ujson",
     "wavelink>=3.5.2",
     "tortoise-orm",
 ]
@@ -40,7 +38,6 @@ dev = [
     "pytest-asyncio",
     "pytest-cov",
     "freezegun",
-    "types-pytz",
 ]
 
 docs = [

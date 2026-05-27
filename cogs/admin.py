@@ -308,23 +308,6 @@ class AdminCog(commands.Cog):
         """Вызывается при выгрузке кога."""
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
 
-    async def cog_command_error(self, ctx: commands.Context, error: Exception) -> None:
-        """
-        Обрабатывает ошибки, возникающие при выполнении команд в этом коге.
-
-        Args:
-            ctx: Контекст команды, где произошла ошибка.
-            error: Объект ошибки.
-        """
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("У вас нет прав для выполнения этой команды.", ephemeral=True)
-        elif isinstance(error, commands.CommandInvokeError):
-            logger.error(f"Ошибка при выполнении команды: {error.original}", exc_info=True)
-            await ctx.send(f"Произошла ошибка: {error.original}", ephemeral=True)
-        else:
-            logger.error(f"Необработанная ошибка в команде: {error}", exc_info=True)
-            await ctx.send(f"Произошла неизвестная ошибка: {error}", ephemeral=True)
-
 
 async def setup(bot: commands.Bot) -> None:
     """
