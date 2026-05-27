@@ -91,6 +91,10 @@ class PartyCog(commands.Cog):
         guild = self.bot.get_guild(party.guild_id)
         role = guild.get_role(party.role_id) if guild else None
         initiator = self._member_resolver(guild)(party.initiator_id)
+        jump_url = (
+            f"https://discord.com/channels/{party.guild_id}/{party.channel_id}"
+            f"/{party.public_message_id}"
+        )
         return build_party_embed(
             party,
             role_name=role.name if role else f"роль #{party.role_id}",
@@ -98,6 +102,7 @@ class PartyCog(commands.Cog):
             member_resolver=self._member_resolver(guild),
             initiator_emoji=settings.party.initiator_emoji,
             finalized=party.finalized if finalized is None else finalized,
+            jump_url=jump_url,
         )
 
     async def _refresh_public_embed(self, party: Party) -> None:
@@ -257,7 +262,7 @@ class PartyCog(commands.Cog):
     @app_commands.describe(
         role="Игровая роль (только из /role_assign)",
         when="Через сколько закроется сбор (минут, максимум 240)",
-        count="Сколько ещё человек нужно (тебя считать не надо)",
+        count="Сколько человек нужно в состав пати (включая тебя)",
         comment="Комментарий, который увидят все",
     )
     @commands.dynamic_cooldown(_party_cooldown, commands.BucketType.user)
@@ -334,8 +339,7 @@ class PartyCog(commands.Cog):
             public_message_id=public_message.id,
             role_id=role.id,
             initiator_id=initiator.id,
-            count=count
-            + 1,  # +1: инициатор тоже занимает слот, но не должен съедать запрошенное число
+            count=count,
             comment=comment,
             created_at=now,
             deadline=deadline,

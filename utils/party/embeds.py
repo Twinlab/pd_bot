@@ -52,6 +52,7 @@ def build_party_embed(
     member_resolver: MemberResolver,
     initiator_emoji: str,
     finalized: bool = False,
+    jump_url: str | None = None,
 ) -> discord.Embed:
     """Универсальный embed для публичного сообщения и DM.
 
@@ -62,6 +63,8 @@ def build_party_embed(
         member_resolver: ``user_id -> Member | User | None`` для упоминаний.
         initiator_emoji: Эмодзи рядом с инициатором (по умолчанию корона).
         finalized: Если True — embed серый, в title пометка «Сбор закрыт».
+        jump_url: Ссылка на публичное сообщение пати; делает title кликабельным
+            (нужно прежде всего в DM, чтобы можно было прыгнуть в общий канал).
     """
     title_prefix = "Сбор закрыт" if finalized else "Сбор пати"
     title = f"{title_prefix}: {role_name}"
@@ -82,6 +85,7 @@ def build_party_embed(
         title=title,
         description="\n".join(description_parts),
         color=color,
+        url=jump_url,
     )
 
     embed.add_field(
