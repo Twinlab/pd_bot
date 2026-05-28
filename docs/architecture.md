@@ -115,7 +115,7 @@ sequenceDiagram
 sequenceDiagram
     participant Scheduler
     participant AnimeCog
-    participant SafebooruAPI
+    participant DanbooruAPI
     participant Database
     participant Discord
 
@@ -125,16 +125,17 @@ sequenceDiagram
     AnimeCog->>Database: load_anime_cache(cache_size)
     Database-->>AnimeCog: Список ID постов
 
-    AnimeCog->>SafebooruAPI: get_anime_image()
-    SafebooruAPI-->>AnimeCog: URL изображения + post_id
+    AnimeCog->>DanbooruAPI: get_anime_image(rating, tag)
+    DanbooruAPI-->>AnimeCog: Список постов (url, score, метаданные)
+    AnimeCog->>AnimeCog: Фильтр по score / рейтингу / excluded_tags
 
-    AnimeCog->>AnimeCog: Проверка post_id в кеше
-    alt ID не в кеше
-        AnimeCog->>Discord: Отправить изображение
+    AnimeCog->>AnimeCog: Выбор поста, которого нет в кеше
+    alt Найден свежий пост
+        AnimeCog->>Discord: Отправить эмбед с изображением
         AnimeCog->>Database: save_anime_cache_item(post_id)
         AnimeCog->>AnimeCog: Добавить в кеш памяти
-    else ID в кеше
-        AnimeCog->>SafebooruAPI: Повторный запрос
+    else Все в кеше / пусто
+        AnimeCog->>DanbooruAPI: Повторный запрос / fallback
     end
 ```
 

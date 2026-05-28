@@ -133,49 +133,46 @@ class AnimeScheduleConfig(BaseModel):
 
 
 class AnimeConfig(BaseModel):
-    """Конфигурация аниме-модуля.
+    """Конфигурация аниме-модуля (источник изображений — Danbooru).
+
+    Лимит Danbooru (Member) — 2 «обычных» тега на запрос; ``score:``/``rating:`` —
+    бесплатные метатеги и не считаются, а ``order:`` считается. Отсюда две стратегии:
+
+    - С франшизей: ``<франшиза> order:random rating:X score:>=N`` (истинный рандом),
+      «девочка» гарантируется фильтром по тегам поста на стороне бота.
+    - Только базовый тег: ``<1girl/2girls> order:rank rating:X`` (ранг = качество).
 
     Attributes:
-        tags: Список тегов для поиска изображений на safebooru.org
-        excluded_tags: Список тегов для исключения из поиска (добавляются с префиксом -)
-        max_tags_per_request: Максимальное количество тегов для одного запроса
-        rating: Минимальный рейтинг изображений (safe, questionable, explicit)
-        schedule: Настройки расписания публикации
+        base_tags: Базовые теги; ровно один из них в КАЖДОМ запросе (гарантия девочки).
+        extra_tags: Пул франшиз; с вероятностью ``extra_tag_chance`` берётся одна случайная.
+        extra_tag_chance: Вероятность (0..1) уйти в франшиза-запрос вместо базового.
+        ratings: Пул рейтингов; на каждый запрос берётся один случайный. Допустимые —
+            ``g`` (general), ``s`` (sensitive), ``q`` (questionable), ``e`` (explicit).
+            Команда ``/post_anime`` может задать конкретный рейтинг вручную.
+        excluded_tags: Теги, по которым посты отсеиваются (проверка по tag_string поста).
+        min_score: Минимальный Danbooru score для франшиза-запроса (``score:>=N``).
+        limit: Сколько постов запрашивать за один запрос к API.
+        cache_size: Размер кеша последних опубликованных постов (память + БД).
+        schedule: Настройки расписания публикации.
     """
 
-    tags: list[str] = [
-        "anime",
-        "1girl",
-        "solo",
-        "cute",
-        "kawaii",
-        "moe",
-        "school_uniform",
-        "long_hair",
-        "short_hair",
-        "blue_eyes",
-        "brown_eyes",
-        "smile",
-        "blush",
-        "cat_ears",
-        "headphones",
-        "glasses",
+    base_tags: list[str] = ["1girl", "2girls"]
+    extra_tags: list[str] = [
+        "genshin_impact",
+        "blue_archive",
+        "persona",
     ]
+    extra_tag_chance: float = Field(default=0.6, ge=0.0, le=1.0)
+    ratings: list[str] = ["g", "s"]
     excluded_tags: list[str] = [
-        "nude",
-        "nsfw",
-        "explicit",
-        "underwear",
-        "panties",
-        "bra",
-        "swimsuit",
-        "bikini",
+        "guro",
+        "comic",
+        "text_focus",
+        "monochrome",
     ]
-    max_tags_per_request: int = 6
-    rating: str = "safe"
-    safebooru_limit: int = 100
-    min_tag_selection: int = 1
-    cache_size: int = 200
+    min_score: int = 30
+    limit: int = 100
+    cache_size: int = 2000
     schedule: AnimeScheduleConfig = AnimeScheduleConfig()
 
 
@@ -539,6 +536,11 @@ class BotSettings(BaseSettings):
     twitch_client_id: str | None = Field(default=None, alias="TWITCH_CLIENT_ID")
     twitch_client_secret: str | None = Field(default=None, alias="TWITCH_CLIENT_SECRET")
     proxy_url: str | None = Field(default=None, alias="PROXY_URL")
+
+    # Danbooru — аутентификация для аниме-модуля (опционально, но рекомендуется:
+    # без неё работает анонимно с лимитом в 2 тега на запрос).
+    danbooru_login: str | None = Field(default=None, alias="DANBOORU_LOGIN")
+    danbooru_api_key: str | None = Field(default=None, alias="DANBOORU_API_KEY")
 
     # Lavalink — параметры подключения берутся из переменных окружения и затем
     # переносятся в music.lavalink через model_validator ниже.

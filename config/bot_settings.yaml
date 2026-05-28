@@ -44,39 +44,44 @@ colors:
 
 # Modules
 anime:
-  max_tags_per_request: 6
-  rating: "questionable"
-  safebooru_limit: 100
-  min_tag_selection: 1
-  cache_size: 200 # Количество последних постов для кэширования
+  # Источник — Danbooru (лимит Member: 2 «обычных» тега; rating:/score: бесплатны, order: считается).
+  # Две стратегии: франшиза -> "<франшиза> order:random rating:X score:>=N" (истинный рандом,
+  # девочка проверяется ботом по тегам); базовый тег -> "<1girl|2girls> order:rank rating:X".
+  min_score: 50           # score:>=N для франшиза-запроса — главный фильтр качества
+  limit: 100              # Сколько постов запрашивать за раз
+  cache_size: 2000        # Окно дедупа: последние N постов не повторяются (~2.7 года при 2/день)
+  extra_tag_chance: 0.3   # Вероятность уйти в франшиза-запрос вместо базового (0..1)
 
-  tags:
+  # ratings: на каждый запрос берётся один случайный (g — general, s — sensitive).
+  ratings:
+    - "g"
+    - "s"
+
+  # base_tags: ровно один в КАЖДОМ запросе — гарантия, что на картинке есть девочка.
+  base_tags:
     - "1girl"
     - "2girls"
-    - "genshin_impact"
 
+  # extra_tags: пул франшиз; с вероятностью extra_tag_chance одна добавляется к запросу.
+  extra_tags:
+    - "genshin_impact"
+    - "persona"
+    - "danganronpa"
+    - "zenless_zone_zero"
+
+  # Посты, в тегах которых встретится любой из этих, отбрасываются.
   excluded_tags:
-    - "tail"
-    - "chibi"
+    - "guro"
+    - "comic"
+    - "monochrome"
     - "no_humans"
-    - "large_breasts"
+    - "chibi"
     - "1boy"
-    - "multiple_girls"
     - "pokemon"
     - "digimon"
-    - "text"
-    - "name_tag"
-    - "comic"
-    - "wings"
-    - "logo"
-    - "english_text"
-    - "official_art"
-    - "non-web_source"
-    - "title"
-    - "speech_bubble"
-    - "child"
-    - "english_commentary"
-    - "white_background"
+    - "babydoll"
+    - "loli"
+    - "flat_chest"
 
   schedule:
     morning_hour: 10

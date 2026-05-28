@@ -1,65 +1,87 @@
 """Ког для автоматической и ручной публикации SFW аниме-изображений.
 
-Этот модуль предоставляет функциональность для автоматической публикации
-аниме-изображений в заданный канал Discord по расписанию (утром и вечером),
-а также команду для ручной публикации изображений администраторами.
-Изображения получаются с сайта safebooru.org через их API.
+Изображения берутся с Danbooru. В отличие от безфильтрового safebooru, здесь
+качество отбирается по полю ``score`` поста (см. ``anime.min_score`` в конфиге) —
+это отсекает низкосортный арт, оставляя отобранные работы.
+
+Рейтинг (``g``/``s``/``q``/``e``) задаётся в конфиге и может быть переопределён
+вручную параметром команды ``/post_anime``.
 
 Кеширование:
-- Модуль ведет кеш опубликованных изображений для предотвращения повторов
-- Кеш хранится как в памяти (deque), так и в базе данных (таблица anime_cache)
-- При запуске бота кеш автоматически загружается из БД
-- Новые изображения автоматически добавляются в кеш и сохраняются в БД
-- Размер кеша в памяти ограничен настройкой cache_size в конфигурации
+- Модуль ведёт кеш опубликованных постов, чтобы не повторяться.
+- Кеш хранится в памяти (deque) и в БД (таблица anime_cache); при старте подгружается из БД.
 """
 
 import logging
 import random
 from collections import deque
 from datetime import time
-from typing import Any
+from time import time as unix_now
+from typing import Any, Literal, NamedTuple
 
 import aiohttp
 import discord
 from discord.ext import commands, tasks
 
 from config import get_settings
-from utils.error_handler import command_error_handler
+from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.models import AnimeCache
 
-logger: logging.Logger = logging.getLogger("bot.cogs.anime")  # Иерархическое имя логгера
+logger: logging.Logger = logging.getLogger("bot.cogs.anime")
+
+DANBOORU_API_URL = "https://danbooru.donmai.us/posts.json"
+DANBOORU_POST_URL = "https://danbooru.donmai.us/posts/{post_id}"
+ALLOWED_RATINGS: tuple[str, ...] = ("g", "s", "q", "e")
+IMAGE_EXTENSIONS: frozenset[str] = frozenset({"jpg", "jpeg", "png", "gif", "webp"})
+USER_AGENT = "pd_bot (Discord anime poster)"
+
+MAX_RETRIES = 5
+
+
+class AnimePost(NamedTuple):
+    """Минимальное описание поста Danbooru, нужное для публикации."""
+
+    url: str
+    post_id: int
+    score: int
+    rating: str
+    source: str
+    artists: str
+    characters: str
+
+
+def _format_tag_names(tag_string: str) -> str:
+    """Преобразует ``tag_string`` Danbooru в человекочитаемый список через запятую."""
+    names = [name.replace("_", " ") for name in tag_string.split() if name]
+    return ", ".join(names)
 
 
 class AnimeCog(commands.Cog):
-    """Ког для публикации SFW аниме-изображений с safebooru.org.
+    """Ког для публикации SFW аниме-изображений с Danbooru.
 
-    Автоматически и вручную публикует случайные изображения
-    в заданный канал Discord. Использует настраиваемые теги
-    для поиска изображений через API safebooru.org.
-
-    Теги настраиваются в файле config/bot_settings.yaml в секции anime.
+    Автоматически (по расписанию) и вручную публикует случайные изображения
+    в заданный канал. Качество фильтруется по ``score``, рейтинг и теги — через
+    ``config/bot_settings.yaml`` (секция ``anime``).
     """
 
     def __init__(self, bot: commands.Bot) -> None:
-        """Инициализирует ког, получает ID канала из конфигурации и запускает фоновые задачи.
+        """Инициализирует ког, читает настройки и запускает фоновые задачи.
 
         Args:
             bot: Экземпляр discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
         self._session: aiohttp.ClientSession | None = None
-        # Получаем настройки из новой системы конфигурации
         settings = get_settings()
         self.channel_id: int | None = settings.channels.anime
         self.cache_size: int = settings.anime.cache_size
         self.post_cache: deque[int] = deque(maxlen=self.cache_size)
-        self._cache_loaded: bool = False  # Флаг для отслеживания загрузки кеша
+        self._cache_loaded: bool = False
 
         if not self.channel_id:
             logger.error("Канал для публикации аниме не настроен или не найден.")
-            return  # Не запускаем задачи, если ID не найден
+            return
 
-        # Устанавливаем время из конфигурации
         morning_time = time(
             hour=settings.anime.schedule.morning_hour, minute=settings.anime.schedule.morning_minute
         )
@@ -67,18 +89,16 @@ class AnimeCog(commands.Cog):
             hour=settings.anime.schedule.evening_hour, minute=settings.anime.schedule.evening_minute
         )
 
-        # Изменяем время выполнения задач
         self.morning_post.change_interval(time=morning_time)
         self.evening_post.change_interval(time=evening_time)
 
-        # Запускаем задачи по расписанию
         self.morning_post.start()
         self.evening_post.start()
 
     def _get_session(self) -> aiohttp.ClientSession:
-        """Возвращает переиспользуемую aiohttp-сессию."""
+        """Возвращает переиспользуемую aiohttp-сессию с User-Agent для Danbooru."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            self._session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT})
         return self._session
 
     async def _load_cache_from_db(self) -> None:
@@ -87,10 +107,7 @@ class AnimeCog(commands.Cog):
             return
 
         try:
-            # Загружаем последние N записей из БД, сортируя по времени добавления (новые первые)
             last_items = await AnimeCache.all().order_by("-added_at").limit(self.cache_size)
-
-            # Сортируем их по возрастанию времени (старые первые), чтобы правильно заполнить deque
             sorted_items = sorted(last_items, key=lambda x: x.added_at)
 
             for item in sorted_items:
@@ -103,175 +120,205 @@ class AnimeCog(commands.Cog):
             self._cache_loaded = True
 
     async def cog_unload(self) -> None:
-        """Вызывается при выгрузке кога, останавливает фоновые задачи и закрывает сессию."""
+        """Вызывается при выгрузке кога, останавливает задачи и закрывает сессию."""
         logger.info("Остановка задач публикации аниме...")
         self.morning_post.cancel()
         self.evening_post.cancel()
         if self._session and not self._session.closed:
             await self._session.close()
 
-    async def get_anime_image(self) -> tuple[str, int] | None:
-        """Асинхронно получает URL и ID случайного SFW аниме-изображения.
+    async def get_anime_image(
+        self, *, rating: str | None = None, tag: str | None = None
+    ) -> AnimePost | None:
+        """Возвращает случайный отобранный по качеству пост, которого нет в кеше.
 
-        Использует API safebooru.org для поиска изображений по настроенным тегам.
-        Пытается найти изображение, которого нет в кэше, делая до 3 попыток.
+        Сначала пробует франшиза-запрос (с вероятностью ``extra_tag_chance``), при неудаче
+        (и если тег не задан явно) — fallback на базовый тег через ``order:rank``.
+
+        Args:
+            rating: Рейтинг ``g``/``s``/``q``/``e``. При ``None`` берётся случайный из
+                ``settings.anime.ratings`` на каждую попытку.
+            tag: Явный тег франшизы. Если задан, fallback не применяется.
 
         Returns:
-            Кортеж (URL, ID) или None в случае ошибки.
+            ``AnimePost`` или ``None``, если ничего подходящего не нашлось.
         """
-        # Загружаем кеш из БД при первом использовании
         await self._load_cache_from_db()
 
         settings = get_settings()
-        max_retries = 3
-        for attempt in range(max_retries):
-            logger.info(f"Попытка {attempt + 1}/{max_retries} получения нового изображения...")
-            # Сначала пробуем основной запрос с выбранными тегами
-            result = await self._try_get_image_with_tags(settings)
 
-            # Если основной запрос не дал результатов, пробуем fallback
-            if not result:
-                logger.info("Основной запрос не дал результатов, пробуем fallback с тегом '1girl'")
-                result = await self._try_get_image_fallback(settings)
+        for attempt in range(MAX_RETRIES):
+            logger.info(f"Попытка {attempt + 1}/{MAX_RETRIES} (основной запрос)...")
+            posts = await self._fetch_danbooru_posts(
+                settings, rating=self._pick_rating(settings, rating), tag=tag, use_extra=True
+            )
+            candidate = self._pick_fresh(posts)
+            if candidate:
+                logger.info(
+                    f"Найден новый пост (ID: {candidate.post_id}, score: {candidate.score})"
+                )
+                return candidate
 
-            if result:
-                image_url, post_id = result
-                if post_id not in self.post_cache:
-                    logger.info(f"Найдено новое изображение (ID: {post_id})")
-                    return image_url, post_id
-                else:
-                    logger.warning(
-                        f"Изображение (ID: {post_id}) уже есть в кэше. Повторная попытка..."
-                    )
-            else:
-                logger.warning("Не удалось получить изображение на этой попытке.")
+        if tag is None:
+            for attempt in range(MAX_RETRIES):
+                logger.info(
+                    f"Попытка {attempt + 1}/{MAX_RETRIES} (fallback: базовый тег, order:rank)..."
+                )
+                posts = await self._fetch_danbooru_posts(
+                    settings, rating=self._pick_rating(settings, rating), tag=None, use_extra=False
+                )
+                candidate = self._pick_fresh(posts)
+                if candidate:
+                    logger.info(f"Найден новый пост в fallback (ID: {candidate.post_id})")
+                    return candidate
 
-        logger.error("Не удалось найти новое изображение после нескольких попыток.")
+        logger.error("Не удалось найти новый подходящий пост после всех попыток.")
         return None
 
-    async def _try_get_image_with_tags(self, settings: Any) -> tuple[str, int] | None:
-        """Пробует получить изображение с выбранными тегами."""
-        available_tags = settings.anime.tags
+    @staticmethod
+    def _pick_rating(settings: Any, override: str | None) -> str:
+        """Возвращает рейтинг: явный override или случайный из ``settings.anime.ratings``."""
+        if override:
+            return override
+        ratings = settings.anime.ratings or ["s"]
+        return str(random.choice(ratings))
 
-        if available_tags:
-            selected_tag = random.choice(available_tags)
-            selected_tags = [selected_tag]
-        else:
-            selected_tags = ["1girl"]
+    def _pick_fresh(self, posts: list[AnimePost]) -> AnimePost | None:
+        """Выбирает случайный пост, которого ещё нет в кеше."""
+        candidates = [p for p in posts if p.post_id not in self.post_cache]
+        return random.choice(candidates) if candidates else None
 
-        excluded_tags = [f"-{tag}" for tag in settings.anime.excluded_tags]
+    async def _fetch_danbooru_posts(
+        self, settings: Any, *, rating: str, tag: str | None, use_extra: bool
+    ) -> list[AnimePost]:
+        """Запрашивает посты с Danbooru и фильтрует их по качеству, рейтингу и тегам.
 
-        all_tags = selected_tags + excluded_tags + [f"rating:{settings.anime.rating}"]
+        Из-за лимита Member (2 «обычных» тега; ``order:`` считается, ``rating:``/``score:``
+        — нет) применяются две стратегии:
 
-        return await self._make_api_request(all_tags, selected_tags, settings)
+        - Франшиза (``use_extra`` сработал или задан ``tag``): ``<франшиза> order:random
+          rating:X score:>=N`` — истинный рандом; «девочка» проверяется по тегам поста.
+        - Базовый тег: ``<1girl|2girls> order:rank rating:X`` — ранг = качество, надёжно
+          даже на тяжёлом теге (страницы/``order:random`` на нём таймаутят на 3-сек лимите).
 
-    async def _try_get_image_fallback(self, settings: Any) -> tuple[str, int] | None:
-        """Fallback запрос только с тегом '1girl' и исключениями."""
-        # Только обязательные теги: 1girl + исключения + рейтинг
-        selected_tags = ["1girl"]
-        excluded_tags = [f"-{tag}" for tag in settings.anime.excluded_tags]
-        all_tags = selected_tags + excluded_tags + [f"rating:{settings.anime.rating}"]
-
-        return await self._make_api_request(all_tags, selected_tags, settings)
-
-    async def _make_api_request(
-        self, all_tags: list[str], selected_tags: list[str], settings: Any
-    ) -> tuple[str, int] | None:
-        """Выполняет запрос к API safebooru.org и возвращает URL и ID поста."""
-        api_url = "https://safebooru.org/index.php"
-
-        # Максимальное количество попыток найти непустую страницу
-        max_page_attempts = 10
-
-        session = self._get_session()
-        for attempt in range(max_page_attempts):
-            random_page = random.randint(0, 30)
-
-            params = {
-                "page": "dapi",
-                "s": "post",
-                "q": "index",
-                "json": "1",
-                "limit": str(settings.anime.safebooru_limit),
-                "tags": " ".join(all_tags),
-                "pid": str(random_page),
-            }
-
-            try:
-                async with session.get(api_url, params=params) as response:
-                    if response.status != 200:
-                        logger.debug(f"HTTP {response.status} на стр. {random_page}")
-                        continue
-
-                    content_type = response.headers.get("content-type", "")
-                    if "application/json" not in content_type:
-                        logger.debug(f"Неверный content-type на стр. {random_page}")
-                        continue
-
-                    try:
-                        data = await response.json()
-                    except Exception:
-                        logger.debug(f"Ошибка JSON на стр. {random_page}")
-                        continue
-
-                    if not isinstance(data, list):
-                        logger.debug(f"Не список на стр. {random_page}")
-                        continue
-
-                    valid_posts = [p for p in data if isinstance(p, dict) and "id" in p]
-                    if not valid_posts:
-                        logger.debug(f"Пустая страница {random_page}, пробуем следующую...")
-                        continue
-
-                    random_post = random.choice(valid_posts)
-                    post_id = random_post["id"]
-
-                    file_url = None
-                    if "file_url" in random_post and random_post["file_url"]:
-                        file_url = random_post["file_url"]
-                        if not file_url.startswith("http"):
-                            file_url = f"https:{file_url}"
-                    elif "directory" in random_post and "image" in random_post:
-                        directory = random_post["directory"]
-                        image = random_post["image"]
-                        file_url = f"https://safebooru.org/images/{directory}/{image}"
-
-                    if file_url:
-                        logger.info(
-                            f"Найдено изображение (ID: {post_id}), "
-                            f"стр. {random_page}, попытка {attempt + 1}"
-                        )
-                        return str(file_url), int(post_id)
-                    else:
-                        logger.debug(f"Нет URL в посте на стр. {random_page}")
-                        continue
-            except Exception:
-                logger.debug(f"Исключение на стр. {random_page}")
-                continue
-
-        logger.warning(f"Не удалось найти изображение после {max_page_attempts} попыток")
-        return None
-
-    async def post_anime_image(self) -> bool:
-        """Получает URL аниме-изображения и публикует его в настроенный канал.
-
-        Логирует результат или ошибки.
-
-        Процесс:
-        1. Проверяет существование настроенного канала
-        2. Вызывает get_anime_image() для получения URL изображения
-        3. Отправляет URL в канал (Discord автоматически отобразит изображение)
-        4. Логирует результат операции или возникшие ошибки
+        Args:
+            settings: Объект настроек бота.
+            rating: Конкретный рейтинг для этого запроса.
+            tag: Явный тег франшизы; иначе берётся случайный из ``extra_tags``.
+            use_extra: Разрешить уйти в франшиза-запрос (с вероятностью ``extra_tag_chance``).
 
         Returns:
-            True, если изображение успешно опубликовано, иначе False.
+            Список подходящих постов (может быть пустым).
+        """
+        franchise = tag
+        if franchise is None and use_extra and settings.anime.extra_tags:
+            if random.random() < settings.anime.extra_tag_chance:
+                franchise = random.choice(settings.anime.extra_tags)
+
+        require_girl = franchise is not None
+        if franchise is not None:
+            search_tags = [
+                franchise,
+                "order:random",
+                f"rating:{rating}",
+                f"score:>={settings.anime.min_score}",
+            ]
+        else:
+            base = random.choice(settings.anime.base_tags) if settings.anime.base_tags else "1girl"
+            search_tags = [base, "order:rank", f"rating:{rating}"]
+
+        params: dict[str, str] = {
+            "tags": " ".join(search_tags),
+            "limit": str(settings.anime.limit),
+        }
+        if settings.danbooru_login and settings.danbooru_api_key:
+            params["login"] = settings.danbooru_login
+            params["api_key"] = settings.danbooru_api_key
+
+        session = self._get_session()
+        try:
+            async with session.get(DANBOORU_API_URL, params=params) as response:
+                if response.status != 200:
+                    logger.warning(f"Danbooru вернул HTTP {response.status}")
+                    return []
+                data = await response.json()
+        except Exception as e:
+            logger.warning(f"Ошибка запроса к Danbooru: {e}")
+            return []
+
+        if not isinstance(data, list):
+            logger.debug("Ответ Danbooru не является списком постов")
+            return []
+
+        return self._parse_posts(data, settings, rating, require_girl=require_girl)
+
+    def _parse_posts(
+        self, data: list[Any], settings: Any, rating: str, *, require_girl: bool
+    ) -> list[AnimePost]:
+        """Отбирает из сырого ответа Danbooru пригодные для публикации посты.
+
+        Args:
+            data: Сырой список постов от API.
+            settings: Объект настроек бота.
+            rating: Ожидаемый рейтинг (пост с другим отбрасывается).
+            require_girl: Требовать наличие базового тега (``1girl``/``2girls``) в посте —
+                нужно для франшиза-запроса, где базовый тег не входит в сам запрос.
+        """
+        excluded = set(settings.anime.excluded_tags)
+        base_tags = set(settings.anime.base_tags)
+        min_score = settings.anime.min_score
+        result: list[AnimePost] = []
+
+        for post in data:
+            if not isinstance(post, dict):
+                continue
+            post_id = post.get("id")
+            if post_id is None:
+                continue
+            if (post.get("file_ext") or "").lower() not in IMAGE_EXTENSIONS:
+                continue
+            url = post.get("file_url") or post.get("large_file_url")
+            if not url:
+                continue
+            if post.get("rating") != rating:
+                continue
+            score = int(post.get("score") or 0)
+            if score < min_score:
+                continue
+            tag_set = set((post.get("tag_string") or "").split())
+            if tag_set & excluded:
+                continue
+            if require_girl and not (tag_set & base_tags):
+                continue
+
+            result.append(
+                AnimePost(
+                    url=str(url),
+                    post_id=int(post_id),
+                    score=score,
+                    rating=str(post.get("rating") or ""),
+                    source=str(post.get("source") or ""),
+                    artists=_format_tag_names(post.get("tag_string_artist") or ""),
+                    characters=_format_tag_names(post.get("tag_string_character") or ""),
+                )
+            )
+
+        return result
+
+    async def post_anime_image(self, *, rating: str | None = None, tag: str | None = None) -> bool:
+        """Получает и публикует пост в настроенный канал.
+
+        Args:
+            rating: Переопределение рейтинга для этой публикации.
+            tag: Переопределение содержательного тега.
+
+        Returns:
+            ``True`` при успешной публикации, иначе ``False``.
         """
         try:
-            # Проверяем существование канала
             if not await self._check_channel_exists():
                 return False
 
-            # Канал мог исчезнуть между _check_channel_exists и этой точкой.
             channel = self.bot.get_channel(self.channel_id)
             if not isinstance(channel, discord.TextChannel):
                 logger.error(
@@ -280,28 +327,33 @@ class AnimeCog(commands.Cog):
                 )
                 return False
 
-            # Получаем URL изображения
-            image_data = await self.get_anime_image()
-
-            if image_data:
-                image_url, post_id = image_data
-                await channel.send(image_url)
-                self.post_cache.append(post_id)
-                try:
-                    import time
-
-                    await AnimeCache.create(post_id=post_id, added_at=int(time.time()))
-                except Exception as e:
-                    logger.error(f"Ошибка при сохранении поста {post_id} в БД: {e}", exc_info=True)
-
-                logger.info(
-                    f"Аниме-изображение (ID: {post_id}) опубликовано в канале {channel.name}. "
-                    f"Размер кэша: {len(self.post_cache)}/{self.cache_size}"
-                )
-                return True
-            else:
-                logger.error("Не удалось получить новое аниме-изображение для публикации")
+            post = await self.get_anime_image(rating=rating, tag=tag)
+            if not post:
+                logger.error("Не удалось получить новый пост для публикации")
                 return False
+
+            await channel.send(post.url)
+            self.post_cache.append(post.post_id)
+            try:
+                await AnimeCache.create(post_id=post.post_id, added_at=int(unix_now()))
+            except Exception as e:
+                logger.error(f"Ошибка при сохранении поста {post.post_id} в БД: {e}", exc_info=True)
+
+            logger.info(
+                "Пост опубликован в #%s | Danbooru #%s | score=%s rating=%s | "
+                "художник=%s | персонажи=%s | источник=%s | post=%s | кэш=%s/%s",
+                channel.name,
+                post.post_id,
+                post.score,
+                post.rating,
+                post.artists or "—",
+                post.characters or "—",
+                post.source or "—",
+                DANBOORU_POST_URL.format(post_id=post.post_id),
+                len(self.post_cache),
+                self.cache_size,
+            )
+            return True
 
         except Exception as e:
             logger.error(f"Ошибка в post_anime_image: {e}", exc_info=True)
@@ -309,15 +361,15 @@ class AnimeCog(commands.Cog):
 
     # --- Фоновые задачи ---
 
-    @tasks.loop(time=time(hour=10, minute=0))  # Значение по умолчанию, будет изменено в __init__
+    @tasks.loop(time=time(hour=10, minute=0))
     async def morning_post(self) -> None:
-        """Задача, выполняющаяся ежедневно для утренней публикации."""
+        """Ежедневная утренняя публикация."""
         logger.info("Запуск утренней публикации аниме...")
         await self.post_anime_image()
 
-    @tasks.loop(time=time(hour=18, minute=0))  # Значение по умолчанию, будет изменено в __init__
+    @tasks.loop(time=time(hour=18, minute=0))
     async def evening_post(self) -> None:
-        """Задача, выполняющаяся ежедневно для вечерней публикации."""
+        """Ежедневная вечерняя публикация."""
         logger.info("Запуск вечерней публикации аниме...")
         await self.post_anime_image()
 
@@ -336,44 +388,53 @@ class AnimeCog(commands.Cog):
     # --- Команды ---
 
     @commands.hybrid_command(description="Опубликовать случайное аниме-изображение сейчас")
-    @commands.has_permissions(administrator=True)  # Только для администраторов
+    @discord.app_commands.describe(
+        rating="Рейтинг: g (general), s (sensitive), q (questionable), e (explicit)",
+        tag="Конкретный тег Danbooru (например, genshin_impact)",
+    )
+    @commands.has_permissions(administrator=True)
     @command_error_handler
-    async def post_anime(self, ctx: commands.Context) -> None:
-        """Команда для ручной публикации случайного аниме-изображения.
+    async def post_anime(
+        self,
+        ctx: commands.Context,
+        rating: Literal["g", "s", "q", "e"] | None = None,
+        tag: str | None = None,
+    ) -> None:
+        """Ручная публикация поста с возможностью выбрать рейтинг и тег.
 
         Доступно администраторам. Публикует в настроенный канал.
 
         Args:
             ctx: Контекст команды.
+            rating: Рейтинг публикации. По умолчанию — из конфига.
+            tag: Конкретный тег Danbooru для поиска.
         """
-        # Проверяем существование канала
+        settings = get_settings()
         if not await self._check_channel_exists():
-            await ctx.send(
-                "Ошибка: канал для публикации аниме не настроен или не найден.", ephemeral=True
-            )
+            await safe_send_error(ctx, settings.messages.errors["anime_channel_not_configured"])
             return
 
-        # Публикуем изображение
-        success = await self.post_anime_image()
+        success = await self.post_anime_image(rating=rating, tag=tag)
 
         if success:
             channel = self.bot.get_channel(self.channel_id)
             channel_label = channel.name if isinstance(channel, discord.TextChannel) else "?"
-            await ctx.send(
+            await safe_send(
+                ctx,
                 f"Аниме-изображение успешно опубликовано в канале #{channel_label}!",
                 ephemeral=True,
             )
         else:
-            await ctx.send(
+            await safe_send_error(
+                ctx,
                 "Не удалось опубликовать аниме-изображение. Проверьте логи для подробностей.",
-                ephemeral=True,
             )
 
     async def _check_channel_exists(self) -> bool:
         """Проверяет существование настроенного канала для публикации.
 
         Returns:
-            True, если канал существует и доступен, иначе False.
+            ``True``, если канал существует и доступен, иначе ``False``.
         """
         if not self.channel_id:
             logger.error("ID канала для публикации аниме не настроен.")
