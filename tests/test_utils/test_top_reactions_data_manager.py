@@ -342,6 +342,7 @@ async def db() -> AsyncIterator[None]:
     await Tortoise.init(
         db_url="sqlite://:memory:",
         modules={"models": ["utils.models"]},
+        use_tz=False,
     )
     await Tortoise.generate_schemas()
     try:

@@ -16,10 +16,11 @@ class TestDatabase:
         """Тест инициализации базы данных."""
         mock_conn = MagicMock()
         mock_conn.execute_script = AsyncMock()
-        with patch("tortoise.Tortoise.init", new_callable=AsyncMock) as mock_init, patch(
-            "tortoise.Tortoise.generate_schemas", new_callable=AsyncMock
-        ) as mock_generate, patch("pathlib.Path.mkdir") as mock_mkdir, patch(
-            "utils.database.Tortoise.get_connection", return_value=mock_conn
+        with (
+            patch("tortoise.Tortoise.init", new_callable=AsyncMock) as mock_init,
+            patch("tortoise.Tortoise.generate_schemas", new_callable=AsyncMock) as mock_generate,
+            patch("pathlib.Path.mkdir") as mock_mkdir,
+            patch("utils.database.Tortoise.get_connection", return_value=mock_conn),
         ):
             await initialize_database()
 
@@ -35,13 +36,16 @@ class TestDatabase:
             call_args = mock_init.call_args
             assert call_args.kwargs["db_url"] == f"sqlite://{DB_PATH}"
             assert "utils.models" in call_args.kwargs["modules"]["models"]
+            assert call_args.kwargs["use_tz"] is False
 
     @pytest.mark.asyncio
     async def test_initialize_database_error(self):
         """Тест обработки ошибок при инициализации."""
-        with patch(
-            "tortoise.Tortoise.init", side_effect=Exception("Test error")
-        ), patch("utils.database.logger") as mock_logger, patch("pathlib.Path.mkdir"):
+        with (
+            patch("tortoise.Tortoise.init", side_effect=Exception("Test error")),
+            patch("utils.database.logger") as mock_logger,
+            patch("pathlib.Path.mkdir"),
+        ):
             with pytest.raises(Exception, match="Test error"):
                 await initialize_database()
 

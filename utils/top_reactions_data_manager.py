@@ -385,7 +385,9 @@ class TopReactionsDataManager:
             if start is not None and end is not None:
                 where_clauses.append("rm.posted_at >= ?")
                 where_clauses.append("rm.posted_at < ?")
-                params.extend([start, end])
+                # Наивный UTC под формат хранения posted_at: иначе tz-aware границу
+                # sqlite сериализует с "+00:00" и сравнение на границе периода ломается.
+                params.extend([start.replace(tzinfo=None), end.replace(tzinfo=None)])
             if excluded_message_ids:
                 placeholders = ",".join(["?"] * len(excluded_message_ids))
                 where_clauses.append(f"rm.message_id NOT IN ({placeholders})")
@@ -501,7 +503,8 @@ class TopReactionsDataManager:
             if start is not None and end is not None:
                 where_clauses.append("posted_at >= ?")
                 where_clauses.append("posted_at < ?")
-                params.extend([start, end])
+                # Наивный UTC под формат хранения posted_at (см. get_leaderboard).
+                params.extend([start.replace(tzinfo=None), end.replace(tzinfo=None)])
             if excluded_message_ids:
                 placeholders = ",".join(["?"] * len(excluded_message_ids))
                 where_clauses.append(f"message_id NOT IN ({placeholders})")

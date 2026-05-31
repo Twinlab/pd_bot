@@ -26,9 +26,12 @@ async def initialize_database() -> None:
         # Создаем директорию data, если ее нет
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+        # Даты храним наивно в UTC; не включать use_tz — сырой SQL топ-реакций и
+        # уже накопленные записи рассчитывают на формат без таймзонного суффикса.
         await Tortoise.init(
             db_url=f"sqlite://{DB_PATH}",
             modules={"models": ["utils.models"]},
+            use_tz=False,
         )
         # Генерируем схемы (создаем таблицы), если их нет
         await Tortoise.generate_schemas()
