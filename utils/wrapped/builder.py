@@ -196,7 +196,7 @@ async def build_server_wrapped(
         nominations.append(
             Nomination(
                 "💬",
-                "Топ по сообщениям",
+                "По сообщениям",
                 top_messages[0].user_id,
                 f"{top_messages[0].value} сообщ.",
             )
@@ -205,22 +205,18 @@ async def build_server_wrapped(
         nominations.append(
             Nomination(
                 "🎙️",
-                "Топ по войсу",
+                "По войсу",
                 top_voice[0].user_id,
                 _fmt_hm(top_voice[0].value),
             )
         )
     if game_per_user:
         gamer_id = max(game_per_user, key=lambda uid: game_per_user[uid])
-        nominations.append(
-            Nomination("🎮", "Топ-геймер", gamer_id, _fmt_hm(game_per_user[gamer_id]))
-        )
+        nominations.append(Nomination("🎮", "Геймер", gamer_id, _fmt_hm(game_per_user[gamer_id])))
     if reactions:
         magnet_id = max(reactions, key=lambda uid: reactions[uid])
         nominations.append(
-            Nomination(
-                "⭐", "Топ по полученным реакциям", magnet_id, f"{reactions[magnet_id]} реакц."
-            )
+            Nomination("⭐", "По реакциям", magnet_id, f"{reactions[magnet_id]} реакц.")
         )
 
     return ServerWrapped(

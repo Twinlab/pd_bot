@@ -258,7 +258,7 @@ class UserStatsTracker(commands.Cog):
         data_since = get_settings().user_stats.data_since
         if data_since:
             return f"PD Bot · данные собираются с {data_since}"
-        return "PD Bot · Wrapped"
+        return "PD Bot"
 
     def _name_resolver(self, guild: discord.Guild) -> Callable[[int], str]:
         def resolve(user_id: int) -> str:

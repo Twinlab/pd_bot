@@ -51,10 +51,10 @@ async def test_build_server_wrapped_monthly():
     assert summary.top_voice[0].user_id == 2
 
     noms = {n.title: n.user_id for n in summary.nominations}
-    assert noms["Топ по сообщениям"] == 1
-    assert noms["Топ по войсу"] == 2
-    assert noms["Топ-геймер"] == 1
-    assert noms["Топ по полученным реакциям"] == 2
+    assert noms["По сообщениям"] == 1
+    assert noms["По войсу"] == 2
+    assert noms["Геймер"] == 1
+    assert noms["По реакциям"] == 2
 
 
 @pytest.mark.asyncio
