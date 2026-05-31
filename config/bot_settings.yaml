@@ -171,6 +171,24 @@ activity:
   reports:
     chunk_delay: 1
 
+user_stats:
+  count_while_muted: true     # Засчитывать время с выключенным микрофоном (человек слушает)
+  min_humans_in_channel: 2    # Минимум живых участников в канале, иначе время не идёт
+  voice_min_record: 60        # Минимальная длительность сегмента для записи (сек)
+  voice_max_record: 86400     # Верхний порог сегмента — защита от аномалий (сек)
+  voice_periodic_save: 300    # Интервал периодического сохранения голоса (сек)
+  top_limit: 5                # Сколько позиций показывать в топах wrapped
+  dm_send_delay: 0.5          # Задержка между ЛС при персональной рассылке (сек)
+  data_since: "2026-06-01"    # Дата старта сбора данных (для сноски в годовом wrapped)
+  schedule:
+    hour: 12                  # Час запуска wrapped-постов (МСК)
+    minute: 2                 # 12:02 — после отчётов по играм (12:00) и реакциям (12:01)
+    yearly_month: 12          # Когда постить годовой серверный wrapped
+    yearly_day: 31
+    personal_month: 12        # Когда рассылать персональный wrapped в ЛС
+    personal_day: 25
+    personal_enabled: true
+
 dota:
   match_view_timeout: 180
 

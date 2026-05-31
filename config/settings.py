@@ -380,6 +380,61 @@ class ActivityConfig(BaseModel):
     reports: ActivityReportsConfig = ActivityReportsConfig()
 
 
+class WrappedScheduleConfig(BaseModel):
+    """Расписание автоматических wrapped-постов (время — по МСК).
+
+    Месячный пост триггерится 1-го числа существующей задачей активности;
+    годовой и персональный — отдельной ежедневной проверкой даты.
+
+    Attributes:
+        hour: Час запуска (МСК).
+        minute: Минута запуска (МСК).
+        yearly_month: Месяц годового серверного wrapped.
+        yearly_day: День годового серверного wrapped.
+        personal_month: Месяц персональной ЛС-рассылки.
+        personal_day: День персональной ЛС-рассылки.
+        personal_enabled: Включена ли персональная рассылка в ЛС.
+    """
+
+    hour: int = 12
+    minute: int = 2
+    yearly_month: int = 12
+    yearly_day: int = 31
+    personal_month: int = 12
+    personal_day: int = 25
+    personal_enabled: bool = True
+
+
+class UserStatsConfig(BaseModel):
+    """Конфигурация трекинга сообщений/голоса и wrapped-сводок.
+
+    Голосовое время считается «умно»: только пока пользователь не в AFK-канале,
+    не заглушён на приём и в канале есть как минимум ``min_humans_in_channel``
+    живых участников.
+
+    Attributes:
+        count_while_muted: Засчитывать ли время с выключенным микрофоном (слушает).
+        min_humans_in_channel: Минимум живых участников в канале для зачёта.
+        voice_min_record: Минимальная длительность сегмента для записи (сек).
+        voice_max_record: Верхний порог сегмента — защита от аномалий (сек).
+        voice_periodic_save: Интервал периодического сохранения голоса (сек).
+        top_limit: Сколько позиций показывать в топах wrapped.
+        dm_send_delay: Задержка между ЛС при персональной рассылке (сек).
+        data_since: Дата начала сбора данных для сноски в wrapped (YYYY-MM-DD).
+        schedule: Расписание автоматических постов.
+    """
+
+    count_while_muted: bool = True
+    min_humans_in_channel: int = 2
+    voice_min_record: int = 60
+    voice_max_record: int = 86400
+    voice_periodic_save: int = 300
+    top_limit: int = 5
+    dm_send_delay: float = 0.5
+    data_since: str | None = None
+    schedule: WrappedScheduleConfig = WrappedScheduleConfig()
+
+
 class DotaConfig(BaseModel):
     """Конфигурация модуля Dota 2.
 
@@ -560,6 +615,7 @@ class BotSettings(BaseSettings):
     twitch: TwitchConfig = TwitchConfig()
     fun: FunConfig = FunConfig()
     activity: ActivityConfig = ActivityConfig()
+    user_stats: UserStatsConfig = UserStatsConfig()
     dota: DotaConfig = DotaConfig()
     update: UpdateSettings = UpdateSettings()
     reactions: ReactionsConfig = ReactionsConfig()

@@ -45,6 +45,55 @@ class MonthlyActivity(models.Model):
         indexes = (("discord_user_id", "year", "month"),)
 
 
+class DailyUserStats(models.Model):
+    """Ежедневная статистика сообщений и голосовой активности пользователя.
+
+    Голосовые секунды считаются «умно» — только пока пользователь реально активен
+    (не в AFK-канале, не заглушён на приём, не один в канале). Логика накопления
+    живёт в коге ``UserStatsTracker``.
+    """
+
+    discord_user_id = fields.BigIntField()
+    date = fields.TextField()  # YYYY-MM-DD
+    messages = fields.IntField(default=0)
+    voice_seconds = fields.IntField(default=0)
+
+    class Meta:
+        table = "daily_user_stats"
+        unique_together = (("discord_user_id", "date"),)
+        indexes = (("date",),)
+
+
+class MonthlyUserStats(models.Model):
+    """Ежемесячная агрегированная статистика сообщений и голоса.
+
+    Заполняется переносом из ``DailyUserStats`` (как у игровой активности),
+    чтобы дневная таблица не разрасталась, а годовой/месячный wrapped считался
+    по компактным помесячным строкам.
+    """
+
+    discord_user_id = fields.BigIntField()
+    year = fields.IntField()
+    month = fields.IntField()
+    messages = fields.IntField(default=0)
+    voice_seconds = fields.IntField(default=0)
+
+    class Meta:
+        table = "monthly_user_stats"
+        unique_together = (("discord_user_id", "year", "month"),)
+        indexes = (("year", "month"),)
+
+
+class WrappedOptOut(models.Model):
+    """Пользователи, отказавшиеся от персональной рассылки годового wrapped в ЛС."""
+
+    user_id = fields.BigIntField(pk=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "wrapped_opt_outs"
+
+
 class RoleReaction(models.Model):
     """Настройки ролей по реакциям."""
 

@@ -1,10 +1,13 @@
 """Ког для обработки входящих сообщений пользователей и их маршрутизации."""
 
+import asyncio
 import logging
 import time
 
 import discord
 from discord.ext import commands
+
+from utils.user_stats_data_manager import UserStatsDataManager
 
 logger = logging.getLogger("bot.handlers.message_handler")
 
@@ -29,6 +32,7 @@ class MessageHandler(commands.Cog):
         # Словарь для отслеживания времени последней обработки сообщения от пользователя
         # {user_id: timestamp}
         self.cooldowns: dict[int, float] = {}
+        self.stats_manager: UserStatsDataManager = UserStatsDataManager()
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.
@@ -66,6 +70,12 @@ class MessageHandler(commands.Cog):
             return
 
         author_id = message.author.id
+
+        # Счётчик сообщений для wrapped считаем БЕЗ анти-спам кулдауна (иначе
+        # потеряем большинство сообщений активных болтунов). Запускаем фоном,
+        # чтобы запись в БД не тормозила обработку сообщения.
+        asyncio.create_task(self.stats_manager.add_message(author_id))
+
         current_time = time.monotonic()
 
         if author_id in self.cooldowns and current_time - self.cooldowns[author_id] < 2:

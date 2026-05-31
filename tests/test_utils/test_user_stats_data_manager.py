@@ -1,0 +1,116 @@
+"""Тесты менеджера статистики сообщений/голоса."""
+
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from utils.user_stats_data_manager import UserStatsDataManager, UserTotals
+
+
+class _AwaitableRows:
+    """Имитация Tortoise queryset: возвращает список строк при ``await``."""
+
+    def __init__(self, rows: list[object]) -> None:
+        self._rows = rows
+
+    def __await__(self):
+        async def _coro() -> list[object]:
+            return self._rows
+
+        return _coro().__await__()
+
+
+@pytest.fixture
+def manager():
+    return UserStatsDataManager()
+
+
+class TestStaticHelpers:
+    """Тесты чистых статических методов."""
+
+    def test_merge_totals(self):
+        a = {1: UserTotals(1, 10, 100), 2: UserTotals(2, 5, 0)}
+        b = {1: UserTotals(1, 3, 50), 3: UserTotals(3, 0, 200)}
+        merged = UserStatsDataManager.merge_totals(a, b)
+        assert merged[1].messages == 13
+        assert merged[1].voice_seconds == 150
+        assert merged[2].messages == 5
+        assert merged[3].voice_seconds == 200
+
+    def test_top_by_messages(self):
+        totals = {
+            1: UserTotals(1, 10, 0),
+            2: UserTotals(2, 50, 0),
+            3: UserTotals(3, 0, 100),
+        }
+        top = UserStatsDataManager.top_by_messages(totals, 2)
+        assert [t.user_id for t in top] == [2, 1]
+
+    def test_top_by_voice(self):
+        totals = {
+            1: UserTotals(1, 0, 30),
+            2: UserTotals(2, 0, 90),
+            3: UserTotals(3, 5, 0),
+        }
+        top = UserStatsDataManager.top_by_voice(totals, 5)
+        assert [t.user_id for t in top] == [2, 1]
+
+
+class TestIncrement:
+    """Тесты атомарного инкремента дневной строки."""
+
+    @pytest.mark.asyncio
+    async def test_add_message_updates_existing(self, manager):
+        with patch("utils.user_stats_data_manager.DailyUserStats.filter") as mock_filter:
+            mock_filter.return_value.update = AsyncMock(return_value=1)
+            with patch(
+                "utils.user_stats_data_manager.DailyUserStats.create", new_callable=AsyncMock
+            ) as mock_create:
+                await manager.add_message(123)
+                mock_create.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_add_voice_creates_when_missing(self, manager):
+        with patch("utils.user_stats_data_manager.DailyUserStats.filter") as mock_filter:
+            mock_filter.return_value.update = AsyncMock(return_value=0)
+            with patch(
+                "utils.user_stats_data_manager.DailyUserStats.create", new_callable=AsyncMock
+            ) as mock_create:
+                await manager.add_voice_seconds(123, 300)
+                mock_create.assert_called_once()
+                _, kwargs = mock_create.call_args
+                assert kwargs["voice_seconds"] == 300
+                assert kwargs["messages"] == 0
+
+    @pytest.mark.asyncio
+    async def test_zero_delta_noop(self, manager):
+        with patch("utils.user_stats_data_manager.DailyUserStats.filter") as mock_filter:
+            await manager.add_voice_seconds(123, 0)
+            mock_filter.assert_not_called()
+
+
+class TestUserMonthly:
+    """Тесты выборки тоталов одного пользователя за месяц."""
+
+    @pytest.mark.asyncio
+    async def test_sums_monthly_rows(self, manager):
+        rows = [
+            SimpleNamespace(messages=10, voice_seconds=120),
+            SimpleNamespace(messages=5, voice_seconds=80),
+        ]
+        with patch(
+            "utils.user_stats_data_manager.MonthlyUserStats.filter",
+            return_value=_AwaitableRows(rows),
+        ):
+            totals = await manager.get_user_monthly(123, 2026, 5)
+        assert totals == UserTotals(user_id=123, messages=15, voice_seconds=200)
+
+    @pytest.mark.asyncio
+    async def test_no_data_returns_zero(self, manager):
+        with patch(
+            "utils.user_stats_data_manager.MonthlyUserStats.filter",
+            return_value=_AwaitableRows([]),
+        ):
+            totals = await manager.get_user_monthly(999, 2026, 5)
+        assert totals == UserTotals(user_id=999, messages=0, voice_seconds=0)

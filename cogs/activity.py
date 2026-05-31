@@ -32,6 +32,7 @@ from utils.activity.reports import (
 from utils.activity.views import ActivityView, StatsView
 from utils.activity_data_manager import ActivityDataManager
 from utils.time_utils import MOSCOW_TZ
+from utils.user_stats_data_manager import UserStatsDataManager
 
 logger: logging.Logger = logging.getLogger("bot.cogs.activity")
 
@@ -61,6 +62,7 @@ class ActivityTracker(commands.Cog):
         """
         self.bot: commands.Bot = bot
         self.data_manager: ActivityDataManager = ActivityDataManager()
+        self.user_stats_manager: UserStatsDataManager = UserStatsDataManager()
         logger.info("Инициализация ActivityDataManager завершена.")
 
         # {user_id: (game_name, start_time_utc)}
@@ -621,6 +623,20 @@ class ActivityTracker(commands.Cog):
                     for game, seconds in today_stats[user_id].items():
                         monthly_data[game] = monthly_data.get(game, 0) + seconds
 
+            # Сообщения и «умный» войс за тот же период: помесячная таблица +
+            # ещё не перенесённые дневные строки этого месяца. Отсутствие данных
+            # даёт 0, поэтому команда не падает у неактивных пользователей.
+            us_month = await self.user_stats_manager.get_user_monthly(
+                user_id, target_year, target_month
+            )
+            us_extra = (
+                await self.user_stats_manager.get_daily_totals_by_prefix(
+                    f"{target_year}-{target_month:02d}"
+                )
+            ).get(user_id)
+            period_messages = us_month.messages + (us_extra.messages if us_extra else 0)
+            period_voice = us_month.voice_seconds + (us_extra.voice_seconds if us_extra else 0)
+
             # Формируем заголовок и проверяем наличие данных
             month_name = MONTH_NAMES_RU.get(target_month, str(target_month))
             data_period_str = (
@@ -631,11 +647,22 @@ class ActivityTracker(commands.Cog):
 
             if not monthly_data:
                 embed = discord.Embed(
-                    title=f"📊 Статистика {target_user.display_name}",
-                    description=f"Нет данных об активности {data_period_str} 😢",
+                    title=f"📊 Статистика {target_user.display_name} {data_period_str}",
                     color=discord.Color.blue(),
                 )
                 embed.set_thumbnail(url=target_user.display_avatar.url)
+                if period_messages or period_voice:
+                    embed.description = "Игр не зафиксировано, но активность есть:"
+                    embed.add_field(
+                        name="💬 Сообщения и 🎙️ войс",
+                        value=(
+                            f"💬 {period_messages} сообщ.\n"
+                            f"🎙️ {format_time_short(period_voice)} в войсе"
+                        ),
+                        inline=False,
+                    )
+                else:
+                    embed.description = f"Нет данных об активности {data_period_str} 😢"
                 await ctx.send(embed=embed, ephemeral=True)
                 return
 
@@ -651,6 +678,8 @@ class ActivityTracker(commands.Cog):
                 sorted_games,
                 user=target_user,
                 items_per_page=get_settings().limits.activity_items_per_page,
+                messages_count=period_messages,
+                voice_seconds=period_voice,
             )  # type: ignore[arg-type]
             message = await ctx.send(
                 embed=view.get_current_embed(), view=view, ephemeral=False

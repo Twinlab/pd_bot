@@ -429,6 +429,8 @@ class StatsView(ui.View):
         games_data: list[tuple[str, int]],
         user: discord.User | discord.Member | None = None,
         items_per_page: int = 5,
+        messages_count: int | None = None,
+        voice_seconds: int | None = None,
     ):
         """Инициализирует представление статистики пользователя.
 
@@ -437,6 +439,8 @@ class StatsView(ui.View):
             games_data: Отсортированный список кортежей [(game_name, seconds)].
             user: Объект пользователя Discord (для аватарки).
             items_per_page: Количество игр на одной странице эмбеда.
+            messages_count: Сообщений за период (None — поле не показывается).
+            voice_seconds: «Умные» голосовые секунды за период (None — поле не показывается).
         """
         # Получаем настройки
         from config.settings import get_settings
@@ -448,6 +452,8 @@ class StatsView(ui.View):
         self.games_data = games_data  # Список [(game, seconds)]
         self.user = user
         self.items_per_page = items_per_page
+        self.messages_count = messages_count
+        self.voice_seconds = voice_seconds
         self.current_page = 0
         self.max_pages = max(
             1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page
@@ -504,6 +510,16 @@ class StatsView(ui.View):
             value=f"{format_time_short(total_time)}",  # Используем хелпер
             inline=False,
         )
+
+        if self.messages_count is not None or self.voice_seconds is not None:
+            embed.add_field(
+                name="💬 Сообщения и 🎙️ войс",
+                value=(
+                    f"💬 {self.messages_count or 0} сообщ.\n"
+                    f"🎙️ {format_time_short(self.voice_seconds or 0)} в войсе"
+                ),
+                inline=False,
+            )
 
         # Устанавливаем футер с информацией о страницах
         if self.max_pages > 1:

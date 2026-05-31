@@ -658,9 +658,9 @@ class TopReactionsCog(commands.Cog):
             empty_embed_factory=_build_authors_embed,
         )
 
-    @tasks.loop(time=time(hour=9, minute=0, tzinfo=UTC))  # 12:00 МСК (как activity)
+    @tasks.loop(time=time(hour=9, minute=1, tzinfo=UTC))  # 12:01 МСК (после отчёта по играм)
     async def monthly_report(self) -> None:
-        """Фоновая задача: 1-го числа в 12:00 МСК шлёт топ за прошлый месяц.
+        """Фоновая задача: 1-го числа в 12:01 МСК шлёт топ за прошлый месяц.
 
         ``tasks.loop(time=...)`` срабатывает каждый день в указанное время —
         фильтр по 1-му числу делаем сами, по аналогии с ActivityTracker.

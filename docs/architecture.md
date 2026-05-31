@@ -21,6 +21,7 @@ graph TD
     F --> F10[role_reaction.py]
     F --> F11[twitch.py]
     F --> F12[top_reactions.py]
+    F --> F13[user_stats.py]
 
     D --> G[Handlers]
     G --> G1[events.py]
@@ -275,10 +276,35 @@ erDiagram
         datetime reacted_at
     }
 
+    daily_user_stats {
+        int discord_user_id
+        string date
+        int messages
+        int voice_seconds
+    }
+
+    monthly_user_stats {
+        int discord_user_id
+        int year
+        int month
+        int messages
+        int voice_seconds
+    }
+
+    wrapped_opt_outs {
+        int user_id PK
+        datetime created_at
+    }
+
     links ||--o{ daily_activity : "tracks"
     daily_activity ||--o{ monthly_activity : "aggregates to"
+    daily_user_stats ||--o{ monthly_user_stats : "aggregates to"
     reacted_messages ||--o{ message_reactors : "uniqueReactors"
 ```
+
+Таблицы `daily_user_stats` / `monthly_user_stats` ведёт `cogs/user_stats.py`
+(сообщения + «умное» голосовое время), а `wrapped/`-подсистема собирает из них,
+из игровой активности и из реакций красивые wrapped-сводки (matplotlib).
 
 ## Взаимодействие компонентов системы
 
@@ -299,6 +325,7 @@ graph TD
     B --> B10[role_reaction.py]
     B --> B11[twitch.py]
     B --> B12[top_reactions.py]
+    B --> B13[user_stats.py]
 
     C --> C1[events.py]
     C --> C2[message_handler.py]
@@ -310,6 +337,8 @@ graph TD
     D --> D5[dota_api.py]
     D --> D6[music/]
     D --> D8[models.py]
+    D --> D9[user_stats_data_manager.py]
+    D --> D10[wrapped/ - voice, builder, render]
 
     D6 --> D6_1[player.py - MusicPlayer/setup_node]
     D6 --> D6_2[ui.py - Views]
