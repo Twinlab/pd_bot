@@ -586,6 +586,46 @@ class TestGetLeaderboard:
         assert [r.message_id for r in result] == [2]
 
     @pytest.mark.asyncio
+    async def test_ignore_self_reactions_excludes_author(self, db, manager):
+        """С ignore_self_reactions реакция автора на своё сообщение не считается."""
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="self + others",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        # автор (200) лайкает сам себя + два других пользователя
+        await manager.add_reactor(message_id=1, user_id=200, emoji="👍")
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+        await manager.add_reactor(message_id=1, user_id=11, emoji="🔥")
+
+        without = await manager.get_leaderboard("month", limit=10, ignore_self_reactions=False)
+        assert without[0].reactor_count == 3
+
+        with_flag = await manager.get_leaderboard("month", limit=10, ignore_self_reactions=True)
+        assert with_flag[0].reactor_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ignore_self_reactions_drops_self_only_message(self, db, manager):
+        """Сообщение, где реактор только сам автор, выпадает из выдачи под флагом."""
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="self only",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=1, user_id=200, emoji="👍")
+
+        assert len(await manager.get_leaderboard("month", limit=10)) == 1
+        assert await manager.get_leaderboard("month", limit=10, ignore_self_reactions=True) == []
+
+    @pytest.mark.asyncio
     async def test_explicit_year_only_takes_whole_year(self, db, manager):
         await ReactedMessage.create(
             message_id=1,
@@ -851,6 +891,47 @@ class TestGetTopAuthors:
         result = await manager.get_top_authors("month", limit=10, year=2024, month=3)
         assert len(result) == 1
         assert result[0].total_reactions == 4
+
+    @pytest.mark.asyncio
+    async def test_ignore_self_reactions_excludes_author(self, db, manager):
+        """Под флагом самореакция автора не идёт в его сумму."""
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="self + others",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        # автор 10 лайкает себя + двух других
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+        await manager.add_reactor(message_id=1, user_id=100, emoji="👍")
+        await manager.add_reactor(message_id=1, user_id=101, emoji="🔥")
+
+        without = await manager.get_top_authors("all", limit=10, ignore_self_reactions=False)
+        assert without[0].total_reactions == 3
+
+        with_flag = await manager.get_top_authors("all", limit=10, ignore_self_reactions=True)
+        assert with_flag[0].total_reactions == 2
+        assert with_flag[0].message_count == 1
+
+    @pytest.mark.asyncio
+    async def test_ignore_self_reactions_drops_self_only_author(self, db, manager):
+        """Автор, у которого только самореакции, выпадает из топа под флагом."""
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="self only",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+
+        assert len(await manager.get_top_authors("all", limit=10)) == 1
+        assert await manager.get_top_authors("all", limit=10, ignore_self_reactions=True) == []
 
     @pytest.mark.asyncio
     async def test_limit_respected(self, db, manager):

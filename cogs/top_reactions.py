@@ -596,6 +596,7 @@ class TopReactionsCog(commands.Cog):
             year=year_arg,
             month=month_arg,
             excluded_message_ids=excluded_message_ids,
+            ignore_self_reactions=get_settings().top_reactions.ignore_self_reactions,
         )
         await self._send_leaderboard(
             ctx,
@@ -648,6 +649,7 @@ class TopReactionsCog(commands.Cog):
             year=year_arg,
             month=month_arg,
             excluded_message_ids=excluded_message_ids,
+            ignore_self_reactions=get_settings().top_reactions.ignore_self_reactions,
         )
         await self._send_leaderboard(
             ctx,
@@ -722,6 +724,7 @@ class TopReactionsCog(commands.Cog):
             year=year,
             month=month,
             excluded_message_ids=excluded,
+            ignore_self_reactions=settings.top_reactions.ignore_self_reactions,
         )
 
         if not entries:

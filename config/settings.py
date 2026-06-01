@@ -495,6 +495,7 @@ class TopReactionsConfig(BaseModel):
             в лидерборд (применяется и при сборе, и при выдаче).
         ignore_role_reaction_message: Автоматически исключать сообщение role-реакций
             (id берётся динамически из RoleReactionDataManager).
+        ignore_self_reactions: Не учитывать реакции автора на собственное сообщение.
     """
 
     live_top: int = 10
@@ -505,6 +506,7 @@ class TopReactionsConfig(BaseModel):
     view_timeout: int = 300
     ignored_message_ids: list[int] = []
     ignore_role_reaction_message: bool = True
+    ignore_self_reactions: bool = True
 
 
 class UserReaction(BaseModel):

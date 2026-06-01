@@ -212,6 +212,7 @@ top_reactions:
   preview_inline_length: 80    # Длина превью в embed (короче — компактнее лейаут)
   view_timeout: 300            # Таймаут кнопок пагинации в секундах
   ignore_role_reaction_message: true  # Автоматически исключать сообщение для role-реакций
+  ignore_self_reactions: true  # Не учитывать реакции автора на собственное сообщение
   ignored_message_ids: []      # Ручной чёрный список id сообщений (через `-` по одному на строку)
 
 
