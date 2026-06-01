@@ -653,13 +653,9 @@ class ActivityTracker(commands.Cog):
                 embed.set_thumbnail(url=target_user.display_avatar.url)
                 if period_messages or period_voice:
                     embed.description = "Игр не зафиксировано, но активность есть:"
+                    embed.add_field(name="💬 Сообщения", value=str(period_messages), inline=True)
                     embed.add_field(
-                        name="💬 Сообщения и 🎙️ войс",
-                        value=(
-                            f"💬 {period_messages} сообщ.\n"
-                            f"🎙️ {format_time_short(period_voice)} в войсе"
-                        ),
-                        inline=False,
+                        name="🎙️ В войсе", value=format_time_short(period_voice), inline=True
                     )
                 else:
                     embed.description = f"Нет данных об активности {data_period_str} 😢"

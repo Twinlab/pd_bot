@@ -503,22 +503,22 @@ class StatsView(ui.View):
 
         embed.description = description
 
-        # Добавляем общее время
         total_time = sum(game[1] for game in self.games_data)
-        embed.add_field(
-            name="📊 Общее игровое время",
-            value=f"{format_time_short(total_time)}",  # Используем хелпер
-            inline=False,
-        )
+        has_extra = self.messages_count is not None or self.voice_seconds is not None
 
-        if self.messages_count is not None or self.voice_seconds is not None:
+        if has_extra:
+            # Компактный ряд из трёх инлайн-полей вместо отдельного
+            # заголовка-разделителя: эмодзи в подписях самодостаточны.
             embed.add_field(
-                name="💬 Сообщения и 🎙️ войс",
-                value=(
-                    f"💬 {self.messages_count or 0} сообщ.\n"
-                    f"🎙️ {format_time_short(self.voice_seconds or 0)} в войсе"
-                ),
-                inline=False,
+                name="📊 Игровое время", value=format_time_short(total_time), inline=True
+            )
+            embed.add_field(name="💬 Сообщения", value=str(self.messages_count or 0), inline=True)
+            embed.add_field(
+                name="🎙️ В войсе", value=format_time_short(self.voice_seconds or 0), inline=True
+            )
+        else:
+            embed.add_field(
+                name="📊 Общее игровое время", value=format_time_short(total_time), inline=False
             )
 
         # Устанавливаем футер с информацией о страницах
