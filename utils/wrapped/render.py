@@ -538,14 +538,17 @@ def render_server_card(
         )
 
         y = section_top - 5.0
-        for i, nom in enumerate(summary.nominations, 1):
+        for nom in summary.nominations:
             who = names(nom.user_id) if nom.user_id is not None else "—"
             avatar = avatars.get(nom.user_id) if nom.user_id is not None else None
             drew = bool(avatar) and _draw_avatar(ax, avatar, x=53, y=y - 3.6, w=5.0)
-            if not drew:
+            if drew:
+                # Угловой бейдж — эмодзи самой номинации (категория), а не медаль:
+                # номинации независимы, ранжировать их между собой 🥇🥈🥉 нельзя.
+                _draw_icon(ax, nom.emoji, x=51.9, y=y - 0.6, w=2.6, zorder=6)
+            else:
+                # Без аватара эмодзи номинации идёт крупно вместо кружка.
                 _draw_icon(ax, nom.emoji, x=53.3, y=y - 3.4, w=4.8)
-            if i in _MEDALS:
-                _draw_icon(ax, _MEDALS[i], x=51.9, y=y - 0.6, w=2.6, zorder=6)
             _text(ax, 60.5, y, nom.title, size=11, color=_MUTED, font=_FONT_REGULAR, va="top")
             _text(
                 ax,
