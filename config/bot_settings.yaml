@@ -119,7 +119,7 @@ twitch:
 fun:
   penis:
     min_length: 0
-    max_length: 25
+    max_length: 30
     nuance_chance: 0.10
     nuance_text: "...но есть нюанс, это у тебя в жопе"
     not_found_text: "ошибка, пенис не найден"
@@ -136,6 +136,7 @@ fun:
       - 249243234050506752
       - 759088324119494656
       - 255008594007687168
+      - 276072727847239691
 
   deathbattle:
     initial_hp: 100
