@@ -5,7 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
-from utils.penis_utils import _build_description, _color_for_length, measure_penis
+from config.settings import PenisLengthBucket
+from utils.penis_utils import _build_description, _color_for_length, _pick_length, measure_penis
 
 
 def _settings_mock(
@@ -14,13 +15,17 @@ def _settings_mock(
     not_found_user_ids: list[int] | None = None,
     nuance_text: str = "...но есть нюанс, это у тебя в жопе",
     not_found_text: str = "ошибка, пенис не найден",
-    min_length: int = 5,
-    max_length: int = 5,
+    length: int = 5,
 ) -> MagicMock:
-    """Собирает settings с подмодулем fun.penis для тестов."""
+    """Собирает settings с подмодулем fun.penis для тестов.
+
+    По умолчанию используется одна корзина с фиксированной длиной, чтобы выдача
+    оставалась детерминированной.
+    """
     s = MagicMock()
-    s.fun.penis.min_length = min_length
-    s.fun.penis.max_length = max_length
+    s.fun.penis.length_buckets = [
+        PenisLengthBucket(min_length=length, max_length=length, weight=1.0)
+    ]
     s.fun.penis.nuance_chance = nuance_chance
     s.fun.penis.nuance_text = nuance_text
     s.fun.penis.not_found_user_ids = not_found_user_ids or []
@@ -58,6 +63,31 @@ class TestColorForLength:
     def test_red_for_less_than_10(self):
         assert _color_for_length(0) == discord.Color.red()
         assert _color_for_length(9) == discord.Color.red()
+
+
+class TestPickLength:
+    """Взвешенный выбор длины по корзинам."""
+
+    def test_passes_weights_to_random_choices(self):
+        buckets = [
+            PenisLengthBucket(min_length=0, max_length=9, weight=37.5),
+            PenisLengthBucket(min_length=25, max_length=30, weight=5.0),
+        ]
+        with (
+            patch("utils.penis_utils.random.choices", return_value=[buckets[1]]) as choices_mock,
+            patch("utils.penis_utils.random.randint", return_value=27) as randint_mock,
+        ):
+            result = _pick_length(buckets)
+
+        assert result == 27
+        assert choices_mock.call_args.kwargs["weights"] == [37.5, 5.0]
+        randint_mock.assert_called_once_with(25, 30)
+
+    def test_result_within_selected_bucket_bounds(self):
+        buckets = [PenisLengthBucket(min_length=20, max_length=24, weight=20.0)]
+        for _ in range(100):
+            length = _pick_length(buckets)
+            assert 20 <= length <= 24
 
 
 class TestBuildDescription:
@@ -154,7 +184,7 @@ class TestMeasurePenisNormal:
     @pytest.mark.asyncio
     async def test_length_field_present(self):
         ctx = _make_ctx(author_id=1)
-        settings = _settings_mock(min_length=7, max_length=7)
+        settings = _settings_mock(length=7)
         with patch("config.settings.get_settings", return_value=settings):
             await measure_penis(ctx, None)
         embed = ctx.send.await_args.kwargs["embed"]

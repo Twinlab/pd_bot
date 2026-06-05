@@ -261,12 +261,26 @@ class TwitchConfig(BaseModel):
     embed_color: str = "#6441A4"
 
 
+class PenisLengthBucket(BaseModel):
+    """Корзина длины с весом для взвешенного выбора размера.
+
+    Attributes:
+        min_length: Минимальная длина диапазона (см)
+        max_length: Максимальная длина диапазона (см)
+        weight: Относительный вес корзины при случайном выборе
+    """
+
+    min_length: int
+    max_length: int
+    weight: float = Field(gt=0.0)
+
+
 class PenisConfig(BaseModel):
     """Конфигурация команды измерения пениса.
 
     Attributes:
-        min_length: Минимальная длина пениса
-        max_length: Максимальная длина пениса
+        length_buckets: Корзины длины с весами; длина выбирается взвешенно по
+            корзинам, затем равномерно внутри выбранной корзины
         nuance_chance: Шанс (0.0-1.0) добавить шуточную строку-нюанс к обычной выдаче
         nuance_text: Текст строки-нюанса
         not_found_user_ids: ID пользователей, для которых вместо измерения шлётся
@@ -274,8 +288,12 @@ class PenisConfig(BaseModel):
         not_found_text: Текст шуточного сообщения об "ошибке"
     """
 
-    min_length: int = 0
-    max_length: int = 25
+    length_buckets: list[PenisLengthBucket] = [
+        PenisLengthBucket(min_length=0, max_length=9, weight=37.5),
+        PenisLengthBucket(min_length=10, max_length=19, weight=37.5),
+        PenisLengthBucket(min_length=20, max_length=25, weight=20.0),
+        PenisLengthBucket(min_length=26, max_length=30, weight=5.0),
+    ]
     nuance_chance: float = 0.10
     nuance_text: str = "...но есть нюанс, это у тебя в жопе"
     not_found_user_ids: list[int] = []

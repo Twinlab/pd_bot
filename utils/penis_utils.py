@@ -14,7 +14,7 @@ import random
 import discord
 from discord.ext import commands
 
-from config.settings import PenisConfig
+from config.settings import PenisConfig, PenisLengthBucket
 
 logger = logging.getLogger("bot.utils.penis_utils")
 
@@ -26,6 +26,12 @@ def _color_for_length(length: int) -> discord.Color:
     if length >= 10:
         return discord.Color.gold()
     return discord.Color.red()
+
+
+def _pick_length(buckets: list[PenisLengthBucket]) -> int:
+    """Выбирает корзину пропорционально весам и берёт случайную длину внутри неё."""
+    bucket = random.choices(buckets, weights=[b.weight for b in buckets], k=1)[0]
+    return random.randint(bucket.min_length, bucket.max_length)
 
 
 def _build_description(
@@ -70,7 +76,7 @@ async def measure_penis(ctx: commands.Context, target_user: discord.Member | Non
         await ctx.send(cfg.not_found_text)
         return
 
-    penis_length = random.randint(cfg.min_length, cfg.max_length)
+    penis_length = _pick_length(cfg.length_buckets)
     penis_representation = "8" + "=" * penis_length + "D"
 
     nuance = cfg.nuance_text if random.random() < cfg.nuance_chance else None
