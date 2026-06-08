@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
-from utils.message_utils import handle_message
 from config.settings import BotSettings, ReactionsConfig, UserReaction
+from utils.message_utils import handle_message
 
 
 class TestHandleMessage:
@@ -165,13 +165,13 @@ class TestHandleMessage:
 
         with patch('utils.message_utils.get_settings', return_value=mock_settings), \
              patch('utils.message_utils.random.random', return_value=0.1), \
-             patch('utils.message_utils.logger.error') as mock_logger_error:
+             patch('utils.message_utils.logger.error'):
             # Функция не должна пробрасывать исключение
             try:
                 await handle_message(self.mock_message)
             except discord.HTTPException:
                 pytest.fail("HTTPException should not be raised from handle_message")
-            
+
             self.mock_message.channel.send.assert_called_once()
 
     @pytest.mark.asyncio
@@ -207,6 +207,43 @@ class TestHandleMessage:
             await handle_message(self.mock_message)
 
         self.mock_message.channel.send.assert_called_once_with("always happens")
+
+    @pytest.mark.asyncio
+    async def test_handle_message_disabled_reaction_skipped(self):
+        """Реакция с enabled=False не срабатывает даже при гарантированном шансе."""
+        user_id = 154601435990982656
+        self.mock_message.author.id = user_id
+
+        mock_settings = BotSettings()
+        mock_settings.reactions = ReactionsConfig(user_reactions={
+            user_id: [UserReaction(chance=1.0, response="иди нахуй абасранер", enabled=False)]
+        })
+
+        with patch('utils.message_utils.get_settings', return_value=mock_settings), \
+             patch('utils.message_utils.random.random', return_value=0.0):
+            await handle_message(self.mock_message)
+
+        self.mock_message.channel.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_handle_message_disabled_reaction_falls_through_to_next(self):
+        """Выключенная реакция пропускается, проверяется следующая в списке."""
+        user_id = 555000111
+        self.mock_message.author.id = user_id
+
+        mock_settings = BotSettings()
+        mock_settings.reactions = ReactionsConfig(user_reactions={
+            user_id: [
+                UserReaction(chance=1.0, response="disabled", enabled=False),
+                UserReaction(chance=1.0, response="enabled"),
+            ]
+        })
+
+        with patch('utils.message_utils.get_settings', return_value=mock_settings), \
+             patch('utils.message_utils.random.random', return_value=0.1):
+            await handle_message(self.mock_message)
+
+        self.mock_message.channel.send.assert_called_once_with("enabled")
 
     @pytest.mark.asyncio
     async def test_handle_message_empty_response(self):

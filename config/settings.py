@@ -532,6 +532,7 @@ class UserReaction(BaseModel):
 
     chance: float = Field(..., ge=0.0, le=1.0)  # Вероятность от 0.0 до 1.0
     response: str
+    enabled: bool = True  # Выключатель: enabled: false в YAML отключает реакцию, не удаляя её
 
 
 class ReactionsConfig(BaseModel):

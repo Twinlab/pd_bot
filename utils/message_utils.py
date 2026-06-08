@@ -31,6 +31,8 @@ async def handle_message(message: discord.Message) -> None:
     if user_id in user_reactions:
         reactions = user_reactions[user_id]
         for reaction in reactions:
+            if not reaction.enabled:
+                continue
             if random.random() < reaction.chance:
                 try:
                     await message.channel.send(reaction.response)
