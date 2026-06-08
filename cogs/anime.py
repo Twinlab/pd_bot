@@ -147,6 +147,9 @@ class AnimeCog(commands.Cog):
 
         settings = get_settings()
 
+        if tag is not None:
+            return await self._search_by_explicit_tag(settings, rating=rating, tag=tag)
+
         for attempt in range(MAX_RETRIES):
             logger.info(f"Попытка {attempt + 1}/{MAX_RETRIES} (основной запрос)...")
             posts = await self._fetch_danbooru_posts(
@@ -227,33 +230,106 @@ class AnimeCog(commands.Cog):
             base = random.choice(settings.anime.base_tags) if settings.anime.base_tags else "1girl"
             search_tags = [base, "order:rank", f"rating:{rating}"]
 
-        params: dict[str, str] = {
-            "tags": " ".join(search_tags),
-            "limit": str(settings.anime.limit),
-        }
+        status, data = await self._request_danbooru(
+            settings,
+            {"tags": " ".join(search_tags), "limit": str(settings.anime.limit)},
+        )
+        if status != 200:
+            return []
+        return self._parse_posts(data, settings, rating, require_girl=require_girl)
+
+    async def _request_danbooru(
+        self, settings: Any, params: dict[str, str]
+    ) -> tuple[int, list[Any]]:
+        """Выполняет GET к Danbooru и возвращает ``(http_status, сырые посты)``.
+
+        При не-200 (или сетевой ошибке — тогда status=0) список пустой. Логин/ключ
+        подставляются автоматически, если заданы в настройках.
+        """
         if settings.danbooru_login and settings.danbooru_api_key:
-            params["login"] = settings.danbooru_login
-            params["api_key"] = settings.danbooru_api_key
+            params = {
+                **params,
+                "login": settings.danbooru_login,
+                "api_key": settings.danbooru_api_key,
+            }
 
         session = self._get_session()
         try:
             async with session.get(DANBOORU_API_URL, params=params) as response:
                 if response.status != 200:
                     logger.warning(f"Danbooru вернул HTTP {response.status}")
-                    return []
+                    return response.status, []
                 data = await response.json()
         except Exception as e:
             logger.warning(f"Ошибка запроса к Danbooru: {e}")
-            return []
+            return 0, []
 
         if not isinstance(data, list):
             logger.debug("Ответ Danbooru не является списком постов")
-            return []
+            return 200, []
+        return 200, data
 
-        return self._parse_posts(data, settings, rating, require_girl=require_girl)
+    async def _search_by_explicit_tag(
+        self, settings: Any, *, rating: str | None, tag: str
+    ) -> AnimePost | None:
+        """Ищет пост по явному тегу для ручной команды ``/post_anime``.
+
+        Фильтры автопостинга (``excluded_tags``/``base_tags``/require_girl) НЕ применяются —
+        они только для авто-публикаций. Берётся любой пост с этим тегом, заданным рейтингом
+        и ``score >= min_score``.
+
+        ``order:random`` на сверхпопулярных тегах (миллионы постов, напр. ``1girl``) Danbooru
+        отвечает HTTP 500, поэтому при 500 делается фолбэк на ``order:rank``.
+
+        Args:
+            settings: Объект настроек бота.
+            rating: Рейтинг ``g``/``s``/``q``/``e`` или ``None`` (тогда случайный из конфига).
+            tag: Явный тег Danbooru.
+
+        Returns:
+            ``AnimePost`` или ``None``, если ничего подходящего не нашлось.
+        """
+        chosen_rating = self._pick_rating(settings, rating)
+        score_filter = f"score:>={settings.anime.min_score}"
+        limit = str(settings.anime.limit)
+
+        for attempt in range(MAX_RETRIES):
+            logger.info(f"Попытка {attempt + 1}/{MAX_RETRIES} (ручной тег '{tag}')...")
+            posts: list[AnimePost] = []
+            for order in ("order:random", "order:rank"):
+                status, data = await self._request_danbooru(
+                    settings,
+                    {
+                        "tags": f"{tag} {order} rating:{chosen_rating} {score_filter}",
+                        "limit": limit,
+                    },
+                )
+                if status == 200:
+                    posts = self._parse_posts(
+                        data, settings, chosen_rating, require_girl=False, apply_excluded=False
+                    )
+                    break
+                if status != 500:
+                    break
+
+            candidate = self._pick_fresh(posts)
+            if candidate:
+                logger.info(
+                    f"Найден пост по тегу '{tag}' (ID: {candidate.post_id}, score: {candidate.score})"
+                )
+                return candidate
+
+        logger.error(f"Не удалось найти пост по тегу '{tag}' после всех попыток.")
+        return None
 
     def _parse_posts(
-        self, data: list[Any], settings: Any, rating: str, *, require_girl: bool
+        self,
+        data: list[Any],
+        settings: Any,
+        rating: str,
+        *,
+        require_girl: bool,
+        apply_excluded: bool = True,
     ) -> list[AnimePost]:
         """Отбирает из сырого ответа Danbooru пригодные для публикации посты.
 
@@ -263,8 +339,10 @@ class AnimeCog(commands.Cog):
             rating: Ожидаемый рейтинг (пост с другим отбрасывается).
             require_girl: Требовать наличие базового тега (``1girl``/``2girls``) в посте —
                 нужно для франшиза-запроса, где базовый тег не входит в сам запрос.
+            apply_excluded: Применять чёрный список ``excluded_tags``. Для ручного поиска
+                по явному тегу выключается (конфиг — только для автопостов).
         """
-        excluded = set(settings.anime.excluded_tags)
+        excluded = set(settings.anime.excluded_tags) if apply_excluded else set()
         base_tags = set(settings.anime.base_tags)
         min_score = settings.anime.min_score
         result: list[AnimePost] = []
@@ -409,6 +487,10 @@ class AnimeCog(commands.Cog):
             rating: Рейтинг публикации. По умолчанию — из конфига.
             tag: Конкретный тег Danbooru для поиска.
         """
+        # Поиск поста занимает до ~15 c (ретраи Danbooru), а токен слэш-команды живёт 3 c —
+        # без defer ответ упрётся в 404 Unknown interaction. Откладываем сразу.
+        await ctx.defer(ephemeral=True)
+
         settings = get_settings()
         if not await self._check_channel_exists():
             await safe_send_error(ctx, settings.messages.errors["anime_channel_not_configured"])

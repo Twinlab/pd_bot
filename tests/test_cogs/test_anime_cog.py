@@ -237,6 +237,18 @@ class TestParsePosts:
         )
         assert len(result) == 1
 
+    def test_apply_excluded_false_keeps_post_with_excluded_tag(self):
+        cog = _build_cog()
+        settings = create_mock_settings()
+        result = cog._parse_posts(
+            [self._raw(tag_string="1boy guro")],
+            settings,
+            "s",
+            require_girl=False,
+            apply_excluded=False,
+        )
+        assert len(result) == 1
+
 
 class _FakeResp:
     status = 200
@@ -292,6 +304,61 @@ class TestFetchDanbooruParams:
         assert "rating:g" in tags
         assert ("1girl" in tags) or ("2girls" in tags)
         assert "score:" not in tags
+
+
+class TestSearchByExplicitTag:
+    """Тесты ручного поиска по явному тегу (/post_anime tag:...)."""
+
+    def _raw(self, **overrides):
+        post = {
+            "id": 1,
+            "file_ext": "jpg",
+            "file_url": "https://cdn.donmai.us/x.jpg",
+            "rating": "s",
+            "score": 100,
+            "tag_string": "1boy guro",
+            "tag_string_artist": "artist_name",
+            "tag_string_character": "char_name",
+            "source": "https://pixiv.net/x",
+        }
+        post.update(overrides)
+        return post
+
+    @pytest.mark.asyncio
+    async def test_explicit_tag_ignores_excluded_and_require_girl(self):
+        """Явный тег: фильтры автопостинга не применяются, order:random в первом запросе."""
+        cog = _build_cog()
+        cog._cache_loaded = True
+        req = AsyncMock(return_value=(200, [self._raw()]))
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch.object(cog, "_request_danbooru", req),
+        ):
+            result = await cog.get_anime_image(rating="s", tag="1boy")
+
+        assert result is not None
+        assert result.post_id == 1
+        first_params = req.await_args_list[0].args[1]
+        assert "1boy" in first_params["tags"]
+        assert "order:random" in first_params["tags"]
+        assert "score:>=50" in first_params["tags"]
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_order_rank_on_500(self):
+        """При HTTP 500 на order:random делается повтор с order:rank."""
+        cog = _build_cog()
+        cog._cache_loaded = True
+        req = AsyncMock(side_effect=[(500, []), (200, [self._raw()])])
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch.object(cog, "_request_danbooru", req),
+        ):
+            result = await cog.get_anime_image(rating="s", tag="1girl")
+
+        assert result is not None
+        assert req.await_count == 2
+        assert "order:random" in req.await_args_list[0].args[1]["tags"]
+        assert "order:rank" in req.await_args_list[1].args[1]["tags"]
 
 
 class TestGetAnimeImageRatingOverride:
