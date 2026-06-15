@@ -2,9 +2,10 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 
-from cogs.anime import AnimeCog, AnimePost
+from cogs.anime import AnimeCog, AnimePost, _build_post_embed
 
 
 def make_post(post_id=444, score=120):
@@ -38,6 +39,7 @@ def create_mock_settings(channel_id=123456789):
     mock_settings.anime.schedule.morning_minute = 0
     mock_settings.anime.schedule.evening_hour = 18
     mock_settings.anime.schedule.evening_minute = 0
+    mock_settings.get_discord_color = MagicMock(return_value=discord.Color.blue())
     return mock_settings
 
 
@@ -143,10 +145,40 @@ class TestAnimeCacheDatabase:
                 result = await anime_cog.post_anime_image()
 
                 assert result is True
-                mock_text_channel.send.assert_called_once_with("https://example.com/test.jpg")
+                mock_text_channel.send.assert_called_once()
+                sent_embed = mock_text_channel.send.call_args.kwargs["embed"]
+                assert sent_embed.image.url == "https://example.com/test.jpg"
+                assert sent_embed.author.url == "https://danbooru.donmai.us/posts/555"
                 mock_create.assert_called_once()
                 assert mock_create.call_args.kwargs["post_id"] == 555
                 assert 555 in anime_cog.post_cache
+
+    @pytest.mark.asyncio
+    async def test_post_includes_danbooru_source_link(self, mock_bot, mock_text_channel):
+        """Публикуется embed-карточка с полной картинкой и ссылкой на пост Danbooru."""
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch("discord.ext.tasks.loop", return_value=MagicMock()),
+            patch("asyncio.create_task", return_value=MagicMock()),
+        ):
+            mock_bot.get_channel = MagicMock(return_value=mock_text_channel)
+            anime_cog = AnimeCog(mock_bot)
+
+            post = make_post(post_id=999)
+            with (
+                patch("utils.models.AnimeCache.create", new_callable=AsyncMock),
+                patch.object(anime_cog, "_check_channel_exists", AsyncMock(return_value=True)),
+                patch.object(anime_cog, "get_anime_image", AsyncMock(return_value=post)),
+            ):
+                result = await anime_cog.post_anime_image()
+
+                assert result is True
+                sent_embed = mock_text_channel.send.call_args.kwargs["embed"]
+                source_url = "https://danbooru.donmai.us/posts/999"
+                assert sent_embed.image.url == post.url
+                assert sent_embed.author.url == source_url
+                assert sent_embed.url == source_url
+                assert any(field.name == "Художник" for field in sent_embed.fields)
 
 
 def _build_cog():
@@ -377,3 +409,40 @@ class TestGetAnimeImageRatingOverride:
 
             assert result.post_id == 777
             assert fetch_mock.await_args.kwargs["rating"] == "g"
+
+
+class TestBuildPostEmbed:
+    """Тесты сборки embed-карточки поста."""
+
+    def test_full_card_has_image_source_and_meta(self):
+        post = make_post(post_id=42, score=321)
+        embed = _build_post_embed(post, discord.Color.blue())
+
+        source_url = "https://danbooru.donmai.us/posts/42"
+        assert embed.image.url == post.url
+        assert embed.author.url == source_url
+        assert embed.title == post.characters
+        assert embed.url == source_url
+        assert any(f.name == "Художник" and f.value == post.artists for f in embed.fields)
+        assert embed.footer.text is not None
+        assert "321" in embed.footer.text
+        assert "Чувствительный" in embed.footer.text
+
+    def test_no_characters_skips_title_but_keeps_source(self):
+        post = AnimePost(
+            url="https://example.com/x.jpg",
+            post_id=7,
+            score=55,
+            rating="g",
+            source="",
+            artists="",
+            characters="",
+        )
+        embed = _build_post_embed(post, discord.Color.blue())
+
+        assert embed.title is None
+        assert embed.url is None
+        assert embed.author.url == "https://danbooru.donmai.us/posts/7"
+        assert embed.image.url == post.url
+        assert len(embed.fields) == 0
+        assert "Общий" in embed.footer.text

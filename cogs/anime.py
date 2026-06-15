@@ -50,10 +50,48 @@ class AnimePost(NamedTuple):
     characters: str
 
 
+RATING_LABELS: dict[str, str] = {
+    "g": "Общий",
+    "s": "Чувствительный",
+    "q": "Сомнительный",
+    "e": "Откровенный",
+}
+
+
 def _format_tag_names(tag_string: str) -> str:
     """Преобразует ``tag_string`` Danbooru в человекочитаемый список через запятую."""
     names = [name.replace("_", " ") for name in tag_string.split() if name]
     return ", ".join(names)
+
+
+def _build_post_embed(post: AnimePost, color: discord.Color) -> discord.Embed:
+    """Собирает «карточку» поста для публикации.
+
+    Картинка ставится через ``set_image`` — она показывается целиком (без обрезки,
+    в отличие от ``set_thumbnail``). Ссылка на исходный пост Danbooru вынесена в
+    кликабельный заголовок автора и заголовок эмбеда.
+
+    Args:
+        post: Пост Danbooru для публикации.
+        color: Цвет боковой полосы эмбеда.
+
+    Returns:
+        Готовый ``discord.Embed`` с полным изображением и метаданными.
+    """
+    source_url = DANBOORU_POST_URL.format(post_id=post.post_id)
+    embed = discord.Embed(color=color)
+    embed.set_author(name="Danbooru", url=source_url)
+    embed.set_image(url=post.url)
+
+    if post.characters:
+        embed.title = post.characters[:256]
+        embed.url = source_url
+    if post.artists:
+        embed.add_field(name="Художник", value=post.artists[:1024], inline=True)
+
+    rating_label = RATING_LABELS.get(post.rating, post.rating or "—")
+    embed.set_footer(text=f"Score: {post.score} · Рейтинг: {rating_label} · #{post.post_id}")
+    return embed
 
 
 class AnimeCog(commands.Cog):
@@ -410,7 +448,8 @@ class AnimeCog(commands.Cog):
                 logger.error("Не удалось получить новый пост для публикации")
                 return False
 
-            await channel.send(post.url)
+            embed = _build_post_embed(post, get_settings().get_discord_color("default"))
+            await channel.send(embed=embed)
             self.post_cache.append(post.post_id)
             try:
                 await AnimeCache.create(post_id=post.post_id, added_at=int(unix_now()))
