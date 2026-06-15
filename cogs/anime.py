@@ -51,10 +51,10 @@ class AnimePost(NamedTuple):
 
 
 RATING_LABELS: dict[str, str] = {
-    "g": "Общий",
-    "s": "Чувствительный",
-    "q": "Сомнительный",
-    "e": "Откровенный",
+    "g": "general",
+    "s": "sensitive",
+    "q": "questionable",
+    "e": "explicit",
 }
 
 
@@ -68,8 +68,8 @@ def _build_post_embed(post: AnimePost, color: discord.Color) -> discord.Embed:
     """Собирает «карточку» поста для публикации.
 
     Картинка ставится через ``set_image`` — она показывается целиком (без обрезки,
-    в отличие от ``set_thumbnail``). Ссылка на исходный пост Danbooru вынесена в
-    кликабельный заголовок автора и заголовок эмбеда.
+    в отличие от ``set_thumbnail``). Ссылкой на исходный пост Danbooru служит сам
+    кликабельный заголовок (имена персонажей либо запасной текст, если их нет).
 
     Args:
         post: Пост Danbooru для публикации.
@@ -80,17 +80,15 @@ def _build_post_embed(post: AnimePost, color: discord.Color) -> discord.Embed:
     """
     source_url = DANBOORU_POST_URL.format(post_id=post.post_id)
     embed = discord.Embed(color=color)
-    embed.set_author(name="Danbooru", url=source_url)
+    embed.title = post.characters[:256] if post.characters else "Открыть на Danbooru"
+    embed.url = source_url
     embed.set_image(url=post.url)
 
-    if post.characters:
-        embed.title = post.characters[:256]
-        embed.url = source_url
     if post.artists:
         embed.add_field(name="Художник", value=post.artists[:1024], inline=True)
 
     rating_label = RATING_LABELS.get(post.rating, post.rating or "—")
-    embed.set_footer(text=f"Score: {post.score} · Рейтинг: {rating_label} · #{post.post_id}")
+    embed.set_footer(text=f"score: {post.score} · rating: {rating_label}")
     return embed
 
 

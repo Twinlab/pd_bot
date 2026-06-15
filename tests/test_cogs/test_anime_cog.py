@@ -148,7 +148,7 @@ class TestAnimeCacheDatabase:
                 mock_text_channel.send.assert_called_once()
                 sent_embed = mock_text_channel.send.call_args.kwargs["embed"]
                 assert sent_embed.image.url == "https://example.com/test.jpg"
-                assert sent_embed.author.url == "https://danbooru.donmai.us/posts/555"
+                assert sent_embed.url == "https://danbooru.donmai.us/posts/555"
                 mock_create.assert_called_once()
                 assert mock_create.call_args.kwargs["post_id"] == 555
                 assert 555 in anime_cog.post_cache
@@ -176,8 +176,8 @@ class TestAnimeCacheDatabase:
                 sent_embed = mock_text_channel.send.call_args.kwargs["embed"]
                 source_url = "https://danbooru.donmai.us/posts/999"
                 assert sent_embed.image.url == post.url
-                assert sent_embed.author.url == source_url
                 assert sent_embed.url == source_url
+                assert sent_embed.title == post.characters
                 assert any(field.name == "Художник" for field in sent_embed.fields)
 
 
@@ -420,15 +420,15 @@ class TestBuildPostEmbed:
 
         source_url = "https://danbooru.donmai.us/posts/42"
         assert embed.image.url == post.url
-        assert embed.author.url == source_url
-        assert embed.title == post.characters
         assert embed.url == source_url
+        assert embed.title == post.characters
         assert any(f.name == "Художник" and f.value == post.artists for f in embed.fields)
         assert embed.footer.text is not None
         assert "321" in embed.footer.text
-        assert "Чувствительный" in embed.footer.text
+        assert "sensitive" in embed.footer.text
+        assert "#" not in embed.footer.text
 
-    def test_no_characters_skips_title_but_keeps_source(self):
+    def test_no_characters_uses_fallback_title_but_keeps_source(self):
         post = AnimePost(
             url="https://example.com/x.jpg",
             post_id=7,
@@ -440,9 +440,8 @@ class TestBuildPostEmbed:
         )
         embed = _build_post_embed(post, discord.Color.blue())
 
-        assert embed.title is None
-        assert embed.url is None
-        assert embed.author.url == "https://danbooru.donmai.us/posts/7"
+        assert embed.title == "Открыть на Danbooru"
+        assert embed.url == "https://danbooru.donmai.us/posts/7"
         assert embed.image.url == post.url
         assert len(embed.fields) == 0
-        assert "Общий" in embed.footer.text
+        assert "general" in embed.footer.text
