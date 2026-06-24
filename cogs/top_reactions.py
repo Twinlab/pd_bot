@@ -44,23 +44,17 @@ RU_MONTHS: dict[int, str] = {
     12: "декабрь",
 }
 
-# Спецсимволы Discord-markdown, которые ломают рендер при попадании в превью.
-# escape_markdown из discord.utils эскейпит только * _ ~ | `, скобки же
-# нужно чинить руками — иначе [...] из текста схлопывается с нашим
-# wrapper-ом [preview](jump_url) и парсер уезжает.
-_MD_TRANSLATE = str.maketrans(
+# Превью теперь выводится обычным текстом (не внутри masked-link), поэтому
+# кастомные эмодзи и упоминания рендерятся нормально. Эскейпим только то, что
+# может сломать вёрстку или подсунуть свою ссылку: квадратные скобки (masked
+# link), бэктики (code-span) и сам бэкслеш. `<>@&:#` НЕ трогаем — иначе
+# поломаются `<:emoji:id>` и `<@&role>`.
+_PREVIEW_TRANSLATE = str.maketrans(
     {
+        "\\": r"\\",
         "[": r"\[",
         "]": r"\]",
-        "(": r"\(",
-        ")": r"\)",
-        "*": r"\*",
-        "_": r"\_",
-        "~": r"\~",
         "`": r"\`",
-        "|": r"\|",
-        ">": r"\>",
-        "\\": r"\\",
     }
 )
 
@@ -90,23 +84,18 @@ def _format_author(member: discord.Member | discord.User | None, author_id: int)
 
 
 def _format_preview(content: str, max_len: int) -> str:
-    """Готовит безопасное превью сообщения для подстановки в `[preview](url)`.
+    """Готовит превью сообщения для вывода обычным текстом (в blockquote).
 
-    Делает три вещи:
-      1. Схлопывает любые whitespace-последовательности в один пробел.
-      2. Эскейпит спецсимволы markdown — особенно `[ ] ( )`, иначе вложенные
-         ссылки / квадратные скобки рвут наш wrapper-ссылку и Discord начинает
-         показывать сырой URL и упоминания.
-      3. Обрезает до `max_len` (символов исходного текста — после эскейпа
-         строка длиннее, но это нормально, лимита Discord на длину
-         description обычно достаточно).
+    Схлопывает whitespace в один пробел, обрезает до `max_len` и эскейпит лишь
+    то, что ломает вёрстку (`[ ] \\``), оставляя кастомные эмодзи и упоминания
+    как есть — Discord их корректно отрисует вне masked-link.
     """
     text = " ".join(content.split())
     if not text:
         return "*(вложение / без текста)*"
     if len(text) > max_len:
         text = text[: max_len - 1] + "…"
-    return text.translate(_MD_TRANSLATE)
+    return text.translate(_PREVIEW_TRANSLATE)
 
 
 def _build_embed(
@@ -153,7 +142,7 @@ def _build_embed(
 
         parts.append(
             f"{prefix} **{entry.reactor_count}** реакций{hist_marker} • {author}\n"
-            f"[{preview}]({entry.jump_url})"
+            f"> {preview}  •  [перейти ↗]({entry.jump_url})"
         )
 
     embed.description = "\n\n".join(parts)

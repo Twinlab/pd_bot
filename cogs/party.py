@@ -629,16 +629,15 @@ class PartyCog(commands.Cog):
 
     @app_commands.command(
         name="party_beta",
-        description="(Бета, админ) Собрать пати через панель с меню.",
+        description="(Бета) Собрать пати через панель с меню.",
     )
     @app_commands.describe(image="Картинка к сбору (опционально)")
-    @app_commands.checks.has_permissions(administrator=True)
     async def party_beta(
         self,
         interaction: discord.Interaction,
         image: discord.Attachment | None = None,
     ) -> None:
-        """Открывает эфемерную панель сборки пати на выпадушках."""
+        """Открывает эфемерную панель сборки пати."""
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message("Только в конфе, чел.", ephemeral=True)

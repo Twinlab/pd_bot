@@ -198,9 +198,6 @@ class PartyPreviewView(discord.ui.View):
             logger.warning(f"Не удалось обновить превью при отмене: {e}")
 
 
-_DURATION_PRESETS = (15, 30, 45, 60, 90, 120, 180, 240)
-
-
 class _RoleSelect(discord.ui.Select["PartyBuilderView"]):
     """Выпадающий список доступных игровых ролей."""
 
@@ -218,48 +215,22 @@ class _RoleSelect(discord.ui.Select["PartyBuilderView"]):
         await self._builder.refresh(interaction)
 
 
-class _DurationSelect(discord.ui.Select["PartyBuilderView"]):
-    """Выпадающий список пресетов длительности (минуты)."""
+class _PartyParamsModal(discord.ui.Modal, title="Параметры сбора"):
+    """Модалка свободного ввода: время, размер состава и комментарий."""
 
-    def __init__(self, builder: PartyBuilderView, minutes_options: list[int]) -> None:
-        options = [
-            discord.SelectOption(label=f"{m} мин", value=str(m)) for m in minutes_options[:25]
-        ]
-        super().__init__(
-            placeholder="Через сколько закрыть", min_values=1, max_values=1, options=options, row=1
-        )
-        self._builder = builder
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        self._builder.minutes = int(self.values[0])
-        await self._builder.refresh(interaction)
-
-
-class _CountSelect(discord.ui.Select["PartyBuilderView"]):
-    """Выпадающий список размера состава."""
-
-    def __init__(self, builder: PartyBuilderView, count_options: list[int]) -> None:
-        options = [
-            discord.SelectOption(label=f"{c} чел.", value=str(c)) for c in count_options[:25]
-        ]
-        super().__init__(
-            placeholder="Сколько человек в состав",
-            min_values=1,
-            max_values=1,
-            options=options,
-            row=2,
-        )
-        self._builder = builder
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        self._builder.count = int(self.values[0])
-        await self._builder.refresh(interaction)
-
-
-class _CommentModal(discord.ui.Modal, title="Комментарий к сбору"):
-    """Модалка ввода комментария к сбору."""
-
-    comment: discord.ui.TextInput[_CommentModal] = discord.ui.TextInput(
+    minutes_input: discord.ui.TextInput[_PartyParamsModal] = discord.ui.TextInput(
+        label="Через сколько закрыть (минут)",
+        required=True,
+        max_length=4,
+        placeholder="например, 30",
+    )
+    count_input: discord.ui.TextInput[_PartyParamsModal] = discord.ui.TextInput(
+        label="Сколько человек в состав (с тобой)",
+        required=True,
+        max_length=3,
+        placeholder="например, 5",
+    )
+    comment_input: discord.ui.TextInput[_PartyParamsModal] = discord.ui.TextInput(
         label="Комментарий",
         style=discord.TextStyle.paragraph,
         required=False,
@@ -270,20 +241,31 @@ class _CommentModal(discord.ui.Modal, title="Комментарий к сбор�
     def __init__(self, builder: PartyBuilderView) -> None:
         super().__init__()
         self._builder = builder
+        if builder.minutes is not None:
+            self.minutes_input.default = str(builder.minutes)
+        if builder.count is not None:
+            self.count_input.default = str(builder.count)
         if builder.comment:
-            self.comment.default = builder.comment
+            self.comment_input.default = builder.comment
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        self._builder.comment = str(self.comment.value or "")
+        error = self._builder.apply_params(
+            minutes_raw=str(self.minutes_input.value),
+            count_raw=str(self.count_input.value),
+            comment=str(self.comment_input.value or ""),
+        )
+        if error is not None:
+            await interaction.response.send_message(error, ephemeral=True)
+            return
         await self._builder.refresh(interaction)
 
 
 class PartyBuilderView(discord.ui.View):
     """Эфемерная панель сборки пати на меню (команда ``/party_beta``).
 
-    Роль / длительность / размер состава выбираются выпадушками, комментарий —
-    через модалку, картинка приходит параметром команды. По кнопке «Создать»
-    дёргается ``cog._create_and_broadcast``.
+    Роль выбирается выпадушкой; время, размер состава и комментарий вводятся
+    свободным текстом в модалке «Параметры»; картинка приходит параметром
+    команды. По кнопке «Создать» дёргается ``cog._create_and_broadcast``.
     """
 
     def __init__(
@@ -308,19 +290,35 @@ class PartyBuilderView(discord.ui.View):
         self.count: int | None = None
         self.comment: str = ""
 
-        settings = get_settings().party
-        durations = [
-            m
-            for m in _DURATION_PRESETS
-            if settings.min_duration_minutes <= m <= settings.max_duration_minutes
-        ] or [settings.min_duration_minutes]
-        counts = list(
-            range(settings.min_count, min(settings.max_count, settings.min_count + 24) + 1)
-        )
-
         self.add_item(_RoleSelect(self, roles))
-        self.add_item(_DurationSelect(self, durations))
-        self.add_item(_CountSelect(self, counts))
+
+    def apply_params(self, *, minutes_raw: str, count_raw: str, comment: str) -> str | None:
+        """Валидирует и применяет ввод из модалки.
+
+        Возвращает текст ошибки (для ephemeral-ответа) или ``None`` при успехе.
+        """
+        settings = get_settings().party
+        try:
+            minutes = int(minutes_raw.strip())
+        except ValueError:
+            return "Время должно быть числом минут (например, 30)."
+        if not (settings.min_duration_minutes <= minutes <= settings.max_duration_minutes):
+            return (
+                f"Время — от {settings.min_duration_minutes} "
+                f"до {settings.max_duration_minutes} минут."
+            )
+
+        try:
+            count = int(count_raw.strip())
+        except ValueError:
+            return "Размер состава должен быть числом (например, 5)."
+        if not (settings.min_count <= count <= settings.max_count):
+            return f"Состав — от {settings.min_count} до {settings.max_count} человек."
+
+        self.minutes = minutes
+        self.count = count
+        self.comment = comment.strip()
+        return None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Пускает к панели только автора."""
@@ -334,7 +332,7 @@ class PartyBuilderView(discord.ui.View):
         role = self.roles.get(self.role_id) if self.role_id else None
         embed = discord.Embed(
             title="Сборка пати (бета)",
-            description="Заполни поля и жми «Создать».",
+            description="Выбери роль, жми «Параметры» (время/состав/коммент), затем «Создать».",
             color=discord.Color.blurple(),
         )
         embed.add_field(name="Роль", value=role.mention if role else "_не выбрана_", inline=True)
@@ -364,16 +362,16 @@ class PartyBuilderView(discord.ui.View):
             if isinstance(child, (discord.ui.Button, discord.ui.Select)):
                 child.disabled = True
 
-    @discord.ui.button(label="Комментарий", style=discord.ButtonStyle.secondary, emoji="✏️", row=3)
-    async def comment_button(
+    @discord.ui.button(label="Параметры", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
+    async def params_button(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,  # noqa: ARG002
     ) -> None:
-        """Открывает модалку ввода комментария."""
-        await interaction.response.send_modal(_CommentModal(self))
+        """Открывает модалку ввода времени, состава и комментария."""
+        await interaction.response.send_modal(_PartyParamsModal(self))
 
-    @discord.ui.button(label="Создать", style=discord.ButtonStyle.success, emoji="📣", row=3)
+    @discord.ui.button(label="Создать", style=discord.ButtonStyle.success, emoji="📣", row=1)
     async def create_button(
         self,
         interaction: discord.Interaction,
@@ -382,7 +380,7 @@ class PartyBuilderView(discord.ui.View):
         """Валидирует выбор и публикует сбор."""
         if self.role_id is None or self.minutes is None or self.count is None:
             await interaction.response.send_message(
-                "Сначала выбери роль, длительность и размер состава.", ephemeral=True
+                "Сначала выбери роль и заполни «Параметры» (время и состав).", ephemeral=True
             )
             return
         role = self.roles.get(self.role_id)
@@ -411,7 +409,7 @@ class PartyBuilderView(discord.ui.View):
             image_url=self.image_url,
         )
 
-    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.danger, emoji="🚫", row=3)
+    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.danger, emoji="🚫", row=1)
     async def cancel_button(
         self,
         interaction: discord.Interaction,

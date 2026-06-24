@@ -263,14 +263,10 @@ class TestEmbedBuild:
         assert "` #" not in embed.description
         assert "`# " not in embed.description
 
-    def test_long_message_with_markdown_does_not_break_wrapper(self):
-        """Регрессия: длинное сообщение с `[...]` и `(...)` ломало `[preview](url)`.
-
-        Все спецсимволы markdown в превью должны быть эскейпнуты, чтобы наш
-        wrapper-ссылка осталась корректной.
-        """
+    def test_markdown_links_escaped_but_jump_link_intact(self):
+        """Квадратные скобки из текста эскейпятся, а наш jump-link остаётся валидным."""
         nasty = (
-            "[Нужна роль? Нажми на реакцию] (link) <@!12345>: "
+            "[Нужна роль? Нажми на реакцию] (link): "
             "разрываем *ладдер* и `ворота` _соперников_ | очень длинное "
             "сообщение которое раньше ломало вёрстку"
         )
@@ -287,12 +283,28 @@ class TestEmbedBuild:
             )
         ]
         embed = _build_embed(entries=entries, page=0, total_pages=1, period="all", guild=None)
-        # Открывающая `[` из исходного текста должна быть эскейпнута,
-        # а наш wrapper остаться единственной валидной markdown-ссылкой.
         assert r"\[" in embed.description
         assert r"\]" in embed.description
-        # Wrapper-ссылка цела.
         assert "](https://discord.com/x/1)" in embed.description
+
+    def test_mentions_and_custom_emoji_survive(self):
+        """Упоминания и кастомные эмодзи не эскейпятся — Discord их отрендерит."""
+        content = "пинг <@&1366870323965726900> и эмодзи <:pepe:123456789>"
+        entries = [
+            LeaderboardEntry(
+                message_id=1,
+                channel_id=2,
+                author_id=3,
+                content=content,
+                jump_url="https://discord.com/x/1",
+                posted_at=datetime(2024, 1, 1, tzinfo=UTC),
+                reactor_count=5,
+                is_historical=False,
+            )
+        ]
+        embed = _build_embed(entries=entries, page=0, total_pages=1, period="all", guild=None)
+        assert "<@&1366870323965726900>" in embed.description
+        assert "<:pepe:123456789>" in embed.description
 
 
 class TestFormatPreview:
@@ -310,13 +322,15 @@ class TestFormatPreview:
         assert len(result) == 50
         assert result.endswith("…")
 
-    def test_escapes_brackets_and_parens(self):
+    def test_escapes_brackets_but_not_parens(self):
+        """Квадратные скобки блокируем (masked-link), круглые оставляем."""
         result = _format_preview("[click](url)", 100)
-        assert result == r"\[click\]\(url\)"
+        assert result == r"\[click\](url)"
 
-    def test_escapes_markdown_specials(self):
-        result = _format_preview("a*b_c~d`e|f>g\\h", 100)
-        assert result == r"a\*b\_c\~d\`e\|f\>g\\h"
+    def test_preserves_mentions_emoji_and_formatting(self):
+        """Эскейпим только `[ ] \\``; упоминания/эмодзи/`*_~|>` остаются как есть."""
+        result = _format_preview("a*b_c~d`e|f>g\\h <@&1> <:pepe:2>", 100)
+        assert result == r"a*b_c~d\`e|f>g\\h <@&1> <:pepe:2>"
 
     def test_short_text_passes_through(self):
         assert _format_preview("hello world", 100) == "hello world"

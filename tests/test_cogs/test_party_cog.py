@@ -658,6 +658,52 @@ class TestPartyBeta:
         interaction.response.send_message.assert_awaited_once()
         interaction.response.edit_message.assert_not_called()
 
+    def test_apply_params_valid(self, cog: PartyCog, patched_settings: BotSettings) -> None:
+        """Корректный ввод модалки заполняет минуты/состав/комментарий."""
+        initiator = make_member(100)
+        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
+        view = PartyBuilderView(
+            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
+        )
+
+        error = view.apply_params(minutes_raw=" 30 ", count_raw="5", comment="  го  ")
+
+        assert error is None
+        assert view.minutes == 30
+        assert view.count == 5
+        assert view.comment == "го"
+
+    def test_apply_params_non_numeric(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Нечисловое время отбраковывается с подсказкой, состояние не меняется."""
+        initiator = make_member(100)
+        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
+        view = PartyBuilderView(
+            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
+        )
+
+        error = view.apply_params(minutes_raw="скоро", count_raw="5", comment="")
+
+        assert error is not None
+        assert view.minutes is None
+        assert view.count is None
+
+    def test_apply_params_count_out_of_range(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Состав за пределами лимитов отбраковывается."""
+        initiator = make_member(100)
+        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
+        view = PartyBuilderView(
+            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
+        )
+
+        error = view.apply_params(minutes_raw="30", count_raw="999", comment="")
+
+        assert error is not None
+        assert view.count is None
+
 
 class TestCreateAndBroadcast:
     """Публикация сбора без привязки к Context (общий путь /party и панели)."""
