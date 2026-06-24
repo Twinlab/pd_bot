@@ -370,6 +370,15 @@ class TopReactionsCog(commands.Cog):
 
         return excluded
 
+    def _bot_user_ids(self, guild: discord.Guild | None) -> set[int]:
+        """ID ботов гилда — чтобы исключать их из лидербордов (авторы + реакторы).
+
+        Пусто, если выключено настройкой ``ignore_bots`` или гилд недоступен.
+        """
+        if guild is None or not get_settings().top_reactions.ignore_bots:
+            return set()
+        return {member.id for member in guild.members if member.bot}
+
     async def _backfill_message(self, message: discord.Message) -> None:
         """Сохраняет сообщение и все его текущие реакции в БД.
 
@@ -596,6 +605,7 @@ class TopReactionsCog(commands.Cog):
             year=year_arg,
             month=month_arg,
             excluded_message_ids=excluded_message_ids,
+            excluded_user_ids=self._bot_user_ids(ctx.guild),
             ignore_self_reactions=get_settings().top_reactions.ignore_self_reactions,
         )
         await self._send_leaderboard(
@@ -649,6 +659,7 @@ class TopReactionsCog(commands.Cog):
             year=year_arg,
             month=month_arg,
             excluded_message_ids=excluded_message_ids,
+            excluded_user_ids=self._bot_user_ids(ctx.guild),
             ignore_self_reactions=get_settings().top_reactions.ignore_self_reactions,
         )
         await self._send_leaderboard(
@@ -724,6 +735,7 @@ class TopReactionsCog(commands.Cog):
             year=year,
             month=month,
             excluded_message_ids=excluded,
+            excluded_user_ids=self._bot_user_ids(guild),
             ignore_self_reactions=settings.top_reactions.ignore_self_reactions,
         )
 

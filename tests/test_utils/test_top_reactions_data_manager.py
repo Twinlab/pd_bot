@@ -557,6 +557,36 @@ class TestGetLeaderboard:
         assert await ReactedMessage.filter(message_id=1).exists()
 
     @pytest.mark.asyncio
+    async def test_excluded_user_ids_drops_bot_authors_and_reactors(self, db, manager):
+        """excluded_user_ids убирает сообщения ботов и не считает реакции ботов."""
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=200,
+            content="человек",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.upsert_message(
+            message_id=2,
+            channel_id=100,
+            author_id=999,  # бот-автор
+            content="бот",
+            jump_url="https://x/2",
+            posted_at=now,
+        )
+        # На сообщении человека реагируют живой юзер и бот.
+        await manager.add_reactor(message_id=1, user_id=10, emoji="👍")
+        await manager.add_reactor(message_id=1, user_id=999, emoji="🔥")
+        await manager.add_reactor(message_id=2, user_id=10, emoji="👍")
+
+        result = await manager.get_leaderboard("month", limit=10, excluded_user_ids={999})
+
+        assert [r.message_id for r in result] == [1]  # сообщение бота отсеяно
+        assert result[0].reactor_count == 1  # реакция бота не учтена
+
+    @pytest.mark.asyncio
     async def test_explicit_year_month_overrides_period(self, db, manager):
         """Если переданы year+month — фильтр идёт по этому конкретному месяцу,
         period фактически игнорируется."""
@@ -932,6 +962,35 @@ class TestGetTopAuthors:
 
         assert len(await manager.get_top_authors("all", limit=10)) == 1
         assert await manager.get_top_authors("all", limit=10, ignore_self_reactions=True) == []
+
+    @pytest.mark.asyncio
+    async def test_excluded_user_ids_drops_bot_authors_and_reactors(self, db, manager):
+        """excluded_user_ids убирает авторов-ботов и не считает реакции ботов."""
+        now = datetime.now(UTC)
+        await manager.upsert_message(
+            message_id=1,
+            channel_id=100,
+            author_id=10,
+            content="человек",
+            jump_url="https://x/1",
+            posted_at=now,
+        )
+        await manager.upsert_message(
+            message_id=2,
+            channel_id=100,
+            author_id=999,  # бот-автор
+            content="бот",
+            jump_url="https://x/2",
+            posted_at=now,
+        )
+        await manager.add_reactor(message_id=1, user_id=100, emoji="👍")
+        await manager.add_reactor(message_id=1, user_id=999, emoji="🔥")  # реактор-бот
+        await manager.add_reactor(message_id=2, user_id=100, emoji="👍")
+
+        result = await manager.get_top_authors("all", limit=10, excluded_user_ids={999})
+
+        assert [r.author_id for r in result] == [10]  # автор-бот отсеян
+        assert result[0].total_reactions == 1  # реакция бота не учтена
 
     @pytest.mark.asyncio
     async def test_limit_respected(self, db, manager):

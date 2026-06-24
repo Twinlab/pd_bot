@@ -350,6 +350,7 @@ class TopReactionsDataManager:
         year: int | None = None,
         month: int | None = None,
         excluded_message_ids: set[int] | None = None,
+        excluded_user_ids: set[int] | None = None,
         ignore_self_reactions: bool = False,
     ) -> list[LeaderboardEntry]:
         """Возвращает топ сообщений за указанный период.
@@ -374,6 +375,8 @@ class TopReactionsDataManager:
             month: Явный месяц 1–12. Без ``year`` берёт текущий год.
             excluded_message_ids: Сообщения с этими id будут исключены из выдачи
                 (например, сообщение role-реакций). Может быть None или пустым.
+            excluded_user_ids: ID, которых не учитываем ни как авторов, ни как
+                реакторов (обычно — боты гилда).
             ignore_self_reactions: Не учитывать реакции автора на своё сообщение
                 (фильтр в ON-условии джойна, чтобы строка сообщения сохранялась).
 
@@ -383,8 +386,21 @@ class TopReactionsDataManager:
         try:
             start, end = resolve_period_range(period, year=year, month=month)
 
-            where_clauses = ["rm.is_deleted = 0"]
+            # Параметры собираем строго в текстовом порядке SQL: сначала плейсхолдеры
+            # из ON-условия джойна, затем из WHERE, в конце — LIMIT.
             params: list[object] = []
+
+            # Фильтр самореакций и ботов-реакторов живёт в ON-условии джойна, а не в
+            # WHERE: иначе сообщение, где единственный реактор отсеян, выпало бы из
+            # выдачи целиком (LEFT JOIN дал бы NULL, а WHERE по NULL — false).
+            self_join_filter = " AND mr.user_id != rm.author_id" if ignore_self_reactions else ""
+            reactor_filter = ""
+            if excluded_user_ids:
+                ph = ",".join(["?"] * len(excluded_user_ids))
+                reactor_filter = f" AND mr.user_id NOT IN ({ph})"
+                params.extend(excluded_user_ids)
+
+            where_clauses = ["rm.is_deleted = 0"]
             if start is not None and end is not None:
                 where_clauses.append("rm.posted_at >= ?")
                 where_clauses.append("rm.posted_at < ?")
@@ -395,14 +411,12 @@ class TopReactionsDataManager:
                 placeholders = ",".join(["?"] * len(excluded_message_ids))
                 where_clauses.append(f"rm.message_id NOT IN ({placeholders})")
                 params.extend(excluded_message_ids)
+            if excluded_user_ids:
+                ph_authors = ",".join(["?"] * len(excluded_user_ids))
+                where_clauses.append(f"rm.author_id NOT IN ({ph_authors})")
+                params.extend(excluded_user_ids)
 
             where_sql = " AND ".join(where_clauses)
-
-            # Фильтр самореакций живёт в ON-условии джойна, а не в WHERE: иначе
-            # сообщение, где единственный реактор — сам автор, выпало бы из выдачи
-            # целиком (LEFT JOIN дал бы NULL, а WHERE по NULL — false). В ON же
-            # строка сообщения сохраняется, а самореакция просто не считается.
-            self_join_filter = " AND mr.user_id != rm.author_id" if ignore_self_reactions else ""
 
             # Один проход: LEFT JOIN тащит все записи о реакциях, GROUP BY
             # по message_id агрегирует уникальных пользователей. HAVING отсекает
@@ -420,7 +434,7 @@ class TopReactionsDataManager:
                     COUNT(DISTINCT mr.user_id) AS live_count
                 FROM reacted_messages AS rm
                 LEFT JOIN message_reactors AS mr
-                    ON mr.message_id = rm.message_id{self_join_filter}
+                    ON mr.message_id = rm.message_id{self_join_filter}{reactor_filter}
                 WHERE {where_sql}
                 GROUP BY
                     rm.message_id, rm.channel_id, rm.author_id, rm.content,
@@ -476,6 +490,7 @@ class TopReactionsDataManager:
         year: int | None = None,
         month: int | None = None,
         excluded_message_ids: set[int] | None = None,
+        excluded_user_ids: set[int] | None = None,
         ignore_self_reactions: bool = False,
     ) -> list[AuthorLeaderboardEntry]:
         """Возвращает топ авторов по сумме реакций на их сообщения.
@@ -502,6 +517,8 @@ class TopReactionsDataManager:
             month: Явный месяц 1–12.
             excluded_message_ids: Сообщения с этими id будут исключены из
                 агрегации.
+            excluded_user_ids: ID, которых не учитываем ни как авторов, ни как
+                реакторов (обычно — боты гилда).
             ignore_self_reactions: Не учитывать реакции автора на своё сообщение.
 
         Returns:
@@ -510,8 +527,28 @@ class TopReactionsDataManager:
         try:
             start, end = resolve_period_range(period, year=year, month=month)
 
-            where_clauses = ["is_deleted = 0"]
+            # Та же логика, что в get_leaderboard: при ignore_self_reactions
+            # самореакция автора не попадает в COUNT уникальных реакторов; ботов-
+            # реакторов отсекаем тем же ON-подобным фильтром в подзапросах.
+            self_filter = (
+                " AND message_reactors.user_id != reacted_messages.author_id"
+                if ignore_self_reactions
+                else ""
+            )
+            reactor_filter = ""
+            if excluded_user_ids:
+                ph = ",".join(["?"] * len(excluded_user_ids))
+                reactor_filter = f" AND message_reactors.user_id NOT IN ({ph})"
+            subquery_filter = self_filter + reactor_filter
+
+            # Параметры — строго в текстовом порядке: два одинаковых коррелированных
+            # подзапроса (каждому свой набор плейсхолдеров ботов), затем WHERE, LIMIT.
             params: list[object] = []
+            if excluded_user_ids:
+                params.extend(excluded_user_ids)
+                params.extend(excluded_user_ids)
+
+            where_clauses = ["is_deleted = 0"]
             if start is not None and end is not None:
                 where_clauses.append("posted_at >= ?")
                 where_clauses.append("posted_at < ?")
@@ -521,16 +558,12 @@ class TopReactionsDataManager:
                 placeholders = ",".join(["?"] * len(excluded_message_ids))
                 where_clauses.append(f"message_id NOT IN ({placeholders})")
                 params.extend(excluded_message_ids)
+            if excluded_user_ids:
+                ph_authors = ",".join(["?"] * len(excluded_user_ids))
+                where_clauses.append(f"author_id NOT IN ({ph_authors})")
+                params.extend(excluded_user_ids)
 
             where_sql = " AND ".join(where_clauses)
-
-            # Та же логика, что в get_leaderboard: при ignore_self_reactions
-            # самореакция автора не попадает в COUNT уникальных реакторов.
-            self_filter = (
-                " AND message_reactors.user_id != reacted_messages.author_id"
-                if ignore_self_reactions
-                else ""
-            )
 
             # Один проход: внутри SELECT считаем effective_count для каждой строки,
             # снаружи группируем по author_id и суммируем. HAVING > 0 отсекает
@@ -548,12 +581,12 @@ class TopReactionsDataManager:
                                 SELECT COUNT(DISTINCT user_id)
                                 FROM message_reactors
                                 WHERE message_reactors.message_id = reacted_messages.message_id
-                                {self_filter}
+                                {subquery_filter}
                             ) > 0 THEN (
                                 SELECT COUNT(DISTINCT user_id)
                                 FROM message_reactors
                                 WHERE message_reactors.message_id = reacted_messages.message_id
-                                {self_filter}
+                                {subquery_filter}
                             )
                             ELSE COALESCE(historical_reaction_count, 0)
                         END AS effective

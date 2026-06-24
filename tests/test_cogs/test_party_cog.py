@@ -402,7 +402,7 @@ class TestFinalize:
     async def test_incomplete_party_uses_empty_template(
         self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
     ) -> None:
-        """Если набрано меньше count — переиспользуем empty_finished_message без пингов."""
+        """Если набрано меньше count — empty_finished_message со списком готовых."""
         guild = MagicMock(spec=discord.Guild)
         guild.id = 1
         role = MagicMock(spec=discord.Role)
@@ -424,8 +424,9 @@ class TestFinalize:
 
         channel.send.assert_awaited_once()
         sent_text = channel.send.await_args.args[0]
-        assert "Никого не собрали" in sent_text
-        assert "<@100>" not in sent_text
+        assert "Не набрали состав" in sent_text
+        # Состав не набран, но тех, кто был готов (инициатор), всё равно пингуем.
+        assert "<@100>" in sent_text
         assert "<@&42>" not in sent_text
 
     @pytest.mark.asyncio

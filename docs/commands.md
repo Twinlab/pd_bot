@@ -269,8 +269,9 @@ Host/port/password Lavalink-ноды берутся из `.env`: `LAVALINK_HOST`
    исходный канал отдельное сообщение с пингами **подтвердивших** (шаблон
    `party.finished_message_template`), снимает кнопки во всех DM и помечает embed
    закрытым. Если после чека состав собрался лишь частично — используется
-   `party.partial_finished_message` (пинг только подтвердивших). Если не собрали
-   никого — `empty_finished_message` без пингов.
+   `party.partial_finished_message` (пинг только подтвердивших). Если состав не
+   набран — `empty_finished_message`, который теперь тоже пингует тех, кто всё же
+   был готов (`{ready_pings}`).
 
 Инициатор автоматически в списке готовых/подтвердивших (с эмодзи
 `party.initiator_emoji`, по умолчанию `👑`) и DM ему не отправляется. Несколько
@@ -293,7 +294,7 @@ party:
   button_cooldown_seconds: 60     # Кулдаун между нажатиями кнопок «Готов» / «Не готов»
   dm_send_delay: 0.1              # Между отправкой DM, чтобы не упереться в rate-limit
   finished_message_template: "Пати собрано! {ready_pings} — кто не пришёл, тот пидарас. ({role}: {comment})"
-  empty_finished_message: "Никого не собрали в пати на {role} ({comment})."
+  empty_finished_message: "Не набрали состав на {role} ({comment}). Были готовы: {ready_pings}"
   enable_ready_check: true           # Чек готовности после заполнения основы
   confirm_window_seconds: 120        # Окно на «Подтверждаю» для каждого участника
   ready_check_poll_seconds: 1.0      # Период опроса дедлайнов подтверждения
@@ -375,4 +376,10 @@ top_reactions:
   view_timeout: 300
   ignored_message_ids: []    # Ручной чёрный список сообщений
   ignore_role_reaction_message: true   # Игнорировать сообщение role-реакций
+  ignore_self_reactions: true  # Не считать реакции автора на своё сообщение
+  ignore_bots: true            # Не учитывать ботов (авторов и реакторов)
 ```
+
+Боты (по `ignore_bots`) не попадают ни в `/topreactions`, ни в `/topauthors`:
+их сообщения не показываются, а их реакции не идут в счётчик. Список ботов
+берётся из участников гилда на момент выдачи.

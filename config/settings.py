@@ -481,7 +481,7 @@ class PartyConfig(BaseModel):
             набрали полный состав. Поддерживает плейсхолдеры
             {ready_pings}, {role}, {comment}.
         empty_finished_message: Шаблон сообщения, если состав не набран.
-            Поддерживает {role}, {comment}.
+            Поддерживает {role}, {comment}, {ready_pings} (кто всё же был готов).
         enable_ready_check: Включить фазу чека готовности после заполнения основы.
         confirm_window_seconds: Окно подтверждения на одного участника в чеке.
         ready_check_poll_seconds: Период опроса дедлайнов подтверждения.
@@ -501,7 +501,9 @@ class PartyConfig(BaseModel):
     finished_message_template: str = (
         "Пати собрано! {ready_pings} — кто не пришёл, тот пидарас. ({role}: {comment})"
     )
-    empty_finished_message: str = "Никого не собрали в пати на {role} ({comment})."
+    empty_finished_message: str = (
+        "Не набрали состав на {role} ({comment}). Были готовы: {ready_pings}"
+    )
     enable_ready_check: bool = True
     confirm_window_seconds: int = 120
     ready_check_poll_seconds: float = 1.0
@@ -527,6 +529,8 @@ class TopReactionsConfig(BaseModel):
         ignore_role_reaction_message: Автоматически исключать сообщение role-реакций
             (id берётся динамически из RoleReactionDataManager).
         ignore_self_reactions: Не учитывать реакции автора на собственное сообщение.
+        ignore_bots: Не учитывать ботов ни как авторов сообщений, ни как реакторов
+            (id ботов берутся из участников гилда на момент выдачи).
     """
 
     live_top: int = 10
@@ -538,6 +542,7 @@ class TopReactionsConfig(BaseModel):
     ignored_message_ids: list[int] = []
     ignore_role_reaction_message: bool = True
     ignore_self_reactions: bool = True
+    ignore_bots: bool = True
 
 
 class UserReaction(BaseModel):

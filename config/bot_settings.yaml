@@ -207,7 +207,7 @@ party:
   button_cooldown_seconds: 60     # Кулдаун между нажатиями кнопок «Готов» / «Не готов»
   dm_send_delay: 0.1              # Между отправкой DM, чтобы не упереться в rate-limit
   finished_message_template: "Пати собрано! {ready_pings} — кто не пришёл, тот пидарас. ({role}: {comment})"
-  empty_finished_message: "Никого не собрали в пати на {role} ({comment})."
+  empty_finished_message: "Не набрали состав на {role} ({comment}). Были готовы: {ready_pings}"
   enable_ready_check: true           # Чек готовности после заполнения основы
   confirm_window_seconds: 120        # Окно на «Подтверждаю» для каждого участника
   ready_check_poll_seconds: 1.0      # Период опроса дедлайнов подтверждения
@@ -223,6 +223,7 @@ top_reactions:
   view_timeout: 300            # Таймаут кнопок пагинации в секундах
   ignore_role_reaction_message: true  # Автоматически исключать сообщение для role-реакций
   ignore_self_reactions: true  # Не учитывать реакции автора на собственное сообщение
+  ignore_bots: true            # Не учитывать ботов (ни как авторов, ни как реакторов)
   ignored_message_ids: []      # Ручной чёрный список id сообщений (через `-` по одному на строку)
 
 

@@ -343,7 +343,7 @@ class PartyCog(commands.Cog):
             ready_pings = " ".join(f"<@{uid}>" for uid in roster)
             if not roster:
                 text = settings.party.empty_finished_message.format(
-                    role=role_name, comment=cancelled.comment
+                    role=role_name, comment=cancelled.comment, ready_pings=ready_pings
                 )
             elif len(roster) >= cancelled.count:
                 text = settings.party.finished_message_template.format(
@@ -355,14 +355,15 @@ class PartyCog(commands.Cog):
                 )
         else:
             roster = list(cancelled.ready)
+            ready_pings = " ".join(f"<@{uid}>" for uid in roster)
             if len(roster) >= cancelled.count:
-                ready_pings = " ".join(f"<@{uid}>" for uid in roster)
                 text = settings.party.finished_message_template.format(
                     ready_pings=ready_pings, role=role_name, comment=cancelled.comment
                 )
             else:
+                # Состав не набран, но пингуем тех, кто всё же был готов.
                 text = settings.party.empty_finished_message.format(
-                    role=role_name, comment=cancelled.comment
+                    role=role_name, comment=cancelled.comment, ready_pings=ready_pings
                 )
 
         if isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
