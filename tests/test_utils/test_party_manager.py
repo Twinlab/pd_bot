@@ -4,7 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from utils.party.manager import Party, PartyManager
+from utils.party.manager import Party, PartyManager, PartyPhase
+
+WINDOW = timedelta(seconds=120)
 
 
 @pytest.fixture
@@ -228,3 +230,134 @@ class TestAllActive:
     def test_lists_all(self, manager: PartyManager, party: Party) -> None:
         """all_active возвращает все созданные пати."""
         assert party in manager.all_active()
+
+
+async def _fill_main(manager: PartyManager, party: Party) -> None:
+    """Добивает основу до count: инициатор + (count-1) готовых (200, 300, ...)."""
+    for i in range(party.count - 1):
+        await manager.mark_ready(party.id, user_id=200 + i * 100)
+
+
+class TestStartReadyCheck:
+    """Переход в фазу чека готовности."""
+
+    async def test_starts_when_main_full(self, manager: PartyManager, party: Party) -> None:
+        """Чек стартует, инициатор сразу подтверждён, остальным открыт дедлайн."""
+        await _fill_main(manager, party)  # 100 (init) + 200, 300 → count=3
+        now = datetime.now(UTC)
+
+        result = await manager.start_ready_check(party.id, now=now, window=WINDOW)
+
+        assert result is party
+        assert party.phase is PartyPhase.READY_CHECK
+        assert party.ready_check_started is True
+        assert party.confirmed == [100]
+        assert set(party.confirm_deadlines) == {200, 300}
+
+    async def test_returns_none_when_not_full(self, manager: PartyManager, party: Party) -> None:
+        """Если основа не набрана — чек не стартует."""
+        await manager.mark_ready(party.id, user_id=200)  # только 2 из 3
+        result = await manager.start_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+        assert result is None
+        assert party.phase is PartyPhase.COLLECTING
+
+    async def test_double_start_is_noop(self, manager: PartyManager, party: Party) -> None:
+        """Повторный старт чека возвращает None."""
+        await _fill_main(manager, party)
+        now = datetime.now(UTC)
+        await manager.start_ready_check(party.id, now=now, window=WINDOW)
+        assert await manager.start_ready_check(party.id, now=now, window=WINDOW) is None
+
+
+class TestConfirm:
+    """Кнопка «Подтверждаю»."""
+
+    async def test_confirm_moves_user(self, manager: PartyManager, party: Party) -> None:
+        """Подтверждение переносит юзера в confirmed и снимает дедлайн."""
+        await _fill_main(manager, party)
+        await manager.start_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+
+        result = await manager.confirm(party.id, user_id=200)
+
+        assert result is party
+        assert 200 in party.confirmed
+        assert 200 not in party.confirm_deadlines
+
+    async def test_confirm_twice_is_noop(self, manager: PartyManager, party: Party) -> None:
+        """Повторное подтверждение ничего не меняет."""
+        await _fill_main(manager, party)
+        await manager.start_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+        await manager.confirm(party.id, user_id=200)
+        assert await manager.confirm(party.id, user_id=200) is None
+
+    async def test_confirm_outside_check_is_noop(self, manager: PartyManager, party: Party) -> None:
+        """Вне фазы чека подтверждать нельзя."""
+        assert await manager.confirm(party.id, user_id=200) is None
+
+    async def test_non_candidate_cannot_confirm(self, manager: PartyManager, party: Party) -> None:
+        """Юзер из начинки (не в основе) подтвердить не может."""
+        for uid in (200, 300, 400):
+            await manager.mark_ready(party.id, user_id=uid)  # 400 — начинка
+        await manager.start_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+        assert await manager.confirm(party.id, user_id=400) is None
+
+
+class TestTickReadyCheck:
+    """Sweep чек-таймера: таймауты, промоут начинки, финалы."""
+
+    async def test_success_when_all_confirmed(self, manager: PartyManager, party: Party) -> None:
+        """Когда подтвердили count — finished=success."""
+        await _fill_main(manager, party)
+        await manager.start_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+        await manager.confirm(party.id, user_id=200)
+        await manager.confirm(party.id, user_id=300)
+
+        tick = await manager.tick_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+        assert tick.finished == "success"
+
+    async def test_timeout_promotes_bench(self, manager: PartyManager, party: Party) -> None:
+        """Просроченный кандидат выбывает, начинка занимает слот и получает окно."""
+        for uid in (200, 300, 400):
+            await manager.mark_ready(party.id, user_id=uid)  # 400 — начинка
+        start = datetime.now(UTC)
+        await manager.start_ready_check(party.id, now=start, window=WINDOW)
+        await manager.confirm(party.id, user_id=300)  # 300 успел, 200 — нет
+
+        later = start + WINDOW + timedelta(seconds=1)
+        tick = await manager.tick_ready_check(party.id, now=later, window=WINDOW)
+
+        assert tick.finished is None
+        assert tick.dropped == [200]
+        assert 400 in tick.promoted
+        assert 200 in party.not_confirmed
+        assert 200 not in party.joined_order
+        assert party.ready == [100, 300, 400]
+        assert 400 in party.confirm_deadlines
+
+    async def test_partial_when_no_bench_left(self, manager: PartyManager, party: Party) -> None:
+        """Без начинки и с таймаутом — finished=partial (закрываем частично)."""
+        await _fill_main(manager, party)  # 100, 200, 300, без резерва
+        start = datetime.now(UTC)
+        await manager.start_ready_check(party.id, now=start, window=WINDOW)
+        await manager.confirm(party.id, user_id=200)
+
+        later = start + WINDOW + timedelta(seconds=1)
+        tick = await manager.tick_ready_check(party.id, now=later, window=WINDOW)
+
+        assert tick.finished == "partial"
+        assert party.confirmed == [100, 200]
+        assert 300 in party.not_confirmed
+
+    async def test_declined_confirmed_user_leaves(
+        self, manager: PartyManager, party: Party
+    ) -> None:
+        """«Не готов» от подтверждённого убирает его и из confirmed."""
+        await _fill_main(manager, party)
+        await manager.start_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+        await manager.confirm(party.id, user_id=200)
+
+        await manager.mark_declined(party.id, user_id=200)
+
+        assert 200 not in party.confirmed
+        assert 200 not in party.joined_order
+        assert 200 in party.declined_order

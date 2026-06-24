@@ -9,7 +9,8 @@ from discord.ext import commands
 
 from cogs.party import PartyCog
 from config.settings import BotSettings
-from utils.party.views import PartyView
+from utils.party.manager import PartyPhase
+from utils.party.views import PartyConfirmView, PartyView
 
 
 @pytest.fixture
@@ -453,6 +454,146 @@ class TestFinalize:
         party = _make_party(cog, count=1)
         party.finalized = True
         await cog._finalize(party)
+
+
+class TestReadyCheck:
+    """Фаза чека готовности: старт, подтверждение, частичный финал."""
+
+    @pytest.mark.asyncio
+    async def test_maybe_start_triggers_when_full(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """При полной основе чек стартует, кандидату ставится confirm-view."""
+        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
+        cog._start_check_loop = MagicMock()  # type: ignore[method-assign]
+
+        party = _make_party(cog, count=2)
+        await cog.manager.mark_ready(party.id, user_id=200)
+
+        msg_init = MagicMock(spec=discord.Message)
+        msg_init.edit = AsyncMock()
+        msg_member = MagicMock(spec=discord.Message)
+        msg_member.edit = AsyncMock()
+        party.dm_messages = {100: msg_init, 200: msg_member}
+
+        await cog._maybe_start_ready_check(party)
+
+        assert party.phase is PartyPhase.READY_CHECK
+        cog._start_check_loop.assert_called_once()
+        # Подтверждённый инициатор — без кнопок, кандидат — с confirm-view.
+        assert msg_init.edit.await_args.kwargs["view"] is None
+        assert isinstance(msg_member.edit.await_args.kwargs["view"], PartyConfirmView)
+
+    @pytest.mark.asyncio
+    async def test_maybe_start_disabled_noop(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """С выключенным чеком фаза остаётся COLLECTING."""
+        patched_settings.party.enable_ready_check = False
+        cog._start_check_loop = MagicMock()  # type: ignore[method-assign]
+
+        party = _make_party(cog, count=2)
+        await cog.manager.mark_ready(party.id, user_id=200)
+
+        await cog._maybe_start_ready_check(party)
+
+        assert party.phase is PartyPhase.COLLECTING
+        cog._start_check_loop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_confirm_button_confirms_user(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Кнопка «Подтверждаю» переносит юзера в confirmed и зовёт _after_confirm."""
+        cog._after_confirm = AsyncMock()  # type: ignore[method-assign]
+        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
+        cog._start_check_loop = MagicMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=2)
+        await cog.manager.mark_ready(party.id, user_id=200)
+        await cog._maybe_start_ready_check(party)
+
+        view = PartyConfirmView(cog=cog, party=party)
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=200)
+        interaction.response = MagicMock()
+        interaction.response.defer = AsyncMock()
+        interaction.response.send_message = AsyncMock()
+
+        await view.confirm_button.callback(interaction)
+
+        assert 200 in party.confirmed
+        interaction.response.defer.assert_awaited_once()
+        cog._after_confirm.assert_awaited_once_with(party)
+
+    @pytest.mark.asyncio
+    async def test_confirm_button_on_closed_party(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Если пати закрыт — confirm отвечает ephemeral, состояние не трогает."""
+        cog._after_confirm = AsyncMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=2)
+        view = PartyConfirmView(cog=cog, party=party)
+        await cog.manager.cancel(party.id)
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=200)
+        interaction.response = MagicMock()
+        interaction.response.defer = AsyncMock()
+        interaction.response.send_message = AsyncMock()
+
+        await view.confirm_button.callback(interaction)
+
+        interaction.response.defer.assert_not_called()
+        interaction.response.send_message.assert_awaited_once()
+        cog._after_confirm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_after_confirm_finalizes_when_full(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """_after_confirm закрывает сбор, когда подтвердили весь состав."""
+        cog._sync_check_views = AsyncMock()  # type: ignore[method-assign]
+        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
+        cog._finalize = AsyncMock()  # type: ignore[method-assign]
+
+        party = _make_party(cog, count=2)
+        party.confirmed = [100, 200]
+
+        await cog._after_confirm(party)
+
+        cog._finalize.assert_awaited_once_with(party)
+
+    @pytest.mark.asyncio
+    async def test_finalize_partial_pings_confirmed(
+        self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
+    ) -> None:
+        """Частичный финал после чека пингует только подтвердивших по partial-шаблону."""
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 1
+        role = MagicMock(spec=discord.Role)
+        role.id = 42
+        role.name = "Гремлины"
+        guild.get_role = MagicMock(return_value=role)
+        bot.get_guild.return_value = guild
+
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.id = 10
+        channel.send = AsyncMock()
+        channel.fetch_message = AsyncMock(side_effect=discord.NotFound(MagicMock(status=404), "x"))
+        bot.get_channel.return_value = channel
+
+        party = _make_party(cog, count=3, comment="го")
+        party.ready_check_started = True
+        party.confirmed = [100, 200]
+        party.not_confirmed = [300]
+
+        await cog._finalize(party)
+
+        sent_text = channel.send.await_args.args[0]
+        assert "частично" in sent_text
+        assert "<@100>" in sent_text
+        assert "<@200>" in sent_text
+        assert "<@300>" not in sent_text
 
 
 class TestBlocklistCommands:

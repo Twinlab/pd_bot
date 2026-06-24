@@ -12,7 +12,7 @@ from collections.abc import Callable
 
 import discord
 
-from utils.party.manager import Party
+from utils.party.manager import Party, PartyPhase
 
 MemberResolver = Callable[[int], discord.Member | discord.User | None]
 
@@ -44,6 +44,70 @@ def _format_section(
     return "\n".join(lines)
 
 
+def _add_collecting_fields(
+    embed: discord.Embed,
+    party: Party,
+    resolver: MemberResolver,
+    initiator_emoji: str,
+) -> None:
+    """Секции фазы сбора: готовы / начинка / отказались."""
+    embed.add_field(
+        name=f"✅ Готовы ({len(party.ready)}/{party.count})",
+        value=_format_section(party.ready, party, resolver, initiator_emoji),
+        inline=False,
+    )
+    if party.bench:
+        embed.add_field(
+            name=f"🪑 Начинка ({len(party.bench)})",
+            value=_format_section(party.bench, party, resolver, initiator_emoji),
+            inline=False,
+        )
+    if party.declined:
+        embed.add_field(
+            name=f"❌ Не пойдут ({len(party.declined)})",
+            value=_format_section(party.declined, party, resolver, initiator_emoji),
+            inline=False,
+        )
+
+
+def _add_ready_check_fields(
+    embed: discord.Embed,
+    party: Party,
+    resolver: MemberResolver,
+    initiator_emoji: str,
+) -> None:
+    """Секции фазы чека: подтвердили / ждём / резерв / слетели / отказались."""
+    embed.add_field(
+        name=f"✅ Подтвердили ({len(party.confirmed)}/{party.count})",
+        value=_format_section(party.confirmed, party, resolver, initiator_emoji),
+        inline=False,
+    )
+    if party.pending_confirm:
+        embed.add_field(
+            name=f"⏳ Ждём подтверждения ({len(party.pending_confirm)})",
+            value=_format_section(party.pending_confirm, party, resolver, initiator_emoji),
+            inline=False,
+        )
+    if party.bench:
+        embed.add_field(
+            name=f"🪑 Резерв ({len(party.bench)})",
+            value=_format_section(party.bench, party, resolver, initiator_emoji),
+            inline=False,
+        )
+    if party.not_confirmed:
+        embed.add_field(
+            name=f"🛑 Не подтвердили ({len(party.not_confirmed)})",
+            value=_format_section(party.not_confirmed, party, resolver, initiator_emoji),
+            inline=False,
+        )
+    if party.declined:
+        embed.add_field(
+            name=f"❌ Не пойдут ({len(party.declined)})",
+            value=_format_section(party.declined, party, resolver, initiator_emoji),
+            inline=False,
+        )
+
+
 def build_party_embed(
     party: Party,
     *,
@@ -66,21 +130,32 @@ def build_party_embed(
         jump_url: Ссылка на публичное сообщение пати; делает title кликабельным
             (нужно прежде всего в DM, чтобы можно было прыгнуть в общий канал).
     """
-    title_prefix = "Сбор закрыт" if finalized else "Сбор пати"
+    in_check = party.phase is PartyPhase.READY_CHECK and not finalized
+
+    if finalized:
+        title_prefix = "Сбор закрыт"
+        color = discord.Color.dark_grey()
+    elif in_check:
+        title_prefix = "Чек готовности"
+        color = discord.Color.gold()
+    else:
+        title_prefix = "Сбор пати"
+        color = discord.Color.green()
     title = f"{title_prefix}: {role_name}"
 
     # Размер состава (party.count) намеренно НЕ дублируем в description —
-    # он уже виден в заголовке секции «✅ Готовы (X/Y)».
+    # он уже виден в заголовке секции с готовыми/подтвердившими.
     description_parts: list[str] = []
     if party.comment:
         description_parts.append(f"**Комментарий:** {party.comment}")
+    if in_check:
+        description_parts.append("Все из основы — жмите **«Подтверждаю»**!")
     deadline_unix = int(party.deadline.timestamp())
     if finalized:
         description_parts.append(f"Закрыт <t:{deadline_unix}:R>")
     else:
         description_parts.append(f"Закрытие <t:{deadline_unix}:R>")
 
-    color = discord.Color.dark_grey() if finalized else discord.Color.green()
     embed = discord.Embed(
         title=title,
         description="\n".join(description_parts),
@@ -88,25 +163,13 @@ def build_party_embed(
         url=jump_url,
     )
 
-    embed.add_field(
-        name=f"✅ Готовы ({len(party.ready)}/{party.count})",
-        value=_format_section(party.ready, party, member_resolver, initiator_emoji),
-        inline=False,
-    )
+    if party.image_url:
+        embed.set_image(url=party.image_url)
 
-    if party.bench:
-        embed.add_field(
-            name=f"🪑 Начинка ({len(party.bench)})",
-            value=_format_section(party.bench, party, member_resolver, initiator_emoji),
-            inline=False,
-        )
-
-    if party.declined:
-        embed.add_field(
-            name=f"❌ Не пойдут ({len(party.declined)})",
-            value=_format_section(party.declined, party, member_resolver, initiator_emoji),
-            inline=False,
-        )
+    if in_check:
+        _add_ready_check_fields(embed, party, member_resolver, initiator_emoji)
+    else:
+        _add_collecting_fields(embed, party, member_resolver, initiator_emoji)
 
     if initiator is not None:
         embed.set_footer(

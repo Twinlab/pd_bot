@@ -482,6 +482,12 @@ class PartyConfig(BaseModel):
             {ready_pings}, {role}, {comment}.
         empty_finished_message: Шаблон сообщения, если состав не набран.
             Поддерживает {role}, {comment}.
+        enable_ready_check: Включить фазу чека готовности после заполнения основы.
+        confirm_window_seconds: Окно подтверждения на одного участника в чеке.
+        ready_check_poll_seconds: Период опроса дедлайнов подтверждения.
+        confirm_nudge_message: DM-нудж тому, кого подняли из начинки в основу.
+        partial_finished_message: Шаблон финала, если после чека состав собрался
+            лишь частично. Поддерживает {ready_pings}, {role}, {comment}.
     """
 
     initiator_emoji: str = "👑"
@@ -496,6 +502,13 @@ class PartyConfig(BaseModel):
         "Пати собрано! {ready_pings} — кто не пришёл, тот пидарас. ({role}: {comment})"
     )
     empty_finished_message: str = "Никого не собрали в пати на {role} ({comment})."
+    enable_ready_check: bool = True
+    confirm_window_seconds: int = 120
+    ready_check_poll_seconds: float = 1.0
+    confirm_nudge_message: str = (
+        "🔔 Освободилось место в основе — жми «Подтверждаю», пока не уплыло!"
+    )
+    partial_finished_message: str = "Пати собрано частично: {ready_pings} ({role}: {comment})."
 
 
 class TopReactionsConfig(BaseModel):

@@ -1,12 +1,17 @@
 """Ког сбора пати в игры через DM-кнопки.
 
-Команда ``/party`` создаёт публичный embed в текущем канале и шлёт DM
-каждому участнику с указанной серверной ролью. В DM есть две кнопки:
-**Готов** и **Не готов**. Нажатие любой кнопки обновляет embed синхронно
-во всех личках и в публичном канале.
+Команда ``/party`` показывает инициатору эфемерное превью embed-а с кнопками
+**Опубликовать** / **Отмена**; после публикации создаётся публичный embed в
+канале и рассылаются DM каждому участнику с указанной серверной ролью.
+В DM есть две кнопки: **Готов** и **Не готов**. Нажатие любой кнопки обновляет
+embed синхронно во всех личках и в публичном канале. К сбору можно приложить
+картинку (параметр ``image``).
 
-По истечении таймера бот пингует готовых отдельным сообщением; если состав
-не набран — отправляет сообщение про "никого не собрали" без пингов.
+Когда основа набирается, стартует фаза **чека готовности**: каждый из основы
+должен ещё раз нажать **Подтверждаю** в течение окна; кто не успел — выбывает,
+его слот занимает первый из начинки (ему прилетает DM-нудж). По завершении
+бот пингует подтвердивших; если состав так и не собрался полностью —
+закрывает частичным составом, а при пустом — сообщением «никого не собрали».
 
 Админ-команды ``/party_block``, ``/party_unblock``, ``/party_blocklist``
 управляют чёрным списком пользователей, которым запрещено вызывать ``/party``.
@@ -15,7 +20,7 @@
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import discord
 from discord import app_commands
@@ -26,8 +31,8 @@ from utils.error_handler import command_error_handler, safe_send, safe_send_erro
 from utils.party.data_manager import PartyDataManager
 from utils.party.duration import parse_minutes
 from utils.party.embeds import build_party_embed
-from utils.party.manager import Party, PartyManager
-from utils.party.views import PartyView
+from utils.party.manager import Party, PartyManager, PartyPhase
+from utils.party.views import PartyConfirmView, PartyPreviewView, PartyView
 from utils.role_reaction_data_manager import RoleReactionDataManager
 
 
@@ -47,6 +52,7 @@ class PartyCog(commands.Cog):
     data_manager: PartyDataManager
     role_reaction_manager: RoleReactionDataManager
     _timers: dict[str, asyncio.Task[None]]
+    _check_timers: dict[str, asyncio.Task[None]]
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -54,6 +60,7 @@ class PartyCog(commands.Cog):
         self.data_manager = PartyDataManager()
         self.role_reaction_manager = RoleReactionDataManager()
         self._timers = {}
+        self._check_timers = {}
 
     async def _allowed_role_ids(self, guild_id: int) -> set[int]:
         """ID ролей, разрешённых для сбора (только выданные через /role_assign).
@@ -65,10 +72,11 @@ class PartyCog(commands.Cog):
         return {row["role_id"] for row in rows if row["role_id"] != 0}
 
     async def cog_unload(self) -> None:
-        """Отменяет все запущенные таймеры финализации."""
-        for task in self._timers.values():
+        """Отменяет все запущенные таймеры финализации и чека готовности."""
+        for task in (*self._timers.values(), *self._check_timers.values()):
             task.cancel()
         self._timers.clear()
+        self._check_timers.clear()
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
 
     def _member_resolver(
@@ -200,6 +208,101 @@ class PartyCog(commands.Cog):
             return_exceptions=True,
         )
 
+    def _dm_view_for(self, party: Party, user_id: int) -> discord.ui.View | None:
+        """Подбирает DM-view под фазу/роль юзера.
+
+        В чеке: подтвердившим — без кнопок, ожидающим подтверждения —
+        «Подтверждаю», остальным (резерв) — обычные «Готов» / «Не готов».
+        """
+        if party.phase is PartyPhase.READY_CHECK:
+            if user_id in party.confirmed:
+                return None
+            if party.is_candidate(user_id):
+                return PartyConfirmView(cog=self, party=party)
+        return PartyView(cog=self, party=party)
+
+    async def _sync_check_views(self, party: Party) -> None:
+        """Перерисовывает все DM с embed и корректным для каждого юзера view."""
+        if not party.dm_messages:
+            return
+        embed = self._build_embed(party)
+
+        async def edit_one(uid: int, msg: discord.Message) -> None:
+            try:
+                await msg.edit(embed=embed, view=self._dm_view_for(party, uid))
+            except (discord.NotFound, discord.Forbidden):
+                pass
+            except discord.HTTPException as e:
+                logger.warning(f"Не удалось обновить DM юзера {uid} в чеке: {e}")
+
+        await asyncio.gather(
+            *(edit_one(uid, msg) for uid, msg in party.dm_messages.items()),
+            return_exceptions=True,
+        )
+
+    async def _nudge_user(self, party: Party, user_id: int) -> None:
+        """Шлёт в DM короткий пинг тому, кого подняли из начинки в основу."""
+        msg = party.dm_messages.get(user_id)
+        if msg is None:
+            return
+        try:
+            await msg.channel.send(get_settings().party.confirm_nudge_message)
+        except (discord.Forbidden, discord.HTTPException) as e:
+            logger.info(f"Не удалось пнуть юзера {user_id} в чеке: {e}")
+
+    async def _maybe_start_ready_check(self, party: Party) -> None:
+        """Запускает чек готовности, когда основа набралась (если включён)."""
+        settings = get_settings()
+        if not settings.party.enable_ready_check:
+            return
+        window = timedelta(seconds=settings.party.confirm_window_seconds)
+        started = await self.manager.start_ready_check(
+            party.id, now=datetime.now(UTC), window=window
+        )
+        if started is None:
+            return
+
+        await self._sync_check_views(started)
+        await self._refresh_public_embed(started)
+        self._start_check_loop(started)
+        logger.info(f"Пати {party.id}: основа набрана, запущен чек готовности")
+
+    def _start_check_loop(self, party: Party) -> None:
+        """Создаёт фоновый sweep-таск опроса дедлайнов подтверждения."""
+        task = asyncio.create_task(self._ready_check_loop(party), name=f"party-check-{party.id}")
+        self._check_timers[party.id] = task
+
+    async def _ready_check_loop(self, party: Party) -> None:
+        """Опрашивает дедлайны подтверждения, поднимает начинку, закрывает сбор."""
+        settings = get_settings()
+        poll = settings.party.ready_check_poll_seconds
+        window = timedelta(seconds=settings.party.confirm_window_seconds)
+        try:
+            while True:
+                await asyncio.sleep(poll)
+                if self.manager.get(party.id) is None:
+                    return
+                tick = await self.manager.tick_ready_check(
+                    party.id, now=datetime.now(UTC), window=window
+                )
+                if tick.finished in ("success", "partial"):
+                    await self._finalize(party)
+                    return
+                if tick.changed:
+                    for uid in tick.promoted:
+                        await self._nudge_user(party, uid)
+                    await self._sync_check_views(party)
+                    await self._refresh_public_embed(party)
+        except asyncio.CancelledError:
+            return
+
+    async def _after_confirm(self, party: Party) -> None:
+        """Реакция на нажатие «Подтверждаю»: перерисовка и финал при полном составе."""
+        await self._sync_check_views(party)
+        await self._refresh_public_embed(party)
+        if len(party.confirmed) >= party.count:
+            await self._finalize(party)
+
     async def _finalize_after(self, party: Party, seconds: float) -> None:
         """Таймер закрытия пати. Отменяется через `task.cancel()` в `cog_unload`."""
         try:
@@ -218,33 +321,44 @@ class PartyCog(commands.Cog):
         role = guild.get_role(party.role_id) if guild else None
 
         # cancel() атомарно помечает финализированным и удаляет из активных —
-        # только после него снимаем snapshot ready_ids, иначе клик "Готов" между
-        # snapshot и cancel мог бы потеряться в финальном пинге.
+        # снимок ростера берём только после него, чтобы поздний клик не потерялся.
         cancelled = await self.manager.cancel(party.id)
         if cancelled is None:
             # Уже финализировано параллельным /party_cancel — отдаём раунд.
             return
 
-        ready_ids = list(cancelled.ready)
         # Имя роли, а не mention — иначе в финальном сообщении она выглядит как кликабельный
         # пинг (даже с allowed_mentions roles=False это всё равно подсвечивается и раздражает).
         role_name = role.name if role else f"роль #{party.role_id}"
 
-        # Пати считается собранным только если набрали запрошенный состав (включая инициатора).
-        # Если ready меньше count — переиспользуем шаблон "никого не собрали": раз состав
-        # не набран, пинговать частично собравшихся бессмысленно.
-        if len(ready_ids) >= cancelled.count:
-            ready_pings = " ".join(f"<@{uid}>" for uid in ready_ids)
-            text = settings.party.finished_message_template.format(
-                ready_pings=ready_pings,
-                role=role_name,
-                comment=cancelled.comment,
-            )
+        # Если был чек готовности — пингуем только подтвердивших (полный состав или
+        # частичный). Иначе работает старая логика по списку «Готовы».
+        if cancelled.ready_check_started:
+            roster = list(cancelled.confirmed)
+            ready_pings = " ".join(f"<@{uid}>" for uid in roster)
+            if not roster:
+                text = settings.party.empty_finished_message.format(
+                    role=role_name, comment=cancelled.comment
+                )
+            elif len(roster) >= cancelled.count:
+                text = settings.party.finished_message_template.format(
+                    ready_pings=ready_pings, role=role_name, comment=cancelled.comment
+                )
+            else:
+                text = settings.party.partial_finished_message.format(
+                    ready_pings=ready_pings, role=role_name, comment=cancelled.comment
+                )
         else:
-            text = settings.party.empty_finished_message.format(
-                role=role_name,
-                comment=cancelled.comment,
-            )
+            roster = list(cancelled.ready)
+            if len(roster) >= cancelled.count:
+                ready_pings = " ".join(f"<@{uid}>" for uid in roster)
+                text = settings.party.finished_message_template.format(
+                    ready_pings=ready_pings, role=role_name, comment=cancelled.comment
+                )
+            else:
+                text = settings.party.empty_finished_message.format(
+                    role=role_name, comment=cancelled.comment
+                )
 
         if isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
             try:
@@ -261,6 +375,10 @@ class PartyCog(commands.Cog):
         await self._disable_dm_buttons(cancelled)
         await self._refresh_public_embed(cancelled)
         self._timers.pop(party.id, None)
+        check_task = self._check_timers.pop(party.id, None)
+        # Отменяем sweep, только если финал пришёл не из него самого.
+        if check_task is not None and check_task is not asyncio.current_task():
+            check_task.cancel()
 
     @commands.hybrid_command(
         name="party",
@@ -271,6 +389,7 @@ class PartyCog(commands.Cog):
         when="Через сколько закроется сбор (минут, максимум 240)",
         count="Сколько человек нужно в состав пати (включая тебя)",
         comment="Комментарий, который увидят все",
+        image="Картинка к сбору (опционально)",
     )
     @commands.dynamic_cooldown(_party_cooldown, commands.BucketType.user)
     @command_error_handler
@@ -278,10 +397,10 @@ class PartyCog(commands.Cog):
         self,
         ctx: commands.Context,
         role: discord.Role,
-        when: int,
-        count: int,
-        *,
+        when: app_commands.Range[int, 1, 240],
+        count: app_commands.Range[int, 1, 25],
         comment: str,
+        image: discord.Attachment | None = None,
     ) -> None:
         """Создаёт сбор пати. Подробности — в docstring модуля."""
         settings = get_settings()
@@ -320,13 +439,114 @@ class PartyCog(commands.Cog):
             )
             return
 
+        if image is not None and not (image.content_type or "").startswith("image/"):
+            await safe_send_error(ctx, "Вложение должно быть картинкой.")
+            return
+
         initiator = ctx.author
         if not isinstance(initiator, discord.Member):
             await safe_send_error(ctx, "чел ты не в конфе")
             return
 
-        seconds = int(duration.total_seconds())
+        image_url = image.url if image is not None else None
+        await self._preview_and_publish(
+            ctx,
+            role=role,
+            initiator=initiator,
+            duration=duration,
+            count=count,
+            comment=comment,
+            image_url=image_url,
+        )
 
+    async def _preview_and_publish(
+        self,
+        ctx: commands.Context,
+        *,
+        role: discord.Role,
+        initiator: discord.Member,
+        duration: timedelta,
+        count: int,
+        comment: str,
+        image_url: str | None,
+    ) -> None:
+        """Показывает эфемерное превью и публикует сбор по подтверждению.
+
+        В превью видно, как embed будет выглядеть; кнопки «Опубликовать» /
+        «Отмена» решают судьбу. На отмене/таймауте кулдаун команды
+        сбрасывается, чтобы попытка не «сгорала».
+        """
+        assert ctx.guild is not None  # проверено выше в party()
+        now = datetime.now(UTC)
+        preview_party = Party(
+            id="preview",
+            guild_id=ctx.guild.id,
+            channel_id=ctx.channel.id,
+            public_message_id=0,
+            role_id=role.id,
+            initiator_id=initiator.id,
+            count=count,
+            comment=comment,
+            created_at=now,
+            deadline=now + duration,
+            image_url=image_url,
+            joined_order=[initiator.id],
+        )
+        settings = get_settings()
+        preview_embed = build_party_embed(
+            preview_party,
+            role_name=role.name,
+            initiator=initiator,
+            member_resolver=self._member_resolver(ctx.guild),
+            initiator_emoji=settings.party.initiator_emoji,
+            finalized=False,
+            jump_url=None,
+        )
+
+        view = PartyPreviewView(author_id=initiator.id)
+        preview_msg = await ctx.send(
+            content="Так будет выглядеть сбор. Опубликовать?",
+            embed=preview_embed,
+            view=view,
+            ephemeral=True,
+        )
+        await view.wait()
+
+        if view.choice == "publish":
+            await self._publish_party(
+                ctx,
+                role=role,
+                initiator=initiator,
+                duration=duration,
+                count=count,
+                comment=comment,
+                image_url=image_url,
+            )
+            return
+
+        if ctx.command is not None:
+            ctx.command.reset_cooldown(ctx)
+        if view.choice != "cancel" and preview_msg is not None:
+            try:
+                await preview_msg.edit(
+                    content="Превью истекло, сбор не создан.", embed=None, view=None
+                )
+            except discord.HTTPException:
+                pass
+
+    async def _publish_party(
+        self,
+        ctx: commands.Context,
+        *,
+        role: discord.Role,
+        initiator: discord.Member,
+        duration: timedelta,
+        count: int,
+        comment: str,
+        image_url: str | None,
+    ) -> None:
+        """Публикует сбор в канал, рассылает DM и заводит таймер финализации."""
+        assert ctx.guild is not None
         now = datetime.now(UTC)
         deadline = now + duration
 
@@ -335,9 +555,10 @@ class PartyCog(commands.Cog):
             description="Готовлю сбор…",
             color=discord.Color.green(),
         )
-        public_message = await safe_send(ctx, embed=placeholder_embed)
-        if public_message is None:
-            logger.error("Не удалось опубликовать embed пати — отмена.")
+        try:
+            public_message = await ctx.channel.send(embed=placeholder_embed)
+        except discord.HTTPException as e:
+            logger.error(f"Не удалось опубликовать embed пати: {e}")
             return
 
         party = self.manager.create(
@@ -350,6 +571,7 @@ class PartyCog(commands.Cog):
             comment=comment,
             created_at=now,
             deadline=deadline,
+            image_url=image_url,
         )
 
         await self._refresh_public_embed(party)
@@ -363,6 +585,7 @@ class PartyCog(commands.Cog):
             f"дедлайн {deadline.isoformat()}): DM доставлено {delivered}"
         )
 
+        seconds = max(1, int(duration.total_seconds()))
         task = asyncio.create_task(
             self._finalize_after(party, seconds), name=f"party-finalize-{party.id}"
         )
@@ -381,9 +604,10 @@ class PartyCog(commands.Cog):
             return
 
         party = active[-1]
-        task = self._timers.pop(party.id, None)
-        if task is not None:
-            task.cancel()
+        for timers in (self._timers, self._check_timers):
+            task = timers.pop(party.id, None)
+            if task is not None:
+                task.cancel()
         cancelled = await self.manager.cancel(party.id)
         # None означает что таймер _finalize уже всё снял — просто рапортуем.
         if cancelled is not None:
