@@ -10,7 +10,7 @@ from discord.ext import commands
 from cogs.party import PartyCog
 from config.settings import BotSettings
 from utils.party.manager import PartyPhase
-from utils.party.views import PartyConfirmView, PartyView
+from utils.party.views import PartyBuilderView, PartyConfirmView, PartyView
 
 
 @pytest.fixture
@@ -594,6 +594,112 @@ class TestReadyCheck:
         assert "<@100>" in sent_text
         assert "<@200>" in sent_text
         assert "<@300>" not in sent_text
+
+
+class TestPartyBeta:
+    """Команда /party_beta и панель сборки."""
+
+    @pytest.mark.asyncio
+    async def test_no_roles_rejected(self, cog: PartyCog, patched_settings: BotSettings) -> None:
+        """Без ролей из /role_assign панель не открывается."""
+        cog.role_reaction_manager.get_all_role_reactions = AsyncMock(return_value=[])
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = MagicMock(spec=discord.Guild, id=1)
+        interaction.user = MagicMock(spec=discord.Member, id=100)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await cog.party_beta.callback(cog, interaction, image=None)
+
+        interaction.response.send_message.assert_awaited_once()
+        assert "Нет доступных ролей" in interaction.response.send_message.await_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_opens_panel_with_roles(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """С доступными ролями открывается эфемерная панель с view."""
+        role = MagicMock(spec=discord.Role, id=42, name="Гремлины", mention="<@&42>")
+        guild = MagicMock(spec=discord.Guild, id=1)
+        guild.get_role = MagicMock(return_value=role)
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = guild
+        interaction.user = MagicMock(spec=discord.Member, id=100)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await cog.party_beta.callback(cog, interaction, image=None)
+
+        kwargs = interaction.response.send_message.await_args.kwargs
+        assert kwargs["ephemeral"] is True
+        assert isinstance(kwargs["view"], PartyBuilderView)
+
+    @pytest.mark.asyncio
+    async def test_create_button_requires_selection(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Кнопка «Создать» без выбора полей шлёт ephemeral-подсказку."""
+        initiator = make_member(100)
+        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
+        view = PartyBuilderView(
+            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
+        )
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+        interaction.response.edit_message = AsyncMock()
+
+        await view.create_button.callback(interaction)
+
+        interaction.response.send_message.assert_awaited_once()
+        interaction.response.edit_message.assert_not_called()
+
+
+class TestCreateAndBroadcast:
+    """Публикация сбора без привязки к Context (общий путь /party и панели)."""
+
+    @pytest.mark.asyncio
+    async def test_publishes_and_schedules(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Постит placeholder, создаёт пати, рассылает DM и заводит таймер."""
+        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
+        cog._refresh_all_embeds = AsyncMock()  # type: ignore[method-assign]
+        cog._send_dms = AsyncMock(return_value=0)  # type: ignore[method-assign]
+        cog._finalize_after = AsyncMock()  # type: ignore[method-assign]
+
+        guild = MagicMock(spec=discord.Guild, id=1)
+        public = MagicMock(spec=discord.Message)
+        public.id = 555
+        public.channel = MagicMock()
+        public.channel.id = 10
+        channel = MagicMock()
+        channel.send = AsyncMock(return_value=public)
+
+        role = MagicMock(spec=discord.Role, id=42, name="x", members=[])
+        initiator = make_member(100)
+
+        party = await cog._create_and_broadcast(
+            guild=guild,
+            channel=channel,
+            role=role,
+            initiator=initiator,
+            duration=timedelta(minutes=15),
+            count=2,
+            comment="c",
+            image_url=None,
+        )
+
+        assert party is not None
+        assert cog.manager.get(party.id) is party
+        channel.send.assert_awaited_once()
+        cog._send_dms.assert_awaited_once()
+        assert party.id in cog._timers
+
+        cog._timers[party.id].cancel()
 
 
 class TestBlocklistCommands:

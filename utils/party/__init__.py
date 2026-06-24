@@ -9,10 +9,16 @@ from utils.party.data_manager import PartyDataManager
 from utils.party.duration import parse_minutes
 from utils.party.embeds import build_party_embed
 from utils.party.manager import Party, PartyManager, PartyPhase, ReadyCheckTick
-from utils.party.views import PartyConfirmView, PartyPreviewView, PartyView
+from utils.party.views import (
+    PartyBuilderView,
+    PartyConfirmView,
+    PartyPreviewView,
+    PartyView,
+)
 
 __all__ = [
     "Party",
+    "PartyBuilderView",
     "PartyConfirmView",
     "PartyDataManager",
     "PartyManager",

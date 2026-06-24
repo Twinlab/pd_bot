@@ -32,7 +32,12 @@ from utils.party.data_manager import PartyDataManager
 from utils.party.duration import parse_minutes
 from utils.party.embeds import build_party_embed
 from utils.party.manager import Party, PartyManager, PartyPhase
-from utils.party.views import PartyConfirmView, PartyPreviewView, PartyView
+from utils.party.views import (
+    PartyBuilderView,
+    PartyConfirmView,
+    PartyPreviewView,
+    PartyView,
+)
 from utils.role_reaction_data_manager import RoleReactionDataManager
 
 
@@ -545,8 +550,37 @@ class PartyCog(commands.Cog):
         comment: str,
         image_url: str | None,
     ) -> None:
-        """Публикует сбор в канал, рассылает DM и заводит таймер финализации."""
+        """Публикует сбор из контекста команды (обёртка над _create_and_broadcast)."""
         assert ctx.guild is not None
+        await self._create_and_broadcast(
+            guild=ctx.guild,
+            channel=ctx.channel,
+            role=role,
+            initiator=initiator,
+            duration=duration,
+            count=count,
+            comment=comment,
+            image_url=image_url,
+        )
+
+    async def _create_and_broadcast(
+        self,
+        *,
+        guild: discord.Guild,
+        channel: discord.abc.Messageable,
+        role: discord.Role,
+        initiator: discord.Member,
+        duration: timedelta,
+        count: int,
+        comment: str,
+        image_url: str | None,
+    ) -> Party | None:
+        """Публикует сбор в канал, рассылает DM и заводит таймер финализации.
+
+        Не зависит от ``commands.Context`` — годится и для слэш-панели, и для
+        обычной команды. Возвращает созданный :class:`Party` или ``None``,
+        если публичное сообщение отправить не удалось.
+        """
         now = datetime.now(UTC)
         deadline = now + duration
 
@@ -556,13 +590,13 @@ class PartyCog(commands.Cog):
             color=discord.Color.green(),
         )
         try:
-            public_message = await ctx.channel.send(embed=placeholder_embed)
+            public_message = await channel.send(embed=placeholder_embed)
         except discord.HTTPException as e:
             logger.error(f"Не удалось опубликовать embed пати: {e}")
-            return
+            return None
 
         party = self.manager.create(
-            guild_id=ctx.guild.id,
+            guild_id=guild.id,
             channel_id=public_message.channel.id,
             public_message_id=public_message.id,
             role_id=role.id,
@@ -590,6 +624,52 @@ class PartyCog(commands.Cog):
             self._finalize_after(party, seconds), name=f"party-finalize-{party.id}"
         )
         self._timers[party.id] = task
+        return party
+
+    @app_commands.command(
+        name="party_beta",
+        description="(Бета, админ) Собрать пати через панель с меню.",
+    )
+    @app_commands.describe(image="Картинка к сбору (опционально)")
+    @app_commands.checks.has_permissions(administrator=True)
+    async def party_beta(
+        self,
+        interaction: discord.Interaction,
+        image: discord.Attachment | None = None,
+    ) -> None:
+        """Открывает эфемерную панель сборки пати на выпадушках."""
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("Только в конфе, чел.", ephemeral=True)
+            return
+
+        initiator = interaction.user
+        if not isinstance(initiator, discord.Member):
+            await interaction.response.send_message("Ты не в конфе.", ephemeral=True)
+            return
+
+        allowed_role_ids = await self._allowed_role_ids(guild.id)
+        roles = [role for rid in allowed_role_ids if (role := guild.get_role(rid)) is not None]
+        if not roles:
+            await interaction.response.send_message(
+                "Нет доступных ролей из /role_assign.", ephemeral=True
+            )
+            return
+
+        if image is not None and not (image.content_type or "").startswith("image/"):
+            await interaction.response.send_message(
+                "Вложение должно быть картинкой.", ephemeral=True
+            )
+            return
+
+        view = PartyBuilderView(
+            cog=self,
+            author_id=initiator.id,
+            initiator=initiator,
+            roles=roles,
+            image_url=image.url if image is not None else None,
+        )
+        await interaction.response.send_message(embed=view.build_embed(), view=view, ephemeral=True)
 
     @commands.hybrid_command(
         name="party_cancel",

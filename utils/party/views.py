@@ -196,3 +196,233 @@ class PartyPreviewView(discord.ui.View):
             )
         except discord.HTTPException as e:
             logger.warning(f"Не удалось обновить превью при отмене: {e}")
+
+
+_DURATION_PRESETS = (15, 30, 45, 60, 90, 120, 180, 240)
+
+
+class _RoleSelect(discord.ui.Select["PartyBuilderView"]):
+    """Выпадающий список доступных игровых ролей."""
+
+    def __init__(self, builder: PartyBuilderView, roles: list[discord.Role]) -> None:
+        options = [
+            discord.SelectOption(label=role.name[:100], value=str(role.id)) for role in roles[:25]
+        ]
+        super().__init__(
+            placeholder="Выбери роль", min_values=1, max_values=1, options=options, row=0
+        )
+        self._builder = builder
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        self._builder.role_id = int(self.values[0])
+        await self._builder.refresh(interaction)
+
+
+class _DurationSelect(discord.ui.Select["PartyBuilderView"]):
+    """Выпадающий список пресетов длительности (минуты)."""
+
+    def __init__(self, builder: PartyBuilderView, minutes_options: list[int]) -> None:
+        options = [
+            discord.SelectOption(label=f"{m} мин", value=str(m)) for m in minutes_options[:25]
+        ]
+        super().__init__(
+            placeholder="Через сколько закрыть", min_values=1, max_values=1, options=options, row=1
+        )
+        self._builder = builder
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        self._builder.minutes = int(self.values[0])
+        await self._builder.refresh(interaction)
+
+
+class _CountSelect(discord.ui.Select["PartyBuilderView"]):
+    """Выпадающий список размера состава."""
+
+    def __init__(self, builder: PartyBuilderView, count_options: list[int]) -> None:
+        options = [
+            discord.SelectOption(label=f"{c} чел.", value=str(c)) for c in count_options[:25]
+        ]
+        super().__init__(
+            placeholder="Сколько человек в состав",
+            min_values=1,
+            max_values=1,
+            options=options,
+            row=2,
+        )
+        self._builder = builder
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        self._builder.count = int(self.values[0])
+        await self._builder.refresh(interaction)
+
+
+class _CommentModal(discord.ui.Modal, title="Комментарий к сбору"):
+    """Модалка ввода комментария к сбору."""
+
+    comment: discord.ui.TextInput[_CommentModal] = discord.ui.TextInput(
+        label="Комментарий",
+        style=discord.TextStyle.paragraph,
+        required=False,
+        max_length=500,
+        placeholder="Что собираем, во сколько, какие условия…",
+    )
+
+    def __init__(self, builder: PartyBuilderView) -> None:
+        super().__init__()
+        self._builder = builder
+        if builder.comment:
+            self.comment.default = builder.comment
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        self._builder.comment = str(self.comment.value or "")
+        await self._builder.refresh(interaction)
+
+
+class PartyBuilderView(discord.ui.View):
+    """Эфемерная панель сборки пати на меню (команда ``/party_beta``).
+
+    Роль / длительность / размер состава выбираются выпадушками, комментарий —
+    через модалку, картинка приходит параметром команды. По кнопке «Создать»
+    дёргается ``cog._create_and_broadcast``.
+    """
+
+    def __init__(
+        self,
+        *,
+        cog: PartyCog,
+        author_id: int,
+        initiator: discord.Member,
+        roles: list[discord.Role],
+        image_url: str | None,
+        timeout: float = 300.0,
+    ) -> None:
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        self.author_id = author_id
+        self.initiator = initiator
+        self.roles = {role.id: role for role in roles}
+        self.image_url = image_url
+
+        self.role_id: int | None = None
+        self.minutes: int | None = None
+        self.count: int | None = None
+        self.comment: str = ""
+
+        settings = get_settings().party
+        durations = [
+            m
+            for m in _DURATION_PRESETS
+            if settings.min_duration_minutes <= m <= settings.max_duration_minutes
+        ] or [settings.min_duration_minutes]
+        counts = list(
+            range(settings.min_count, min(settings.max_count, settings.min_count + 24) + 1)
+        )
+
+        self.add_item(_RoleSelect(self, roles))
+        self.add_item(_DurationSelect(self, durations))
+        self.add_item(_CountSelect(self, counts))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Пускает к панели только автора."""
+        if interaction.user.id != self.author_id:
+            await interaction.response.send_message("Это не твоя панель.", ephemeral=True)
+            return False
+        return True
+
+    def build_embed(self) -> discord.Embed:
+        """Сводка текущего выбора панели."""
+        role = self.roles.get(self.role_id) if self.role_id else None
+        embed = discord.Embed(
+            title="Сборка пати (бета)",
+            description="Заполни поля и жми «Создать».",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="Роль", value=role.mention if role else "_не выбрана_", inline=True)
+        embed.add_field(
+            name="Закрытие",
+            value=f"{self.minutes} мин" if self.minutes else "_не выбрано_",
+            inline=True,
+        )
+        embed.add_field(
+            name="Состав",
+            value=f"{self.count} чел." if self.count else "_не выбран_",
+            inline=True,
+        )
+        embed.add_field(name="Комментарий", value=self.comment or "_пусто_", inline=False)
+        embed.add_field(name="Картинка", value="есть" if self.image_url else "нет", inline=True)
+        return embed
+
+    async def refresh(self, interaction: discord.Interaction) -> None:
+        """Перерисовывает панель с актуальным выбором."""
+        try:
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        except discord.HTTPException as e:
+            logger.warning(f"Не удалось обновить панель сборки пати: {e}")
+
+    def _disable_all(self) -> None:
+        for child in self.children:
+            if isinstance(child, (discord.ui.Button, discord.ui.Select)):
+                child.disabled = True
+
+    @discord.ui.button(label="Комментарий", style=discord.ButtonStyle.secondary, emoji="✏️", row=3)
+    async def comment_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        """Открывает модалку ввода комментария."""
+        await interaction.response.send_modal(_CommentModal(self))
+
+    @discord.ui.button(label="Создать", style=discord.ButtonStyle.success, emoji="📣", row=3)
+    async def create_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        """Валидирует выбор и публикует сбор."""
+        if self.role_id is None or self.minutes is None or self.count is None:
+            await interaction.response.send_message(
+                "Сначала выбери роль, длительность и размер состава.", ephemeral=True
+            )
+            return
+        role = self.roles.get(self.role_id)
+        channel = interaction.channel
+        if (
+            role is None
+            or interaction.guild is None
+            or not isinstance(channel, discord.abc.Messageable)
+        ):
+            await interaction.response.send_message(
+                "Не получилось определить роль или канал.", ephemeral=True
+            )
+            return
+
+        self._disable_all()
+        self.stop()
+        await interaction.response.edit_message(content="Создаю сбор…", embed=None, view=None)
+        await self.cog._create_and_broadcast(
+            guild=interaction.guild,
+            channel=channel,
+            role=role,
+            initiator=self.initiator,
+            duration=timedelta(minutes=self.minutes),
+            count=self.count,
+            comment=self.comment,
+            image_url=self.image_url,
+        )
+
+    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.danger, emoji="🚫", row=3)
+    async def cancel_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,  # noqa: ARG002
+    ) -> None:
+        """Закрывает панель без публикации."""
+        self._disable_all()
+        self.stop()
+        try:
+            await interaction.response.edit_message(
+                content="Сборка отменена.", embed=None, view=None
+            )
+        except discord.HTTPException as e:
+            logger.warning(f"Не удалось закрыть панель сборки пати: {e}")
