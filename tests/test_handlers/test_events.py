@@ -35,6 +35,22 @@ class TestOnReady:
             mock_bot.change_presence.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_guild_scoped_sync_when_guild_id_set(self, mock_bot: MagicMock) -> None:
+        """При заданном guild_id команды копируются и синкаются точечно в гильдию."""
+        events = Events(mock_bot)
+        mock_bot.tree.sync = AsyncMock(return_value=[MagicMock(name="cmd1")])
+        mock_bot.change_presence = AsyncMock()
+
+        fake_settings = MagicMock()
+        fake_settings.guild_id = 123456789
+        with patch("handlers.events.get_settings", return_value=fake_settings):
+            await events.on_ready()
+
+        mock_bot.tree.copy_global_to.assert_called_once()
+        mock_bot.tree.sync.assert_awaited_once()
+        assert mock_bot.tree.sync.await_args.kwargs["guild"].id == 123456789
+
+    @pytest.mark.asyncio
     async def test_on_ready_handles_sync_error(self, mock_bot: MagicMock) -> None:
         events = Events(mock_bot)
         mock_bot.tree.sync = AsyncMock(side_effect=Exception("Sync error"))

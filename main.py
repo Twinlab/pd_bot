@@ -17,11 +17,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from discord import Intents
+import discord
+from discord import Intents, app_commands
 from discord.ext import commands
 
 from config import get_settings
 from utils.database import DB_PATH, close_database, initialize_database
+from utils.error_handler import handle_app_command_error
 from utils.logging_utils import setup_logging
 
 # Настройка расширенного логирования
@@ -41,6 +43,21 @@ intents.message_content = True
 intents.messages = True
 intents.members = True
 intents.presences = True
+
+
+class AppCommandTree(app_commands.CommandTree):
+    """Дерево slash-команд с единым обработчиком ошибок.
+
+    Всё, что не поймал ``@command_error_handler`` внутри тела команды, прилетает
+    в ``on_error`` вместо «interaction failed» у пользователя.
+    """
+
+    async def on_error(
+        self,
+        interaction: discord.Interaction,
+        error: app_commands.AppCommandError,
+    ) -> None:
+        await handle_app_command_error(interaction, error)
 
 
 # Определение кастомного класса бота
@@ -78,7 +95,9 @@ def initialize_bot() -> MyBot:
         sys.exit(1)
 
     # Создание экземпляра бота с префиксом из конфига
-    bot_instance: MyBot = MyBot(command_prefix=settings.prefix, intents=intents)
+    bot_instance: MyBot = MyBot(
+        command_prefix=settings.prefix, intents=intents, tree_cls=AppCommandTree
+    )
     bot_instance.settings = settings  # Новый способ доступа
     bot_instance.log_file_path = str(log_path)  # Передаём путь к текущему логу в cog
 
@@ -94,7 +113,9 @@ if "pytest" not in sys.modules:
     bot: MyBot = initialize_bot()
 else:
     # В тестах создаем бота без проверок токена
-    bot_instance: MyBot = MyBot(command_prefix=settings.prefix, intents=intents)
+    bot_instance: MyBot = MyBot(
+        command_prefix=settings.prefix, intents=intents, tree_cls=AppCommandTree
+    )
     bot_instance.settings = settings
     bot_instance.log_file_path = str(log_path)
     bot = bot_instance

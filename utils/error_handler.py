@@ -106,7 +106,14 @@ def get_error_message(error: Exception) -> str:
         Сообщение об ошибке.
     """
     # Если это ошибка вызова команды, получаем оригинальную ошибку
-    if isinstance(error, (commands.CommandInvokeError, commands.HybridCommandError)):
+    if isinstance(
+        error,
+        (
+            commands.CommandInvokeError,
+            commands.HybridCommandError,
+            app_commands.CommandInvokeError,
+        ),
+    ):
         error = error.original
 
     # Ищем сообщение в словаре ERROR_MESSAGES
@@ -160,6 +167,46 @@ async def safe_send(
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
         return None
+
+
+# Штатные ошибки app-команд: пользователю шлём текст, но НЕ валим стек в лог.
+_KNOWN_APP_ERRORS = (
+    app_commands.CheckFailure,
+    app_commands.CommandOnCooldown,
+    app_commands.TransformerError,
+    app_commands.CommandNotFound,
+)
+
+
+async def handle_app_command_error(
+    interaction: discord.Interaction,
+    error: app_commands.AppCommandError,
+) -> None:
+    """Глобальный обработчик ошибок slash-команд (``CommandTree.on_error``).
+
+    Незнакомые баги логируются со стеком; пользователю в любом случае уходит
+    эфемерный embed с дружелюбным текстом из :data:`ERROR_MESSAGES`. Отвечаем
+    через ``followup``, если интеракция уже была отвечена/отложена.
+    """
+    if not isinstance(error, _KNOWN_APP_ERRORS):
+        command_name = interaction.command.name if interaction.command else "unknown"
+        logger.error(
+            f"Необработанная ошибка в slash-команде '{command_name}': {error}",
+            exc_info=error,
+        )
+
+    embed = discord.Embed(
+        title="❌ Ошибка",
+        description=get_error_message(error),
+        color=discord.Color.red(),
+    )
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    except discord.HTTPException as e:
+        logger.error(f"Не удалось отправить сообщение об ошибке slash-команды: {e}")
 
 
 async def safe_send_error(

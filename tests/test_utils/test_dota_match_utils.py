@@ -1,13 +1,44 @@
 """Тесты для модуля dota_match_utils."""
 
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-from discord.ui import Button, View
 
 from utils.dota_match_utils import get_match_data, handle_lastmatch
+
+
+def _collect_text(view: discord.ui.LayoutView) -> str:
+    """Склеивает текст всех TextDisplay/Section внутри LayoutView."""
+    texts: list[str] = []
+
+    def walk(items) -> None:
+        for item in items:
+            if isinstance(item, discord.ui.TextDisplay):
+                texts.append(item.content)
+            children = getattr(item, "children", None)
+            if children:
+                walk(children)
+
+    walk(view.children)
+    return "\n".join(texts)
+
+
+def _count_buttons(view: discord.ui.LayoutView) -> int:
+    """Считает все кнопки внутри LayoutView (с обходом контейнеров и рядов)."""
+    count = 0
+
+    def walk(items) -> None:
+        nonlocal count
+        for item in items:
+            if isinstance(item, discord.ui.Button):
+                count += 1
+            children = getattr(item, "children", None)
+            if children:
+                walk(children)
+
+    walk(view.children)
+    return count
 
 
 class TestGetMatchData:
@@ -19,9 +50,9 @@ class TestGetMatchData:
         user_links = {}
         user_id = "123456"
         stratz_api_key = "fake_key"
-        
+
         result = await get_match_data(user_links, user_id, stratz_api_key)
-        
+
         assert result == (None, None, None, None)
 
     @pytest.mark.asyncio
@@ -30,9 +61,9 @@ class TestGetMatchData:
         user_links = {"123456": []}
         user_id = "123456"
         stratz_api_key = "fake_key"
-        
+
         result = await get_match_data(user_links, user_id, stratz_api_key)
-        
+
         assert result == (None, None, None, None)
 
     @pytest.mark.asyncio
@@ -41,9 +72,9 @@ class TestGetMatchData:
         user_links = {"123456": [12345]}
         user_id = "123456"
         stratz_api_key = ""
-        
+
         result = await get_match_data(user_links, user_id, stratz_api_key)
-        
+
         assert result == (None, None, None, None)
 
     @pytest.mark.asyncio
@@ -52,12 +83,12 @@ class TestGetMatchData:
         user_links = {"123456": [12345]}
         user_id = "123456"
         stratz_api_key = "fake_key"
-        
-        with patch('utils.dota_match_utils.query_api_with_retry') as mock_query:
+
+        with patch("utils.dota_match_utils.query_api_with_retry") as mock_query:
             mock_query.return_value = {"player": {"matches": []}}
-            
+
             result = await get_match_data(user_links, user_id, stratz_api_key)
-            
+
             assert result == (None, None, None, None)
 
     @pytest.mark.asyncio
@@ -66,34 +97,29 @@ class TestGetMatchData:
         user_links = {"123456": [12345]}
         user_id = "123456"
         stratz_api_key = "fake_key"
-        
+
         mock_matches_response = {
-            "player": {
-                "matches": [{"id": 7000000000, "startDateTime": 1640995200}]
-            }
+            "player": {"matches": [{"id": 7000000000, "startDateTime": 1640995200}]}
         }
-        
-        mock_match_response = {
-            "match": {
-                "players": [{"steamAccount": {"name": "TestPlayer"}}]
-            }
-        }
-        
+
+        mock_match_response = {"match": {"players": [{"steamAccount": {"name": "TestPlayer"}}]}}
+
         mock_weekly_response = {"player": {"matches": []}}
         mock_items_dict = {"1": {"displayName": "Item"}}
-        
-        with patch('utils.dota_match_utils.query_api_with_retry') as mock_query, \
-             patch('utils.dota_match_utils.fetch_items_data') as mock_items:
-            
+
+        with (
+            patch("utils.dota_match_utils.query_api_with_retry") as mock_query,
+            patch("utils.dota_match_utils.fetch_items_data") as mock_items,
+        ):
             mock_query.side_effect = [
                 mock_matches_response,
                 mock_match_response,
-                mock_weekly_response
+                mock_weekly_response,
             ]
             mock_items.return_value = mock_items_dict
-            
+
             result = await get_match_data(user_links, user_id, stratz_api_key)
-            
+
             match_data, weekly_data, match_id, items_dict = result
             assert match_data == mock_match_response
             assert match_id == 7000000000
@@ -104,19 +130,20 @@ class TestGetMatchData:
         user_links = {"123456": [12345, 67890]}
         user_id = "123456"
         stratz_api_key = "fake_key"
-        
-        with patch('utils.dota_match_utils.query_api_with_retry') as mock_query, \
-             patch('utils.dota_match_utils.fetch_items_data'):
-            
+
+        with (
+            patch("utils.dota_match_utils.query_api_with_retry") as mock_query,
+            patch("utils.dota_match_utils.fetch_items_data"),
+        ):
             mock_query.side_effect = [
                 {"player": {"matches": [{"id": 7000000001, "startDateTime": 1640995200}]}},
                 {"player": {"matches": [{"id": 7000000002, "startDateTime": 1641081600}]}},
                 {"match": {"players": [{"steamAccount": {"name": "Test"}}]}},
-                {"player": {"matches": []}}
+                {"player": {"matches": []}},
             ]
-            
+
             result = await get_match_data(user_links, user_id, stratz_api_key)
-            
+
             match_data, weekly_data, match_id, items_dict = result
             assert match_id == 7000000002  # Более свежий матч
 
@@ -140,9 +167,9 @@ class TestHandleLastmatch:
         """Тест когда нет API ключа в конфигурации."""
         self.mock_ctx.bot.settings.stratz_api_key = None
         user_links_list = [12345]
-        
+
         await handle_lastmatch(self.mock_ctx, user_links_list)
-        
+
         self.mock_ctx.send.assert_called_once_with(
             "Ошибка: STRATZ_API_KEY не найден в конфигурации бота."
         )
@@ -151,9 +178,9 @@ class TestHandleLastmatch:
     async def test_handle_lastmatch_no_linked_accounts_self(self):
         """Тест когда у пользователя нет привязанных аккаунтов (для себя)."""
         user_links_list = []
-        
+
         await handle_lastmatch(self.mock_ctx, user_links_list)
-        
+
         expected_message = (
             "Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2. "
             "Используйте команду `/link PLAYER_ID`."
@@ -167,9 +194,9 @@ class TestHandleLastmatch:
         mock_member = MagicMock()
         mock_member.id = 789012
         mock_member.mention = "<@789012>"
-        
+
         await handle_lastmatch(self.mock_ctx, user_links_list, mock_member)
-        
+
         expected_message = (
             "Пользователь <@789012> не привязал свой аккаунт Dota 2. "
             "Используйте команду `/link PLAYER_ID`."
@@ -180,12 +207,12 @@ class TestHandleLastmatch:
     async def test_handle_lastmatch_no_match_data(self):
         """Тест когда не удалось получить данные о матче."""
         user_links_list = [12345]
-        
-        with patch('utils.dota_match_utils.get_match_data') as mock_get_match:
+
+        with patch("utils.dota_match_utils.get_match_data") as mock_get_match:
             mock_get_match.return_value = (None, None, None, None)
-            
+
             await handle_lastmatch(self.mock_ctx, user_links_list)
-            
+
             expected_message = (
                 "Не удалось получить данные о последнем матче. "
                 "Убедитесь, что история матчей доступна в настройках Dota 2, "
@@ -197,21 +224,21 @@ class TestHandleLastmatch:
     async def test_handle_lastmatch_invalid_player_data(self):
         """Тест когда данные игрока некорректны."""
         user_links_list = [12345]
-        
+
         mock_match_data = {"match": {"players": []}}
-        
-        with patch('utils.dota_match_utils.get_match_data') as mock_get_match:
+
+        with patch("utils.dota_match_utils.get_match_data") as mock_get_match:
             mock_get_match.return_value = (mock_match_data, None, 7000000000, {})
-            
+
             await handle_lastmatch(self.mock_ctx, user_links_list)
-            
+
             self.mock_ctx.send.assert_called_once_with("Ошибка при обработке данных матча.")
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_successful_victory(self):
         """Тест успешного отображения победного матча."""
         user_links_list = [12345]
-        
+
         mock_match_data = {
             "match": {
                 "startDateTime": 1640995200,
@@ -233,57 +260,56 @@ class TestHandleLastmatch:
                         "heroDamage": 20000,
                         "isVictory": True,
                         "item0Id": 1,
-                        "neutral0Id": 100
+                        "neutral0Id": 100,
                     }
-                ]
+                ],
             }
         }
-        
+
         mock_weekly_data = {
-            "player": {
-                "matches": [
-                    {"startDateTime": 1640995200, "players": [{"isVictory": True}]}
-                ]
-            }
+            "player": {"matches": [{"startDateTime": 1640995200, "players": [{"isVictory": True}]}]}
         }
-        
-        mock_items_dict = {
-            1: {"displayName": "Iron Branch"},
-            100: {"displayName": "Keen Optic"}
-        }
-        
-        with patch('utils.dota_match_utils.get_match_data') as mock_get_match, \
-             patch('utils.dota_utils.get_game_mode') as mock_game_mode, \
-             patch('utils.dota_utils.get_role') as mock_role, \
-             patch('utils.dota_utils.convert_average_rank_to_medal') as mock_rank, \
-             patch('utils.dota_utils.get_win_rates') as mock_win_rates:
-            
-            mock_get_match.return_value = (mock_match_data, mock_weekly_data, 7000000000, mock_items_dict)
+
+        mock_items_dict = {1: {"displayName": "Iron Branch"}, 100: {"displayName": "Keen Optic"}}
+
+        with (
+            patch("utils.dota_match_utils.get_match_data") as mock_get_match,
+            patch("utils.dota_utils.get_game_mode") as mock_game_mode,
+            patch("utils.dota_utils.get_role") as mock_role,
+            patch("utils.dota_utils.convert_average_rank_to_medal") as mock_rank,
+            patch("utils.dota_utils.get_win_rates") as mock_win_rates,
+        ):
+            mock_get_match.return_value = (
+                mock_match_data,
+                mock_weekly_data,
+                7000000000,
+                mock_items_dict,
+            )
             mock_game_mode.return_value = "All Pick"
             mock_role.return_value = "Support"
             mock_rank.return_value = "Archon [3]"
             mock_win_rates.return_value = ([1], [0], 1, 1)
-            
+
             await handle_lastmatch(self.mock_ctx, user_links_list)
-            
+
             self.mock_ctx.send.assert_called_once()
             call_args = self.mock_ctx.send.call_args
-            assert 'embed' in call_args.kwargs
-            assert 'view' in call_args.kwargs
-            
-            embed = call_args.kwargs['embed']
-            view = call_args.kwargs['view']
-            
-            assert embed.title == "**красава разъебал**"
-            assert embed.color == discord.Color.green()
-            assert isinstance(view, View)
-            assert len(view.children) == 3
+            assert "embed" not in call_args.kwargs
+            assert "view" in call_args.kwargs
+
+            view = call_args.kwargs["view"]
+            assert isinstance(view, discord.ui.LayoutView)
+            text = _collect_text(view)
+            assert "красава разъебал" in text
+            container = view.children[0]
+            assert container.accent_colour == discord.Color.green()
+            assert _count_buttons(view) == 3
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_defeat_poor_kda(self):
         """Тест отображения поражения с плохим KDA."""
         user_links_list = [12345]
-        
+
         mock_match_data = {
             "match": {
                 "startDateTime": 1640995200,
@@ -303,28 +329,29 @@ class TestHandleLastmatch:
                         "experiencePerMinute": 400,
                         "networth": 8000,
                         "heroDamage": 12000,
-                        "isVictory": False
+                        "isVictory": False,
                     }
-                ]
+                ],
             }
         }
-        
-        with patch('utils.dota_match_utils.get_match_data') as mock_get_match, \
-             patch('utils.dota_utils.get_game_mode'), \
-             patch('utils.dota_utils.get_role'), \
-             patch('utils.dota_utils.convert_average_rank_to_medal'), \
-             patch('utils.dota_utils.get_win_rates') as mock_win_rates:
-            
+
+        with (
+            patch("utils.dota_match_utils.get_match_data") as mock_get_match,
+            patch("utils.dota_utils.get_game_mode"),
+            patch("utils.dota_utils.get_role"),
+            patch("utils.dota_utils.convert_average_rank_to_medal"),
+            patch("utils.dota_utils.get_win_rates") as mock_win_rates,
+        ):
             mock_get_match.return_value = (mock_match_data, None, 7000000001, {})
             mock_win_rates.side_effect = Exception("No data")
-            
+
             await handle_lastmatch(self.mock_ctx, user_links_list)
-            
+
             call_args = self.mock_ctx.send.call_args
-            embed = call_args.kwargs['embed']
-            
-            assert embed.title == "**заруинил пидорас**"
-            assert embed.color == discord.Color.red()
+            view = call_args.kwargs["view"]
+
+            assert "заруинил пидорас" in _collect_text(view)
+            assert view.children[0].accent_colour == discord.Color.red()
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_with_member_parameter(self):
@@ -333,7 +360,7 @@ class TestHandleLastmatch:
         mock_member = MagicMock()
         mock_member.id = 789012
         mock_member.mention = "<@789012>"
-        
+
         mock_match_data = {
             "match": {
                 "startDateTime": 1640995200,
@@ -353,33 +380,34 @@ class TestHandleLastmatch:
                         "experiencePerMinute": 450,
                         "networth": 10000,
                         "heroDamage": 8000,
-                        "isVictory": True
+                        "isVictory": True,
                     }
-                ]
+                ],
             }
         }
-        
-        with patch('utils.dota_match_utils.get_match_data') as mock_get_match, \
-             patch('utils.dota_utils.get_game_mode'), \
-             patch('utils.dota_utils.get_role'), \
-             patch('utils.dota_utils.convert_average_rank_to_medal'), \
-             patch('utils.dota_utils.get_win_rates'):
-            
+
+        with (
+            patch("utils.dota_match_utils.get_match_data") as mock_get_match,
+            patch("utils.dota_utils.get_game_mode"),
+            patch("utils.dota_utils.get_role"),
+            patch("utils.dota_utils.convert_average_rank_to_medal"),
+            patch("utils.dota_utils.get_win_rates"),
+        ):
             mock_get_match.return_value = (mock_match_data, None, 7000000002, {})
-            
+
             await handle_lastmatch(self.mock_ctx, user_links_list, mock_member)
-            
+
             mock_get_match.assert_called_once()
             call_args = mock_get_match.call_args[0]
             user_id = call_args[1]
-            
+
             assert user_id == "789012"
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_items_formatting(self):
         """Тест форматирования предметов."""
         user_links_list = [12345]
-        
+
         mock_match_data = {
             "match": {
                 "startDateTime": 1640995200,
@@ -406,45 +434,44 @@ class TestHandleLastmatch:
                         "item3Id": 999,
                         "item4Id": 4,
                         "item5Id": 5,
-                        "neutral0Id": 100
+                        "neutral0Id": 100,
                     }
-                ]
+                ],
             }
         }
-        
+
         mock_items_dict = {
             1: {"displayName": "Iron Branch"},
             4: {"displayName": "Magic Stick"},
             5: {"displayName": "Observer Ward"},
-            100: {"displayName": "Keen Optic"}
+            100: {"displayName": "Keen Optic"},
         }
-        
-        with patch('utils.dota_match_utils.get_match_data') as mock_get_match, \
-             patch('utils.dota_utils.get_game_mode'), \
-             patch('utils.dota_utils.get_role'), \
-             patch('utils.dota_utils.convert_average_rank_to_medal'), \
-             patch('utils.dota_utils.get_win_rates'):
-            
+
+        with (
+            patch("utils.dota_match_utils.get_match_data") as mock_get_match,
+            patch("utils.dota_utils.get_game_mode"),
+            patch("utils.dota_utils.get_role"),
+            patch("utils.dota_utils.convert_average_rank_to_medal"),
+            patch("utils.dota_utils.get_win_rates"),
+        ):
             mock_get_match.return_value = (mock_match_data, None, 7000000003, mock_items_dict)
-            
+
             await handle_lastmatch(self.mock_ctx, user_links_list)
-            
+
             call_args = self.mock_ctx.send.call_args
-            embed = call_args.kwargs['embed']
-            
-            items_field = next((f for f in embed.fields if f.name == "Предметы:"), None)
-            assert items_field is not None
-            
-            items_text = items_field.value
-            assert "Iron Branch" in items_text
-            assert "**Keen Optic**" in items_text
-            assert "999" not in items_text
+            view = call_args.kwargs["view"]
+
+            text = _collect_text(view)
+            assert "Предметы:" in text
+            assert "Iron Branch" in text
+            assert "**Keen Optic**" in text
+            assert "999" not in text
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_no_items_data(self):
         """Тест когда нет данных о предметах."""
         user_links_list = [12345]
-        
+
         mock_match_data = {
             "match": {
                 "startDateTime": 1640995200,
@@ -466,25 +493,24 @@ class TestHandleLastmatch:
                         "heroDamage": 15000,
                         "isVictory": True,
                         "item0Id": 1,
-                        "neutral0Id": 100
+                        "neutral0Id": 100,
                     }
-                ]
+                ],
             }
         }
-        
-        with patch('utils.dota_match_utils.get_match_data') as mock_get_match, \
-             patch('utils.dota_utils.get_game_mode'), \
-             patch('utils.dota_utils.get_role'), \
-             patch('utils.dota_utils.convert_average_rank_to_medal'), \
-             patch('utils.dota_utils.get_win_rates'):
-            
+
+        with (
+            patch("utils.dota_match_utils.get_match_data") as mock_get_match,
+            patch("utils.dota_utils.get_game_mode"),
+            patch("utils.dota_utils.get_role"),
+            patch("utils.dota_utils.convert_average_rank_to_medal"),
+            patch("utils.dota_utils.get_win_rates"),
+        ):
             mock_get_match.return_value = (mock_match_data, None, 7000000004, None)
-            
+
             await handle_lastmatch(self.mock_ctx, user_links_list)
-            
+
             call_args = self.mock_ctx.send.call_args
-            embed = call_args.kwargs['embed']
-            
-            items_field = next((f for f in embed.fields if f.name == "Предметы:"), None)
-            assert items_field is not None
-            assert items_field.value == "Нет данных"
+            view = call_args.kwargs["view"]
+
+            assert "**Предметы:** Нет данных" in _collect_text(view)

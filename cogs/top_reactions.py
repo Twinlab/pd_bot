@@ -98,7 +98,23 @@ def _format_preview(content: str, max_len: int) -> str:
     return text.translate(_PREVIEW_TRANSLATE)
 
 
-def _build_embed(
+def _leaderboard_container(*, title: str, body: str, footer: str | None) -> ui.Container:
+    """Оборачивает заголовок/тело/футер лидерборда в CV2-контейнер.
+
+    Заголовок идёт как ``## ...``, футер (номер страницы) — мелким текстом
+    ``-# ...``. Цвет акцентной полосы — дефолтный цвет бота.
+    """
+    container: ui.Container = ui.Container(
+        accent_colour=get_settings().get_discord_color("default")
+    )
+    container.add_item(ui.TextDisplay(f"## {title}"))
+    container.add_item(ui.TextDisplay(body))
+    if footer:
+        container.add_item(ui.TextDisplay(f"-# {footer}"))
+    return container
+
+
+def _build_messages_container(
     *,
     entries: list[LeaderboardEntry],
     page: int,
@@ -107,23 +123,21 @@ def _build_embed(
     guild: discord.Guild | None,
     year: int | None = None,
     month: int | None = None,
-) -> discord.Embed:
-    """Формирует красивый embed для одной страницы лидерборда сообщений.
+) -> ui.Container:
+    """CV2-контейнер одной страницы лидерборда сообщений.
 
     Каждая позиция: ранг, счётчик уникальных реакторов, упоминание автора,
     кликабельный заголовок-ссылка на сообщение и превью текста.
     """
     settings = get_settings()
     title = f"🏆 Топ сообщений · {_period_label(period, year=year, month=month)}"
-    embed = discord.Embed(
-        title=title,
-        color=settings.get_discord_color("default"),
-        timestamp=datetime.now(UTC),
-    )
 
     if not entries:
-        embed.description = "*Пока нет сообщений с реакциями за этот период.*"
-        return embed
+        return _leaderboard_container(
+            title=title,
+            body="*Пока нет сообщений с реакциями за этот период.*",
+            footer=None,
+        )
 
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     parts: list[str] = []
@@ -145,13 +159,11 @@ def _build_embed(
             f"> {preview}  •  [перейти ↗]({entry.jump_url})"
         )
 
-    embed.description = "\n\n".join(parts)
-    if total_pages > 1:
-        embed.set_footer(text=f"Страница {page + 1} из {total_pages}")
-    return embed
+    footer = f"Страница {page + 1} из {total_pages}" if total_pages > 1 else None
+    return _leaderboard_container(title=title, body="\n\n".join(parts), footer=footer)
 
 
-def _build_authors_embed(
+def _build_authors_container(
     *,
     entries: list[AuthorLeaderboardEntry],
     page: int,
@@ -160,23 +172,21 @@ def _build_authors_embed(
     guild: discord.Guild | None,
     year: int | None = None,
     month: int | None = None,
-) -> discord.Embed:
-    """Embed для одной страницы лидерборда авторов.
+) -> ui.Container:
+    """CV2-контейнер одной страницы лидерборда авторов.
 
     Каждая позиция: ранг, упоминание автора, суммарное число реакций по всем
     его сообщениям и количество сообщений, попавших в сумму.
     """
     settings = get_settings()
     title = f"👑 Топ авторов · {_period_label(period, year=year, month=month)}"
-    embed = discord.Embed(
-        title=title,
-        color=settings.get_discord_color("default"),
-        timestamp=datetime.now(UTC),
-    )
 
     if not entries:
-        embed.description = "*Пока нет авторов с реакциями за этот период.*"
-        return embed
+        return _leaderboard_container(
+            title=title,
+            body="*Пока нет авторов с реакциями за этот период.*",
+            footer=None,
+        )
 
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
     parts: list[str] = []
@@ -194,18 +204,28 @@ def _build_authors_embed(
             f"за {entry.message_count} сообщ."
         )
 
-    embed.description = "\n".join(parts)
-    if total_pages > 1:
-        embed.set_footer(text=f"Страница {page + 1} из {total_pages}")
-    return embed
+    footer = f"Страница {page + 1} из {total_pages}" if total_pages > 1 else None
+    return _leaderboard_container(title=title, body="\n".join(parts), footer=footer)
 
 
-class TopReactionsView(ui.View):
-    """View с кнопками пагинации для лидерборда сообщений или авторов.
+class _LeaderboardPager(ui.ActionRow["TopReactionsView"]):
+    """Ряд кнопок пагинации внутри :class:`TopReactionsView` (Components V2)."""
+
+    @ui.button(label="⬅️ Назад", style=ButtonStyle.gray, custom_id="top_reactions_prev")
+    async def prev_button(self, interaction: Interaction, button: ui.Button) -> None:
+        await self.view.change_page(interaction, -1)
+
+    @ui.button(label="Вперёд ➡️", style=ButtonStyle.gray, custom_id="top_reactions_next")
+    async def next_button(self, interaction: Interaction, button: ui.Button) -> None:
+        await self.view.change_page(interaction, 1)
+
+
+class TopReactionsView(ui.LayoutView):
+    """CV2-LayoutView с пагинацией лидерборда сообщений или авторов.
 
     Один универсальный класс — отрисовка зависит от типа элементов в
-    ``entries`` (LeaderboardEntry → embed сообщений, AuthorLeaderboardEntry →
-    embed авторов).
+    ``entries`` (LeaderboardEntry → топ сообщений, AuthorLeaderboardEntry →
+    топ авторов). Контейнер пересобирается на каждой смене страницы.
     """
 
     def __init__(
@@ -231,7 +251,8 @@ class TopReactionsView(ui.View):
         self.current_page = 0
         self.total_pages = max(1, (len(entries) + per_page - 1) // per_page)
         self.message: discord.Message | None = None
-        self._update_buttons()
+        self._pager = _LeaderboardPager()
+        self._render()
 
     def _page_entries(
         self,
@@ -240,19 +261,10 @@ class TopReactionsView(ui.View):
         end = start + self.per_page
         return self.entries[start:end]  # type: ignore[return-value]
 
-    def _update_buttons(self) -> None:
-        for item in self.children:
-            if not isinstance(item, ui.Button):
-                continue
-            if item.custom_id == "top_reactions_prev":
-                item.disabled = self.current_page == 0
-            elif item.custom_id == "top_reactions_next":
-                item.disabled = self.current_page >= self.total_pages - 1
-
-    def render_embed(self) -> discord.Embed:
+    def _build_container(self) -> ui.Container:
         page_entries = self._page_entries()
         if page_entries and isinstance(page_entries[0], AuthorLeaderboardEntry):
-            return _build_authors_embed(
+            return _build_authors_container(
                 entries=page_entries,  # type: ignore[arg-type]
                 page=self.current_page,
                 total_pages=self.total_pages,
@@ -261,7 +273,7 @@ class TopReactionsView(ui.View):
                 year=self.year,
                 month=self.month,
             )
-        return _build_embed(
+        return _build_messages_container(
             entries=page_entries,  # type: ignore[arg-type]
             page=self.current_page,
             total_pages=self.total_pages,
@@ -270,6 +282,24 @@ class TopReactionsView(ui.View):
             year=self.year,
             month=self.month,
         )
+
+    def _update_buttons(self) -> None:
+        for item in self._pager.children:
+            if not isinstance(item, ui.Button):
+                continue
+            if item.custom_id == "top_reactions_prev":
+                item.disabled = self.current_page == 0
+            elif item.custom_id == "top_reactions_next":
+                item.disabled = self.current_page >= self.total_pages - 1
+
+    def _render(self) -> None:
+        """Пересобирает LayoutView под текущую страницу (контейнер + пагинация)."""
+        self.clear_items()
+        container = self._build_container()
+        if self.total_pages > 1:
+            container.add_item(self._pager)
+            self._update_buttons()
+        self.add_item(container)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Только инициатор может листать страницы."""
@@ -280,27 +310,19 @@ class TopReactionsView(ui.View):
             return False
         return True
 
-    @ui.button(label="⬅️ Назад", style=ButtonStyle.gray, custom_id="top_reactions_prev")
-    async def prev_button(self, interaction: Interaction, button: ui.Button) -> None:
-        if self.current_page > 0:
-            self.current_page -= 1
-            self._update_buttons()
-            await interaction.response.edit_message(embed=self.render_embed(), view=self)
-        else:
-            await interaction.response.defer()
-
-    @ui.button(label="Вперёд ➡️", style=ButtonStyle.gray, custom_id="top_reactions_next")
-    async def next_button(self, interaction: Interaction, button: ui.Button) -> None:
-        if self.current_page < self.total_pages - 1:
-            self.current_page += 1
-            self._update_buttons()
-            await interaction.response.edit_message(embed=self.render_embed(), view=self)
+    async def change_page(self, interaction: Interaction, delta: int) -> None:
+        """Сдвигает страницу на ``delta`` и перерисовывает сообщение."""
+        new_page = self.current_page + delta
+        if 0 <= new_page <= self.total_pages - 1:
+            self.current_page = new_page
+            self._render()
+            await interaction.response.edit_message(view=self)
         else:
             await interaction.response.defer()
 
     async def on_timeout(self) -> None:
-        for item in self.children:
-            if isinstance(item, (ui.Button, ui.Select)):
+        for item in self._pager.children:
+            if isinstance(item, ui.Button):
                 item.disabled = True
         if self.message:
             try:
@@ -519,12 +541,12 @@ class TopReactionsCog(commands.Cog):
         period_kind: PeriodType,
         year_arg: int | None,
         month_arg: int | None,
-        empty_embed_factory: object,
+        empty_container_factory: object,
     ) -> None:
-        """Общий путь отправки: пустая выдача → один embed, иначе — View с пагинацией."""
+        """Общий путь отправки: пустая выдача → один CV2-контейнер, иначе — пагинация."""
         settings = get_settings()
         if not entries:
-            embed = empty_embed_factory(  # type: ignore[operator]
+            container = empty_container_factory(  # type: ignore[operator]
                 entries=[],
                 page=0,
                 total_pages=1,
@@ -533,7 +555,9 @@ class TopReactionsCog(commands.Cog):
                 year=year_arg,
                 month=month_arg,
             )
-            await ctx.send(embed=embed)
+            empty_view: ui.LayoutView = ui.LayoutView(timeout=None)
+            empty_view.add_item(container)
+            await ctx.send(view=empty_view)
             return
 
         view = TopReactionsView(
@@ -546,7 +570,7 @@ class TopReactionsCog(commands.Cog):
             year=year_arg,
             month=month_arg,
         )
-        message = await ctx.send(embed=view.render_embed(), view=view)
+        message = await ctx.send(view=view)
         view.message = message
 
     @commands.hybrid_command(
@@ -558,6 +582,8 @@ class TopReactionsCog(commands.Cog):
         year="Год (например, 2025). Без значения — текущий",
         all_time="Показать топ за всё время (игнорирует month/year)",
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @command_error_handler
     async def top_reactions(
@@ -603,7 +629,7 @@ class TopReactionsCog(commands.Cog):
             period_kind=period_kind,
             year_arg=year_arg,
             month_arg=month_arg,
-            empty_embed_factory=_build_embed,
+            empty_container_factory=_build_messages_container,
         )
 
     @commands.hybrid_command(
@@ -615,6 +641,8 @@ class TopReactionsCog(commands.Cog):
         year="Год (например, 2025). Без значения — текущий",
         all_time="Показать топ за всё время (игнорирует month/year)",
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @command_error_handler
     async def top_authors(
@@ -657,7 +685,7 @@ class TopReactionsCog(commands.Cog):
             period_kind=period_kind,
             year_arg=year_arg,
             month_arg=month_arg,
-            empty_embed_factory=_build_authors_embed,
+            empty_container_factory=_build_authors_container,
         )
 
     @tasks.loop(time=time(hour=9, minute=1, tzinfo=UTC))  # 12:01 МСК (после отчёта по играм)
@@ -737,7 +765,7 @@ class TopReactionsCog(commands.Cog):
 
         per_page = settings.top_reactions.per_page
         total_pages = max(1, (len(entries) + per_page - 1) // per_page)
-        embed = _build_embed(
+        container = _build_messages_container(
             entries=entries[:per_page],
             page=0,
             total_pages=total_pages,
@@ -746,13 +774,18 @@ class TopReactionsCog(commands.Cog):
             year=year,
             month=month,
         )
+        # CV2-сообщение не может нести content — шапку отчёта кладём отдельным
+        # верхним TextDisplay над контейнером лидерборда.
+        report_view: ui.LayoutView = ui.LayoutView(timeout=None)
+        report_view.add_item(
+            ui.TextDisplay(
+                f"📊 Ежемесячный отчёт по реакциям за **{RU_MONTHS.get(month, str(month))} {year}**"
+            )
+        )
+        report_view.add_item(container)
 
         try:
-            await channel.send(
-                content=f"📊 Ежемесячный отчёт по реакциям за "
-                f"**{RU_MONTHS.get(month, str(month))} {year}**",
-                embed=embed,
-            )
+            await channel.send(view=report_view)
         except discord.HTTPException as e:
             logger.error(f"monthly_report: не удалось отправить отчёт: {e}")
             return False

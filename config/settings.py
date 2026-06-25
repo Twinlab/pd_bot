@@ -631,6 +631,11 @@ class BotSettings(BaseSettings):
     prefix: str = Field(default="!", alias="BOT_PREFIX")
     environment: Environment = Field(default=Environment.PRODUCTION, alias="BOT_ENVIRONMENT")
 
+    # ID единственной гильдии бота. Если задан — slash-команды синкаются точечно
+    # в эту гильдию (применяются мгновенно). Если 0/None — глобальный синк
+    # (раскатка до часа). Single-guild дизайн: держим один ID, а не список.
+    guild_id: int | None = Field(default=None, alias="GUILD_ID")
+
     # Опциональные API ключи
     twitch_client_id: str | None = Field(default=None, alias="TWITCH_CLIENT_ID")
     twitch_client_secret: str | None = Field(default=None, alias="TWITCH_CLIENT_SECRET")

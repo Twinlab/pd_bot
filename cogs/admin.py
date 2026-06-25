@@ -14,6 +14,7 @@ import datetime
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from config import get_settings
@@ -140,6 +141,8 @@ class AdminCog(commands.Cog):
         return deleted_count
 
     @commands.hybrid_command(description="Очистить сообщения в канале")
+    @app_commands.default_permissions(manage_messages=True)
+    @app_commands.guild_only()
     @commands.has_permissions(manage_messages=True)
     @command_error_handler
     async def clear(
@@ -220,6 +223,8 @@ class AdminCog(commands.Cog):
         )
 
     @commands.hybrid_command(description="Кикнуть пользователя с сервера")
+    @app_commands.default_permissions(kick_members=True)
+    @app_commands.guild_only()
     @commands.has_permissions(kick_members=True)
     @command_error_handler
     async def kick(

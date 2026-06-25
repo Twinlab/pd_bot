@@ -64,32 +64,36 @@ def _format_tag_names(tag_string: str) -> str:
     return ", ".join(names)
 
 
-def _build_post_embed(post: AnimePost, color: discord.Color) -> discord.Embed:
-    """Собирает «карточку» поста для публикации.
+def _build_post_view(post: AnimePost, color: discord.Color) -> discord.ui.LayoutView:
+    """Собирает «карточку» поста на Components V2.
 
-    Картинка ставится через ``set_image`` — она показывается целиком (без обрезки,
-    в отличие от ``set_thumbnail``). Ссылкой на исходный пост Danbooru служит сам
-    кликабельный заголовок (имена персонажей либо запасной текст, если их нет).
+    Картинка идёт через ``MediaGallery`` — показывается целиком, без обрезки. Имя
+    персонажа (или запасной текст) служит кликабельной ссылкой на исходный пост
+    Danbooru. Художник и метаданные (score/rating) — отдельными ``TextDisplay``.
 
     Args:
         post: Пост Danbooru для публикации.
-        color: Цвет боковой полосы эмбеда.
+        color: Цвет акцентной полосы контейнера.
 
     Returns:
-        Готовый ``discord.Embed`` с полным изображением и метаданными.
+        Готовый ``LayoutView`` с контейнером, картинкой и метаданными.
     """
     source_url = DANBOORU_POST_URL.format(post_id=post.post_id)
-    embed = discord.Embed(color=color)
-    embed.title = post.characters[:256] if post.characters else "Открыть на Danbooru"
-    embed.url = source_url
-    embed.set_image(url=post.url)
-
-    if post.artists:
-        embed.add_field(name="Художник", value=post.artists[:1024], inline=True)
-
+    title = post.characters[:256] if post.characters else "Открыть на Danbooru"
     rating_label = RATING_LABELS.get(post.rating, post.rating or "—")
-    embed.set_footer(text=f"score: {post.score} · rating: {rating_label}")
-    return embed
+
+    container: discord.ui.Container = discord.ui.Container(accent_colour=color)
+    container.add_item(discord.ui.TextDisplay(f"### [{title}]({source_url})"))
+    container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(media=post.url)))
+    meta_lines: list[str] = []
+    if post.artists:
+        meta_lines.append(f"**Художник:** {post.artists[:1000]}")
+    meta_lines.append(f"-# score: {post.score} · rating: {rating_label}")
+    container.add_item(discord.ui.TextDisplay("\n".join(meta_lines)))
+
+    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
+    view.add_item(container)
+    return view
 
 
 class AnimeCog(commands.Cog):
@@ -446,8 +450,8 @@ class AnimeCog(commands.Cog):
                 logger.error("Не удалось получить новый пост для публикации")
                 return False
 
-            embed = _build_post_embed(post, get_settings().get_discord_color("default"))
-            await channel.send(embed=embed)
+            view = _build_post_view(post, get_settings().get_discord_color("default"))
+            await channel.send(view=view)
             self.post_cache.append(post.post_id)
             try:
                 await AnimeCache.create(post_id=post.post_id, added_at=int(unix_now()))
@@ -507,6 +511,8 @@ class AnimeCog(commands.Cog):
         rating="Рейтинг: g (general), s (sensitive), q (questionable), e (explicit)",
         tag="Конкретный тег Danbooru (например, genshin_impact)",
     )
+    @discord.app_commands.default_permissions(administrator=True)
+    @discord.app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @command_error_handler
     async def post_anime(

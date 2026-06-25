@@ -28,6 +28,7 @@
     - `YOUTUBE_REFRESH_TOKEN` — OAuth refresh от burner-аккаунта Google (получается через device-flow при первом запуске Lavalink)
     - `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` — (опционально) для Twitch уведомлений
     - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — (опционально) для Spotify-ссылок
+    - `GUILD_ID` — (рекомендуется) ID единственной гильдии бота. Если задан, slash-команды синкаются точечно в эту гильдию и применяются **мгновенно**; без него — глобальный синк с раскаткой до часа
 
 3. **При необходимости отредактируйте `config/bot_settings.yaml`:**
 

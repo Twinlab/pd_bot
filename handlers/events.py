@@ -12,6 +12,7 @@ import logging
 import discord
 from discord.ext import commands
 
+from config import get_settings
 from utils.error_handler import get_error_message, safe_send_error
 
 logger = logging.getLogger("bot.handlers.events")
@@ -66,18 +67,38 @@ class Events(commands.Cog):
 
         # Синхронизация slash-команд (только один раз, on_ready вызывается при каждом reconnect)
         if not self._synced:
-            logger.info("Синхронизация slash-команд...")
-            try:
-                synced = await self.bot.tree.sync()
-                command_names = [cmd.name for cmd in synced]
-                logger.info(f"Синхронизировано {len(synced)} команд: {', '.join(command_names)}")
-                self._synced = True
-            except Exception as e:
-                logger.error(f"Не удалось синхронизировать команды: {e}")
+            await self._sync_commands()
 
         # Установка статуса
         await self.bot.change_presence(activity=discord.Game(name="Делаю милые вещи и пью чай"))
         logger.info("Статус бота установлен.")
+
+    async def _sync_commands(self) -> None:
+        """Синхронизирует slash-команды один раз за сессию.
+
+        Если в конфиге задан ``guild_id`` — копирует глобальные команды в эту
+        гильдию и синкает точечно (Discord применяет их мгновенно, без часовой
+        раскатки). Иначе — глобальный синк (fallback для не настроенного
+        ``GUILD_ID``).
+        """
+        guild_id = get_settings().guild_id
+        logger.info("Синхронизация slash-команд...")
+        try:
+            if guild_id:
+                guild = discord.Object(id=guild_id)
+                self.bot.tree.copy_global_to(guild=guild)
+                synced = await self.bot.tree.sync(guild=guild)
+                scope = f"в гильдию {guild_id}"
+            else:
+                synced = await self.bot.tree.sync()
+                scope = "глобально (раскатка до часа; задай GUILD_ID для мгновенного синка)"
+            command_names = [cmd.name for cmd in synced]
+            logger.info(
+                f"Синхронизировано {len(synced)} команд {scope}: {', '.join(command_names)}"
+            )
+            self._synced = True
+        except Exception as e:
+            logger.error(f"Не удалось синхронизировать команды: {e}")
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:

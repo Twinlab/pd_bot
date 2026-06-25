@@ -584,6 +584,8 @@ class PartyCog(commands.Cog):
         description="(Админ) Запретить пользователю вызывать /party.",
     )
     @app_commands.describe(user="Кого блокировать", reason="Причина (опционально)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def party_block(
         self,
@@ -611,6 +613,8 @@ class PartyCog(commands.Cog):
         description="(Админ) Снять запрет на /party.",
     )
     @app_commands.describe(user="Кого разблокировать")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def party_unblock(self, interaction: discord.Interaction, user: discord.User) -> None:
         """Снимает блокировку пользователя."""
@@ -628,6 +632,8 @@ class PartyCog(commands.Cog):
         name="party_blocklist",
         description="(Админ) Показать заблокированных для /party пользователей.",
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def party_blocklist(self, interaction: discord.Interaction) -> None:
         """Выводит список заблокированных пользователей."""

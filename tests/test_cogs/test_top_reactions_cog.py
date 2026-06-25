@@ -9,12 +9,29 @@ import pytest
 from cogs.top_reactions import (
     TopReactionsCog,
     TopReactionsView,
-    _build_authors_embed,
-    _build_embed,
+    _build_authors_container,
+    _build_messages_container,
     _format_preview,
     _period_label,
 )
 from utils.top_reactions_data_manager import AuthorLeaderboardEntry, LeaderboardEntry
+
+
+def _cv2_text(obj) -> str:
+    """Склеивает текст всех TextDisplay внутри LayoutView/Container/ActionRow."""
+    texts: list[str] = []
+
+    def walk(items) -> None:
+        for item in items:
+            if isinstance(item, discord.ui.TextDisplay):
+                texts.append(item.content)
+            children = getattr(item, "children", None)
+            if children:
+                walk(children)
+
+    root = getattr(obj, "children", None)
+    walk(root if root is not None else [obj])
+    return "\n".join(texts)
 
 
 @pytest.fixture
@@ -177,17 +194,17 @@ class TestMessageDelete:
 
 
 class TestEmbedBuild:
-    """Тесты функции _build_embed."""
+    """Тесты функции _build_messages_container."""
 
     def test_empty_entries(self):
-        embed = _build_embed(
+        container = _build_messages_container(
             entries=[],
             page=0,
             total_pages=1,
             period="month",
             guild=None,
         )
-        assert "Пока нет" in embed.description
+        assert "Пока нет" in _cv2_text(container)
 
     def test_with_entries(self):
         entries = [
@@ -212,18 +229,20 @@ class TestEmbedBuild:
                 is_historical=True,
             ),
         ]
-        embed = _build_embed(
-            entries=entries,
-            page=0,
-            total_pages=1,
-            period="all",
-            guild=None,
+        text = _cv2_text(
+            _build_messages_container(
+                entries=entries,
+                page=0,
+                total_pages=1,
+                period="all",
+                guild=None,
+            )
         )
-        assert "🥇" in embed.description
-        assert "🥈" in embed.description
-        assert "15" in embed.description
-        assert "42" in embed.description
-        assert "архив" in embed.description  # историческое помечено
+        assert "🥇" in text
+        assert "🥈" in text
+        assert "15" in text
+        assert "42" in text
+        assert "архив" in text  # историческое помечено
 
     def test_pagination_footer(self):
         entries = [
@@ -238,8 +257,12 @@ class TestEmbedBuild:
                 is_historical=False,
             )
         ]
-        embed = _build_embed(entries=entries, page=2, total_pages=5, period="all", guild=None)
-        assert embed.footer.text == "Страница 3 из 5"
+        text = _cv2_text(
+            _build_messages_container(
+                entries=entries, page=2, total_pages=5, period="all", guild=None
+            )
+        )
+        assert "Страница 3 из 5" in text
 
     def test_rank_prefix_has_no_padding_spaces(self):
         """Регрессия: раньше использовался `:>2` → выводилось `#  4` вместо `#4`."""
@@ -256,12 +279,16 @@ class TestEmbedBuild:
             )
             for i in range(1, 6)
         ]
-        embed = _build_embed(entries=entries, page=0, total_pages=1, period="all", guild=None)
+        text = _cv2_text(
+            _build_messages_container(
+                entries=entries, page=0, total_pages=1, period="all", guild=None
+            )
+        )
         # Никаких ` #4` или ` # 4` — ранг должен быть слитный.
-        assert "`#4`" in embed.description
-        assert "`#5`" in embed.description
-        assert "` #" not in embed.description
-        assert "`# " not in embed.description
+        assert "`#4`" in text
+        assert "`#5`" in text
+        assert "` #" not in text
+        assert "`# " not in text
 
     def test_markdown_links_escaped_but_jump_link_intact(self):
         """Квадратные скобки из текста эскейпятся, а наш jump-link остаётся валидным."""
@@ -282,10 +309,14 @@ class TestEmbedBuild:
                 is_historical=False,
             )
         ]
-        embed = _build_embed(entries=entries, page=0, total_pages=1, period="all", guild=None)
-        assert r"\[" in embed.description
-        assert r"\]" in embed.description
-        assert "](https://discord.com/x/1)" in embed.description
+        text = _cv2_text(
+            _build_messages_container(
+                entries=entries, page=0, total_pages=1, period="all", guild=None
+            )
+        )
+        assert r"\[" in text
+        assert r"\]" in text
+        assert "](https://discord.com/x/1)" in text
 
     def test_mentions_and_custom_emoji_survive(self):
         """Упоминания и кастомные эмодзи не эскейпятся — Discord их отрендерит."""
@@ -302,9 +333,13 @@ class TestEmbedBuild:
                 is_historical=False,
             )
         ]
-        embed = _build_embed(entries=entries, page=0, total_pages=1, period="all", guild=None)
-        assert "<@&1366870323965726900>" in embed.description
-        assert "<:pepe:123456789>" in embed.description
+        text = _cv2_text(
+            _build_messages_container(
+                entries=entries, page=0, total_pages=1, period="all", guild=None
+            )
+        )
+        assert "<@&1366870323965726900>" in text
+        assert "<:pepe:123456789>" in text
 
 
 class TestFormatPreview:
@@ -551,7 +586,7 @@ class TestPeriodLabel:
 
 
 class TestAuthorsEmbed:
-    """Юнит-тесты на _build_authors_embed."""
+    """Юнит-тесты на _build_authors_container."""
 
     def _make_authors(self, n: int) -> list[AuthorLeaderboardEntry]:
         return [
@@ -564,62 +599,66 @@ class TestAuthorsEmbed:
         ]
 
     def test_empty_entries_show_placeholder(self):
-        embed = _build_authors_embed(
-            entries=[],
-            page=0,
-            total_pages=1,
-            period="month",
-            guild=None,
+        text = _cv2_text(
+            _build_authors_container(
+                entries=[],
+                page=0,
+                total_pages=1,
+                period="month",
+                guild=None,
+            )
         )
-        assert embed.description is not None
-        assert "Пока нет авторов" in embed.description
+        assert "Пока нет авторов" in text
 
     def test_lists_authors_with_counts(self):
         entries = self._make_authors(3)
-        embed = _build_authors_embed(
-            entries=entries,
-            page=0,
-            total_pages=1,
-            period="month",
-            guild=None,
+        text = _cv2_text(
+            _build_authors_container(
+                entries=entries,
+                page=0,
+                total_pages=1,
+                period="month",
+                guild=None,
+            )
         )
         # Сумма реакций и число сообщений должны быть в выдаче
-        assert embed.description is not None
-        assert "15" in embed.description  # первый автор: 3*5
-        assert "3 сообщ." in embed.description
+        assert "15" in text  # первый автор: 3*5
+        assert "3 сообщ." in text
 
     def test_title_uses_period_label(self):
-        embed = _build_authors_embed(
-            entries=self._make_authors(1),
-            page=0,
-            total_pages=1,
-            period="month",
-            guild=None,
-            year=2024,
-            month=2,
+        text = _cv2_text(
+            _build_authors_container(
+                entries=self._make_authors(1),
+                page=0,
+                total_pages=1,
+                period="month",
+                guild=None,
+                year=2024,
+                month=2,
+            )
         )
-        assert "Топ авторов" in embed.title
-        assert "февраль 2024" in embed.title
+        assert "Топ авторов" in text
+        assert "февраль 2024" in text
 
     def test_pagination_footer_shown_when_multiple_pages(self):
-        embed = _build_authors_embed(
-            entries=self._make_authors(2),
-            page=0,
-            total_pages=3,
-            period="month",
-            guild=None,
+        text = _cv2_text(
+            _build_authors_container(
+                entries=self._make_authors(2),
+                page=0,
+                total_pages=3,
+                period="month",
+                guild=None,
+            )
         )
-        assert embed.footer.text == "Страница 1 из 3"
+        assert "Страница 1 из 3" in text
 
 
 class TestPaginationViewWithAuthors:
-    """View должен корректно рендерить и embed авторов, и embed сообщений."""
+    """View должен корректно рендерить и топ авторов, и топ сообщений."""
 
     @pytest.mark.asyncio
     async def test_renders_authors_embed_when_entries_are_authors(self):
-        entries = [
-            AuthorLeaderboardEntry(author_id=100, total_reactions=10, message_count=2)
-        ]
+        entries = [AuthorLeaderboardEntry(author_id=100, total_reactions=10, message_count=2)]
         view = TopReactionsView(
             entries=entries,
             period="month",
@@ -628,8 +667,7 @@ class TestPaginationViewWithAuthors:
             invoker_id=1,
             timeout=60,
         )
-        embed = view.render_embed()
-        assert "Топ авторов" in embed.title
+        assert "Топ авторов" in _cv2_text(view)
 
     @pytest.mark.asyncio
     async def test_renders_messages_embed_when_entries_are_messages(self):
@@ -653,8 +691,7 @@ class TestPaginationViewWithAuthors:
             invoker_id=1,
             timeout=60,
         )
-        embed = view.render_embed()
-        assert "Топ сообщений" in embed.title
+        assert "Топ сообщений" in _cv2_text(view)
 
 
 class TestMonthlyReportTask:
@@ -736,10 +773,11 @@ class TestSendMonthlyReport:
         result = await cog._send_monthly_top_messages_report(2024, 5)
         assert result is True
         channel.send.assert_awaited_once()
-        # Проверяем, что вызвано с правильным каналом и embed
+        # CV2: отправляется LayoutView (без content/embed), шапка отчёта — внутри.
         call = channel.send.await_args
-        assert "май 2024" in call.kwargs["content"]
-        assert call.kwargs["embed"] is not None
+        assert "embed" not in call.kwargs
+        assert "content" not in call.kwargs
+        assert "май 2024" in _cv2_text(call.kwargs["view"])
 
     @pytest.mark.asyncio
     async def test_passes_year_month_to_data_manager(self, cog):

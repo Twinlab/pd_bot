@@ -521,6 +521,8 @@ class ActivityTracker(commands.Cog):
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="activity", description="Показать текущую статистику игровой активности за сегодня."
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
         test_mode="[Только для теста] Использовать тестовые данные, если реальных нет."
@@ -677,9 +679,7 @@ class ActivityTracker(commands.Cog):
                 messages_count=period_messages,
                 voice_seconds=period_voice,
             )  # type: ignore[arg-type]
-            message = await ctx.send(
-                embed=view.get_current_embed(), view=view, ephemeral=False
-            )  # Статистика теперь публичная
+            message = await ctx.send(view=view, ephemeral=False)  # Статистика теперь публичная
             view.message = message
 
             # Показываем текущую сессию, если смотрим текущий месяц
@@ -740,7 +740,7 @@ class ActivityTracker(commands.Cog):
                 user=target_user,
                 items_per_page=get_settings().limits.activity_items_per_page,
             )  # type: ignore[arg-type]
-            message = await ctx.send(embed=view.get_current_embed(), view=view, ephemeral=False)
+            message = await ctx.send(view=view, ephemeral=False)
             view.message = message
 
         except Exception as e:
@@ -752,6 +752,8 @@ class ActivityTracker(commands.Cog):
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="report_daily", description="[Админ] Отправить отчет об активности за указанный день."
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(year="Год (например, 2024).", month="Месяц (1-12).", day="День (1-31).")
     async def report_daily_command(
@@ -832,6 +834,8 @@ class ActivityTracker(commands.Cog):
         name="report_monthly",
         description="[Админ] Отправить отчет об активности за указанный месяц.",
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(year="Год (например, 2024).", month="Месяц (1-12).")
     async def report_monthly_command(self, ctx: commands.Context, year: int, month: int) -> None:

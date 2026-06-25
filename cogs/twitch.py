@@ -24,6 +24,53 @@ from utils.twitch_data_manager import TwitchDataManager
 
 logger = logging.getLogger("bot.cogs.twitch")
 
+TWITCH_ICON_URL = "https://static.twitchcdn.net/assets/favicon-32-d6025c14e900565d6177.png"
+
+
+def _build_stream_view(
+    stream_data: dict[str, Any], username: str, accent: int
+) -> discord.ui.LayoutView:
+    """Собирает CV2-карточку уведомления о начале стрима.
+
+    Превью идёт через ``MediaGallery``, ссылка на канал — кликабельным заголовком
+    и кнопкой «Смотреть». Раньше это был ``discord.Embed`` с author/image/fields.
+
+    Args:
+        stream_data: Данные стрима из Twitch API (title, user_name, game_name и т.д.).
+        username: Логин стримера для ссылок на ``twitch.tv``.
+        accent: Цвет акцентной полосы контейнера (int).
+
+    Returns:
+        Готовый ``LayoutView`` с карточкой стрима.
+    """
+    stream_url = f"https://twitch.tv/{username}"
+    title = stream_data["title"] or "Стрим"
+    thumbnail_url = (
+        stream_data["thumbnail_url"].replace("{width}", "1280").replace("{height}", "720")
+    )
+
+    container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
+    container.add_item(discord.ui.TextDisplay(f"🔴 **{stream_data['user_name']}** начал(а) стрим!"))
+    container.add_item(discord.ui.TextDisplay(f"### [{title}]({stream_url})"))
+    container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(media=thumbnail_url)))
+    container.add_item(
+        discord.ui.TextDisplay(
+            f"**Категория:** {stream_data['game_name'] or 'Не указана'}\n"
+            f"**Зрители:** {stream_data['viewer_count']}"
+        )
+    )
+    container.add_item(
+        discord.ui.ActionRow(
+            discord.ui.Button(
+                style=discord.ButtonStyle.link, label="Смотреть на Twitch", url=stream_url
+            )
+        )
+    )
+
+    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
+    view.add_item(container)
+    return view
+
 
 class TwitchCog(commands.Cog):
     """Ког для отслеживания стримов на Twitch.
@@ -320,40 +367,9 @@ class TwitchCog(commands.Cog):
                     )
                     return
 
-            # Создаем эмбед с информацией о стриме
             settings = get_settings()
-            embed = discord.Embed(
-                title=stream_data["title"],
-                url=f"https://twitch.tv/{username}",
-                color=int(settings.twitch.embed_color.replace("#", ""), 16),
-                timestamp=datetime.datetime.now(UTC),
-            )
+            accent = int(settings.twitch.embed_color.replace("#", ""), 16)
 
-            # Добавляем информацию о стримере
-            embed.set_author(
-                name=f"{stream_data['user_name']} начал(а) стрим!",
-                url=f"https://twitch.tv/{username}",
-                icon_url="https://static.twitchcdn.net/assets/favicon-32-d6025c14e900565d6177.png",
-            )
-
-            # Добавляем превью стрима
-            thumbnail_url = (
-                stream_data["thumbnail_url"].replace("{width}", "320").replace("{height}", "180")
-            )
-            embed.set_image(url=thumbnail_url)
-
-            # Добавляем информацию о категории
-            embed.add_field(
-                name="Категория", value=stream_data["game_name"] or "Не указана", inline=True
-            )
-
-            # Добавляем информацию о зрителях
-            embed.add_field(name="Зрители", value=str(stream_data["viewer_count"]), inline=True)
-
-            # Добавляем футер
-            embed.set_footer(text="Twitch Stream Notification")
-
-            # Проверяем права бота в канале
             permissions = channel.permissions_for(guild.me)
             if not permissions.send_messages:
                 logger.error(
@@ -362,33 +378,17 @@ class TwitchCog(commands.Cog):
                 )
                 return
 
-            if not permissions.embed_links:
-                logger.warning(
-                    f"У бота нет прав на отправку эмбедов в канал {channel.name} "
-                    f"({channel.id}) на сервере {guild.name}"
-                )
-                # Продолжаем, но без эмбеда
-
-            # Отправляем уведомление
             try:
-                # Проверяем, можно ли упоминать @everyone
-                mention_text = ""
-
                 if permissions.embed_links:
-                    logger.info(f"Отправка сообщения с эмбедом в канал {channel.name}")
-                    message = await channel.send(
-                        content=(
-                            f"{mention_text}**{stream_data['user_name']}** "
-                            "начал(а) стрим на Twitch!"
-                        ),
-                        embed=embed,
-                    )
+                    logger.info(f"Отправка CV2-карточки стрима в канал {channel.name}")
+                    view = _build_stream_view(stream_data, username, accent)
+                    message = await channel.send(view=view)
                     logger.info(f"Сообщение успешно отправлено: {message.id}")
                 else:
                     logger.info(f"Отправка текстового сообщения в канал {channel.name}")
                     message = await channel.send(
                         content=(
-                            f"{mention_text}**{stream_data['user_name']}** "
+                            f"**{stream_data['user_name']}** "
                             f"начал(а) стрим на Twitch!\n"
                             f"Название: {stream_data['title']}\n"
                             f"Ссылка: https://twitch.tv/{username}"
@@ -421,6 +421,8 @@ class TwitchCog(commands.Cog):
         twitch_username="Имя пользователя Twitch (без учета регистра)",
         channel="Канал для отправки уведомлений (по умолчанию - текущий канал)",
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def twitch_add(
         self,
@@ -593,6 +595,8 @@ class TwitchCog(commands.Cog):
         name="twitch_remove", description="Удаляет Twitch-стримера из отслеживаемых"
     )
     @app_commands.describe(twitch_username="Имя пользователя Twitch (без учета регистра)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def twitch_remove(self, interaction: discord.Interaction, twitch_username: str) -> None:
         """Удаляет Twitch-стримера из отслеживаемых.

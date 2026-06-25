@@ -6,9 +6,12 @@ import discord
 import pytest
 from discord.ext import commands
 
+from discord import app_commands
+
 from utils.error_handler import (
     command_error_handler,
     get_error_message,
+    handle_app_command_error,
     safe_send,
     safe_send_error,
 )
@@ -252,6 +255,45 @@ class TestCommandErrorHandler:
 
         assert result is None
         mock_safe_send_error.assert_called_once()
+
+
+class TestHandleAppCommandError:
+    """Тесты для глобального обработчика ошибок slash-команд."""
+
+    @pytest.mark.asyncio
+    async def test_known_error_no_stack_log(self, mock_interaction):
+        """Штатная ошибка (нет прав) → ephemeral-ответ, без лога со стеком."""
+        error = app_commands.MissingPermissions(["administrator"])
+        with patch("utils.error_handler.logger") as mock_logger:
+            await handle_app_command_error(mock_interaction, error)
+
+        mock_logger.error.assert_not_called()
+        mock_interaction.response.send_message.assert_awaited_once()
+        kwargs = mock_interaction.response.send_message.await_args.kwargs
+        assert kwargs["ephemeral"] is True
+        assert "недостаточно прав" in kwargs["embed"].description
+
+    @pytest.mark.asyncio
+    async def test_unknown_error_logged_with_stack(self, mock_interaction):
+        """Незнакомая ошибка логируется со стеком и тоже уходит юзеру."""
+        error = app_commands.CommandInvokeError(MagicMock(), ValueError("boom"))
+        with patch("utils.error_handler.logger") as mock_logger:
+            await handle_app_command_error(mock_interaction, error)
+
+        mock_logger.error.assert_called_once()
+        assert mock_logger.error.call_args.kwargs.get("exc_info") is error
+        mock_interaction.response.send_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_uses_followup_when_response_done(self, mock_interaction):
+        """Если интеракция уже отвечена — отвечаем через followup."""
+        mock_interaction.response.is_done.return_value = True
+        error = app_commands.CheckFailure()
+        with patch("utils.error_handler.logger"):
+            await handle_app_command_error(mock_interaction, error)
+
+        mock_interaction.followup.send.assert_awaited_once()
+        mock_interaction.response.send_message.assert_not_called()
 
 
 class TestGetErrorMessage:

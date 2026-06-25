@@ -1,13 +1,13 @@
-"""Ког для управления ролями через реакции на сообщения в Discord.
+"""Ког для выдачи ролей через persistent-кнопки под сообщением.
 
-Этот модуль позволяет администраторам настраивать сообщения, на которые пользователи
-могут нажимать реакции для автоматического получения или снятия ролей.
-Функциональность включает:
-- Создание специального сообщения для выдачи ролей.
-- Привязку ролей к определенным эмодзи.
-- Удаление привязок ролей.
-- Автоматическую выдачу/снятие ролей при добавлении/удалении реакций пользователями.
-- Кэширование информации о сообщениях с реакциями для эффективности.
+Администратор создаёт сообщение (``/setup_role_message``) и привязывает к нему
+роли (``/role_assign``); каждая роль получает кнопку-переключатель. Нажатие
+выдаёт или снимает роль. Кнопки используют ``DynamicItem`` (``role_id`` зашит в
+``custom_id``), поэтому переживают рестарт бота после единственной регистрации
+``bot.add_dynamic_items`` в :meth:`cog_load`.
+
+Привязки хранятся в БД (эмодзи, роль, описание); системная запись с
+``role_id == 0`` помечает само ролевое сообщение и в кнопки не попадает.
 """
 
 import logging
@@ -18,6 +18,9 @@ from discord.ext import commands
 
 from utils.error_handler import command_error_handler, safe_send
 from utils.role_reaction_data_manager import RoleReactionDataManager
+from utils.role_reaction_views import MAX_BUTTONS, RoleButton, parse_emoji
+
+ROLE_MESSAGE_INTRO = "Нужна роль? Нажми на кнопку ниже."
 
 logger = logging.getLogger("bot.cogs.role_reaction")
 
@@ -49,12 +52,21 @@ class RoleReactionCog(commands.Cog):
         ] = {}  # Кеш для хранения ID сообщений с реакциями {guild_id: (channel_id, message_id)}
 
     async def cog_load(self) -> None:
-        """Вызывается при загрузке кога.
+        """Регистрирует persistent-кнопки, грузит кеш и мигрирует старое сообщение.
 
-        Загружает кеш сообщений с реакциями из базы данных.
+        ``add_dynamic_items`` оживляет кнопки ролей после рестарта. Для уже
+        существующего ролевого сообщения (которое могло быть на старых
+        эмодзи-реакциях) перерисовываем его на кнопки.
         """
-        # Загружаем кеш сообщений при старте
+        self.bot.add_dynamic_items(RoleButton)
         await self.load_message_cache()
+        for guild_id in list(self.message_cache):
+            try:
+                await self.update_reaction_message(guild_id)
+            except Exception as e:
+                logger.warning(
+                    f"Не удалось перерисовать ролевое сообщение {guild_id} на кнопки: {e}"
+                )
 
     async def load_message_cache(self) -> None:
         """Загружает кеш сообщений с реакциями из БД в атрибут self.message_cache."""
@@ -68,10 +80,11 @@ class RoleReactionCog(commands.Cog):
             logger.info(f"Загружена информация о сообщении с реакциями для сервера {guild.id}")
 
     async def update_reaction_message(self, guild_id: int) -> bool:
-        """Обновляет существующее сообщение с реакциями на сервере.
+        """Перерисовывает ролевое сообщение: список ролей в тексте + кнопки.
 
-        Добавляет описания ролей и эмодзи в контент сообщения,
-        а также добавляет сами реакции к сообщению, если их там еще нет.
+        Каждой валидной привязке соответствует persistent-кнопка
+        :class:`RoleButton`. Системные записи (``role_id == 0``) и привязки на
+        несуществующие роли в кнопки не попадают.
 
         Args:
             guild_id: ID сервера, на котором нужно обновить сообщение.
@@ -80,7 +93,7 @@ class RoleReactionCog(commands.Cog):
             True, если обновление прошло успешно, иначе False.
         """
         if guild_id not in self.message_cache:
-            logger.warning(f"Не найдено сообщение с реакциями для сервера {guild_id}")
+            logger.warning(f"Не найдено ролевое сообщение для сервера {guild_id}")
             return False
 
         channel_id, message_id = self.message_cache[guild_id]
@@ -102,62 +115,43 @@ class RoleReactionCog(commands.Cog):
         except Exception as e:
             logger.error(f"Ошибка при получении сообщения {message_id}: {e}", exc_info=True)
             return False
-        # Получаем все привязки ролей для этого сервера
+
         role_reactions = await self.data_manager.get_all_role_reactions(guild_id)
 
-        # Формируем новое содержимое сообщения
-        content = "Нужна роль? Нажми на соответствующую реакцию.\n\n"
-
-        # Фильтруем системные записи (с role_id = 0) и собираем валидные эмодзи
-        valid_reactions = []
+        content = f"{ROLE_MESSAGE_INTRO}\n\n"
+        view = discord.ui.View(timeout=None)
         for db_reaction_info in role_reactions:
-            # Пропускаем системную запись
             if db_reaction_info["role_id"] == 0:
                 continue
-
             role = guild.get_role(db_reaction_info["role_id"])
-            if role:
-                emoji = db_reaction_info["emoji"]
-                description = db_reaction_info["description"]
-                content += f"{emoji} - {role.mention}: {description}\n"
-                valid_reactions.append(db_reaction_info)
-            else:
+            if role is None:
                 logger.warning(
                     f"Не найдена роль с ID {db_reaction_info['role_id']} на сервере {guild_id}"
                 )
+                continue
+            content += (
+                f"{db_reaction_info['emoji']} — {role.mention}: {db_reaction_info['description']}\n"
+            )
+            if len(view.children) < MAX_BUTTONS:
+                view.add_item(
+                    RoleButton(
+                        role.id, label=role.name[:80], emoji=parse_emoji(db_reaction_info["emoji"])
+                    )
+                )
 
-        # Обновляем сообщение
         try:
-            await message.edit(content=content)
-            logger.info(f"Обновлено сообщение с реакциями для сервера {guild_id}")
-
-            # Получаем текущие реакции на сообщении
-            existing_reactions = set()
-            msg_reaction: discord.Reaction
-            for msg_reaction in message.reactions:
-                current_emoji_obj = msg_reaction.emoji
-                if hasattr(current_emoji_obj, "id") and current_emoji_obj.id:
-                    emoji_str = _normalize_emoji(f"{current_emoji_obj.name}:{current_emoji_obj.id}")
-                else:
-                    emoji_str = str(current_emoji_obj)
-                existing_reactions.add(emoji_str)
-
-            # Добавляем только новые реакции
-            for reaction_info in valid_reactions:
-                if reaction_info["emoji"] not in existing_reactions:
-                    try:
-                        await message.add_reaction(reaction_info["emoji"])
-                    except discord.HTTPException as e:
-                        logger.error(f"Не удалось добавить реакцию {reaction_info['emoji']}: {e}")
-
+            await message.edit(content=content, view=view)
+            logger.info(f"Обновлено ролевое сообщение для сервера {guild_id}")
             return True
         except Exception as e:
-            logger.error(f"Ошибка при обновлении сообщения с реакциями: {e}", exc_info=True)
+            logger.error(f"Ошибка при обновлении ролевого сообщения: {e}", exc_info=True)
             return False
 
     @commands.hybrid_command(
         name="setup_role_message", description="Создает сообщение для получения ролей через реакции"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @command_error_handler
     async def setup_role_message(self, ctx: commands.Context) -> None:
@@ -205,7 +199,7 @@ class RoleReactionCog(commands.Cog):
                 return
 
             # Отправляем начальное сообщение в определенный ранее target_channel
-            message = await target_channel.send("Нужна роль? Нажми на соответствующую реакцию.")
+            message = await target_channel.send(ROLE_MESSAGE_INTRO)
 
             # Сохраняем информацию о сообщении в кеше
             self.message_cache[ctx.guild.id] = (target_channel.id, message.id)
@@ -249,6 +243,8 @@ class RoleReactionCog(commands.Cog):
         emoji="Эмодзи, который нужно нажать для получения роли",
         description="Описание роли",
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def role_assign(
         self, interaction: discord.Interaction, role: discord.Role, emoji: str, description: str
@@ -336,6 +332,8 @@ class RoleReactionCog(commands.Cog):
         name="role_remove", description="Удаляет роль из списка ролей, получаемых через реакции"
     )
     @app_commands.describe(emoji="Эмодзи, привязанный к роли, которую нужно удалить")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
     async def role_remove(self, interaction: discord.Interaction, emoji: str) -> None:
         """Удаляет роль из списка ролей, получаемых через реакции.
@@ -406,145 +404,6 @@ class RoleReactionCog(commands.Cog):
                 )
             except Exception:
                 pass
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
-        """Обрабатывает добавление реакции для выдачи роли."""
-        if payload.guild_id is None:
-            return
-
-        # Проверяем, есть ли информация о сообщении с реакциями для этого сервера
-        message_info = await self.data_manager.get_message_info(payload.guild_id)
-        if not message_info:
-            return
-
-        channel_id, message_id = message_info
-
-        # Проверяем, что реакция добавлена к нужному сообщению
-        if payload.channel_id != channel_id or payload.message_id != message_id:
-            return
-
-        emoji = payload.emoji.name
-        if payload.emoji.id:
-            emoji = _normalize_emoji(f"{payload.emoji.name}:{payload.emoji.id}")
-
-        role_id = await self.data_manager.get_role_by_emoji(payload.guild_id, emoji)
-        if not role_id:
-            return
-
-        guild = self.bot.get_guild(payload.guild_id)
-        if not guild:
-            return
-
-        role = guild.get_role(role_id)
-        if not role:
-            logger.warning(f"Не найдена роль с ID {role_id} на сервере {payload.guild_id}")
-            return
-
-        # payload.member может быть None для некэшированных юзеров — fetch как fallback.
-        member = payload.member or guild.get_member(payload.user_id)
-        if member is None:
-            try:
-                member = await guild.fetch_member(payload.user_id)
-            except discord.NotFound:
-                logger.warning(
-                    f"Не найден пользователь с ID {payload.user_id} на сервере {payload.guild_id}"
-                )
-                return
-            except Exception as e:
-                logger.error(
-                    f"Ошибка при получении пользователя {payload.user_id}: {e}", exc_info=True
-                )
-                return
-
-        if member.bot:
-            return
-
-        try:
-            await member.add_roles(role, reason="Роль по реакции")
-            logger.info(
-                f"Выдана роль {role.name} пользователю {member.display_name} "
-                f"на сервере {guild.name}"
-            )
-        except discord.Forbidden:
-            logger.error(
-                f"Недостаточно прав для выдачи роли {role.name} пользователю {member.display_name}"
-            )
-        except Exception as e:
-            logger.error(
-                f"Ошибка при выдаче роли {role.name} пользователю {member.display_name}: {e}",
-                exc_info=True,
-            )
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
-        """Обрабатывает удаление реакции для снятия роли."""
-        # Проверяем, есть ли информация о сообщении с реакциями для этого сервера
-        message_info = await self.data_manager.get_message_info(payload.guild_id)
-        if not message_info:
-            return
-
-        channel_id, message_id = message_info
-
-        # Проверяем, что реакция удалена с нужного сообщения
-        if payload.channel_id != channel_id or payload.message_id != message_id:
-            return
-
-        emoji = payload.emoji.name
-        if payload.emoji.id:
-            emoji = _normalize_emoji(f"{payload.emoji.name}:{payload.emoji.id}")
-
-        role_id = await self.data_manager.get_role_by_emoji(payload.guild_id, emoji)
-        if not role_id:
-            return
-
-        # Получаем объект сервера и роли
-        guild = self.bot.get_guild(payload.guild_id)
-        if not guild:
-            return
-
-        role = guild.get_role(role_id)
-        if not role:
-            logger.warning(f"Не найдена роль с ID {role_id} на сервере {payload.guild_id}")
-            return
-
-        # Получаем пользователя
-        member = guild.get_member(payload.user_id)
-        if not member:
-            try:
-                member = await guild.fetch_member(payload.user_id)
-            except discord.NotFound:
-                logger.warning(
-                    f"Не найден пользователь с ID {payload.user_id} на сервере {payload.guild_id}"
-                )
-                return
-            except Exception as e:
-                logger.error(
-                    f"Ошибка при получении пользователя {payload.user_id}: {e}", exc_info=True
-                )
-                return
-
-        # Игнорируем ботов
-        if member.bot:
-            return
-
-        # Снимаем роль с пользователя
-        try:
-            await member.remove_roles(role, reason="Роль по реакции (удалена)")
-            logger.info(
-                f"Снята роль {role.name} с пользователя {member.display_name} "
-                f"на сервере {guild.name}"
-            )
-        except discord.Forbidden:
-            logger.error(
-                f"Недостаточно прав для снятия роли {role.name} "
-                f"с пользователя {member.display_name}"
-            )
-        except Exception as e:
-            logger.error(
-                f"Ошибка при снятии роли {role.name} с пользователя {member.display_name}: {e}",
-                exc_info=True,
-            )
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""

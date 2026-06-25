@@ -394,6 +394,8 @@ class UserStatsTracker(commands.Cog):
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="wrapped", description="[Админ] Персональный итог года (картинкой)."
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
         user="Чей wrapped показать (по умолчанию — ваш).",
@@ -428,6 +430,8 @@ class UserStatsTracker(commands.Cog):
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="topstats", description="[Админ] Серверные итоги активности (картинкой)."
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(period="Период: month (текущий месяц) или year (текущий год).")
     @app_commands.choices(
@@ -452,6 +456,8 @@ class UserStatsTracker(commands.Cog):
         name="wrapped_optout",
         description="[Админ] Включить/выключить персональную рассылку wrapped в ЛС.",
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @command_error_handler
     async def wrapped_optout_command(self, ctx: commands.Context) -> None:
@@ -471,6 +477,8 @@ class UserStatsTracker(commands.Cog):
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="wrapped_monthly", description="[Админ] Опубликовать месячный серверный wrapped."
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(year="Год.", month="Месяц (1-12).")
     @command_error_handler
@@ -490,6 +498,8 @@ class UserStatsTracker(commands.Cog):
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="wrapped_yearly", description="[Админ] Опубликовать годовой серверный wrapped."
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(year="Год.")
     @command_error_handler

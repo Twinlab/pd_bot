@@ -7,7 +7,6 @@
 
 import logging
 from collections import defaultdict
-from datetime import UTC, datetime
 
 import discord
 from discord import ButtonStyle, Interaction, ui
@@ -416,11 +415,23 @@ class ActivityView(ui.View):
 # --- Представление для /mystats и /mystatsall ---
 
 
-class StatsView(ui.View):
-    """Интерактивное представление (View) для пагинации статистики игр пользователя.
+class _StatsPager(ui.ActionRow["StatsView"]):
+    """Ряд кнопок пагинации внутри :class:`StatsView` (Components V2)."""
 
-    Используется командами /mystats и /mystatsall.
-    Отображает статистику в виде эмбеда и позволяет листать страницы.
+    @ui.button(label="⬅️ Назад", style=ButtonStyle.gray, custom_id="prev_button_stats")
+    async def previous_button(self, interaction: Interaction, button: ui.Button) -> None:
+        await self.view.change_page(interaction, -1)
+
+    @ui.button(label="Вперед ➡️", style=ButtonStyle.gray, custom_id="next_button_stats")
+    async def next_button(self, interaction: Interaction, button: ui.Button) -> None:
+        await self.view.change_page(interaction, 1)
+
+
+class StatsView(ui.LayoutView):
+    """CV2-LayoutView для пагинации статистики игр пользователя.
+
+    Используется командами /mystats и /mystatsall. Отображает статистику
+    контейнером с аватаром в шапке и позволяет листать страницы.
     """
 
     def __init__(
@@ -435,14 +446,13 @@ class StatsView(ui.View):
         """Инициализирует представление статистики пользователя.
 
         Args:
-            title: Заголовок для эмбеда.
+            title: Заголовок карточки.
             games_data: Отсортированный список кортежей [(game_name, seconds)].
             user: Объект пользователя Discord (для аватарки).
-            items_per_page: Количество игр на одной странице эмбеда.
+            items_per_page: Количество игр на одной странице.
             messages_count: Сообщений за период (None — поле не показывается).
             voice_seconds: «Умные» голосовые секунды за период (None — поле не показывается).
         """
-        # Получаем настройки
         from config.settings import get_settings
 
         settings = get_settings()
@@ -459,13 +469,12 @@ class StatsView(ui.View):
             1, (len(self.games_data) + self.items_per_page - 1) // self.items_per_page
         )
         self.message: discord.Message | None = None  # Для редактирования при таймауте
-
-        # Обновляем состояние кнопок при инициализации
-        self._update_buttons()
+        self._pager = _StatsPager()
+        self._render()
 
     def _update_buttons(self) -> None:
         """Обновляет состояние кнопок навигации."""
-        for item in self.children:
+        for item in self._pager.children:
             if not isinstance(item, ui.Button):
                 continue
             if item.custom_id == "prev_button_stats":
@@ -473,55 +482,49 @@ class StatsView(ui.View):
             elif item.custom_id == "next_button_stats":
                 item.disabled = self.current_page >= self.max_pages - 1
 
-    def get_current_embed(self) -> discord.Embed:
-        """Формирует эмбед для текущей страницы статистики.
-
-        Returns:
-            Объект discord.Embed для отправки.
-        """
-        embed = discord.Embed(
-            title=self.title,
-            color=discord.Color.blue(),
-            timestamp=datetime.now(UTC),
-        )
+    def _build_container(self) -> ui.Container:
+        """Собирает CV2-контейнер для текущей страницы статистики."""
+        container: ui.Container = ui.Container(accent_colour=discord.Color.blue())
         if self.user:
-            embed.set_thumbnail(url=self.user.display_avatar.url)
+            container.add_item(
+                ui.Section(
+                    f"## {self.title}",
+                    accessory=ui.Thumbnail(self.user.display_avatar.url),
+                )
+            )
+        else:
+            container.add_item(ui.TextDisplay(f"## {self.title}"))
 
-        # Получаем срез данных для текущей страницы
         start_idx = self.current_page * self.items_per_page
         end_idx = min(start_idx + self.items_per_page, len(self.games_data))
         current_games = self.games_data[start_idx:end_idx]
 
-        # Формируем описание эмбеда (список игр)
-        description = ""
         if not current_games:
-            description = "*Нет данных для отображения на этой странице.*"
+            body = "*Нет данных для отображения на этой странице.*"
         else:
-            for i, (game_name, time_spent) in enumerate(current_games, start=start_idx + 1):
-                formatted_time = format_time_short(time_spent)  # Используем хелпер
-                description += f"{i}. {game_name} - {formatted_time}\n"
-
-        embed.description = description
+            lines = [
+                f"{i}. {game_name} - {format_time_short(time_spent)}"
+                for i, (game_name, time_spent) in enumerate(current_games, start=start_idx + 1)
+            ]
+            body = "\n".join(lines)
+        container.add_item(ui.TextDisplay(body))
 
         total_time = sum(game[1] for game in self.games_data)
         has_extra = self.messages_count is not None or self.voice_seconds is not None
-
+        container.add_item(ui.Separator())
         if has_extra:
-            # Компактный ряд из трёх инлайн-полей вместо отдельного
-            # заголовка-разделителя: эмодзи в подписях самодостаточны.
-            embed.add_field(
-                name="📊 Игровое время", value=format_time_short(total_time), inline=True
-            )
-            embed.add_field(name="💬 Сообщения", value=str(self.messages_count or 0), inline=True)
-            embed.add_field(
-                name="🎙️ В войсе", value=format_time_short(self.voice_seconds or 0), inline=True
+            container.add_item(
+                ui.TextDisplay(
+                    f"📊 **Игровое время:** {format_time_short(total_time)}\u2002·\u2002"
+                    f"💬 **Сообщения:** {self.messages_count or 0}\u2002·\u2002"
+                    f"🎙️ **В войсе:** {format_time_short(self.voice_seconds or 0)}"
+                )
             )
         else:
-            embed.add_field(
-                name="📊 Общее игровое время", value=format_time_short(total_time), inline=False
+            container.add_item(
+                ui.TextDisplay(f"📊 **Общее игровое время:** {format_time_short(total_time)}")
             )
 
-        # Устанавливаем футер с информацией о страницах
         if self.max_pages > 1:
             footer_text = (
                 f"Всего игр: {len(self.games_data)} • "
@@ -529,36 +532,33 @@ class StatsView(ui.View):
             )
         else:
             footer_text = f"Всего игр: {len(self.games_data)}"
-        embed.set_footer(text=footer_text)
+        container.add_item(ui.TextDisplay(f"-# {footer_text}"))
 
-        return embed
+        return container
 
-    # --- Кнопки ---
-
-    @ui.button(label="⬅️ Назад", style=ButtonStyle.gray, custom_id="prev_button_stats")
-    async def previous_button(self, interaction: Interaction, button: ui.Button) -> None:
-        """Переключает на предыдущую страницу эмбеда."""
-        if self.current_page > 0:
-            self.current_page -= 1
+    def _render(self) -> None:
+        """Пересобирает LayoutView под текущую страницу (контейнер + пагинация)."""
+        self.clear_items()
+        container = self._build_container()
+        if self.max_pages > 1:
+            container.add_item(self._pager)
             self._update_buttons()
-            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
-        else:
-            await interaction.response.defer()
+        self.add_item(container)
 
-    @ui.button(label="Вперед ➡️", style=ButtonStyle.gray, custom_id="next_button_stats")
-    async def next_button(self, interaction: Interaction, button: ui.Button) -> None:
-        """Переключает на следующую страницу эмбеда."""
-        if self.current_page < self.max_pages - 1:
-            self.current_page += 1
-            self._update_buttons()
-            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+    async def change_page(self, interaction: Interaction, delta: int) -> None:
+        """Сдвигает страницу на ``delta`` и перерисовывает сообщение."""
+        new_page = self.current_page + delta
+        if 0 <= new_page <= self.max_pages - 1:
+            self.current_page = new_page
+            self._render()
+            await interaction.response.edit_message(view=self)
         else:
             await interaction.response.defer()
 
     async def on_timeout(self) -> None:
         """Отключает кнопки при истечении времени ожидания."""
-        for item in self.children:
-            if isinstance(item, (ui.Button, ui.Select)):
+        for item in self._pager.children:
+            if isinstance(item, ui.Button):
                 item.disabled = True
         if self.message:
             try:

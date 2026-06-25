@@ -5,7 +5,39 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 
-from cogs.anime import AnimeCog, AnimePost, _build_post_embed
+from cogs.anime import AnimeCog, AnimePost, _build_post_view
+
+
+def _collect_text(view: discord.ui.LayoutView) -> str:
+    """Склеивает текст всех TextDisplay внутри LayoutView (с обходом контейнеров)."""
+    texts: list[str] = []
+
+    def walk(items) -> None:
+        for item in items:
+            if isinstance(item, discord.ui.TextDisplay):
+                texts.append(item.content)
+            children = getattr(item, "children", None)
+            if children:
+                walk(children)
+
+    walk(view.children)
+    return "\n".join(texts)
+
+
+def _collect_media_urls(view: discord.ui.LayoutView) -> list[str]:
+    """Собирает url всех картинок из MediaGallery внутри LayoutView."""
+    urls: list[str] = []
+
+    def walk(items) -> None:
+        for item in items:
+            if isinstance(item, discord.ui.MediaGallery):
+                urls.extend(media_item.media.url for media_item in item.items)
+            children = getattr(item, "children", None)
+            if children:
+                walk(children)
+
+    walk(view.children)
+    return urls
 
 
 def make_post(post_id=444, score=120):
@@ -146,16 +178,16 @@ class TestAnimeCacheDatabase:
 
                 assert result is True
                 mock_text_channel.send.assert_called_once()
-                sent_embed = mock_text_channel.send.call_args.kwargs["embed"]
-                assert sent_embed.image.url == "https://example.com/test.jpg"
-                assert sent_embed.url == "https://danbooru.donmai.us/posts/555"
+                sent_view = mock_text_channel.send.call_args.kwargs["view"]
+                assert _collect_media_urls(sent_view) == ["https://example.com/test.jpg"]
+                assert "https://danbooru.donmai.us/posts/555" in _collect_text(sent_view)
                 mock_create.assert_called_once()
                 assert mock_create.call_args.kwargs["post_id"] == 555
                 assert 555 in anime_cog.post_cache
 
     @pytest.mark.asyncio
     async def test_post_includes_danbooru_source_link(self, mock_bot, mock_text_channel):
-        """Публикуется embed-карточка с полной картинкой и ссылкой на пост Danbooru."""
+        """Публикуется CV2-карточка с полной картинкой и ссылкой на пост Danbooru."""
         with (
             patch("cogs.anime.get_settings", return_value=create_mock_settings()),
             patch("discord.ext.tasks.loop", return_value=MagicMock()),
@@ -173,12 +205,13 @@ class TestAnimeCacheDatabase:
                 result = await anime_cog.post_anime_image()
 
                 assert result is True
-                sent_embed = mock_text_channel.send.call_args.kwargs["embed"]
+                sent_view = mock_text_channel.send.call_args.kwargs["view"]
                 source_url = "https://danbooru.donmai.us/posts/999"
-                assert sent_embed.image.url == post.url
-                assert sent_embed.url == source_url
-                assert sent_embed.title == post.characters
-                assert any(field.name == "Художник" for field in sent_embed.fields)
+                text = _collect_text(sent_view)
+                assert _collect_media_urls(sent_view) == [post.url]
+                assert source_url in text
+                assert post.characters in text
+                assert "Художник" in text
 
 
 def _build_cog():
@@ -411,22 +444,22 @@ class TestGetAnimeImageRatingOverride:
             assert fetch_mock.await_args.kwargs["rating"] == "g"
 
 
-class TestBuildPostEmbed:
-    """Тесты сборки embed-карточки поста."""
+class TestBuildPostView:
+    """Тесты сборки CV2-карточки поста."""
 
     def test_full_card_has_image_source_and_meta(self):
         post = make_post(post_id=42, score=321)
-        embed = _build_post_embed(post, discord.Color.blue())
+        view = _build_post_view(post, discord.Color.blue())
 
         source_url = "https://danbooru.donmai.us/posts/42"
-        assert embed.image.url == post.url
-        assert embed.url == source_url
-        assert embed.title == post.characters
-        assert any(f.name == "Художник" and f.value == post.artists for f in embed.fields)
-        assert embed.footer.text is not None
-        assert "321" in embed.footer.text
-        assert "sensitive" in embed.footer.text
-        assert "#" not in embed.footer.text
+        text = _collect_text(view)
+        assert _collect_media_urls(view) == [post.url]
+        assert source_url in text
+        assert post.characters in text
+        assert post.artists in text
+        assert "321" in text
+        assert "sensitive" in text
+        assert "#" not in text.replace("-# ", "").replace("### ", "")
 
     def test_no_characters_uses_fallback_title_but_keeps_source(self):
         post = AnimePost(
@@ -438,10 +471,11 @@ class TestBuildPostEmbed:
             artists="",
             characters="",
         )
-        embed = _build_post_embed(post, discord.Color.blue())
+        view = _build_post_view(post, discord.Color.blue())
 
-        assert embed.title == "Открыть на Danbooru"
-        assert embed.url == "https://danbooru.donmai.us/posts/7"
-        assert embed.image.url == post.url
-        assert len(embed.fields) == 0
-        assert "general" in embed.footer.text
+        text = _collect_text(view)
+        assert "Открыть на Danbooru" in text
+        assert "https://danbooru.donmai.us/posts/7" in text
+        assert _collect_media_urls(view) == [post.url]
+        assert "Художник" not in text
+        assert "general" in text
