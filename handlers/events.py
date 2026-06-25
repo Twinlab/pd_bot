@@ -76,25 +76,29 @@ class Events(commands.Cog):
     async def _sync_commands(self) -> None:
         """Синхронизирует slash-команды один раз за сессию.
 
-        Если в конфиге задан ``guild_id`` — копирует глобальные команды в эту
-        гильдию и синкает точечно (Discord применяет их мгновенно, без часовой
-        раскатки). Иначе — глобальный синк (fallback для не настроенного
-        ``GUILD_ID``).
+        Single-guild дизайн: при заданном ``guild_id`` команды живут только в этой
+        гильдии и применяются мгновенно. Глобальную копию очищаем — иначе команды
+        задваиваются в списке (наследие прежнего глобального синка). Без
+        ``guild_id`` — обычный глобальный синк (раскатка до часа).
         """
+        tree = self.bot.tree
         guild_id = get_settings().guild_id
         logger.info("Синхронизация slash-команд...")
         try:
             if guild_id:
                 guild = discord.Object(id=guild_id)
-                self.bot.tree.copy_global_to(guild=guild)
-                synced = await self.bot.tree.sync(guild=guild)
+                tree.copy_global_to(guild=guild)
+                synced = await tree.sync(guild=guild)
+                # Сносим глобальные дубликаты: команды нужны только в гильдии.
+                tree.clear_commands(guild=None)
+                await tree.sync()
                 scope = f"в гильдию {guild_id}"
             else:
-                synced = await self.bot.tree.sync()
+                synced = await tree.sync()
                 scope = "глобально (раскатка до часа; задай GUILD_ID для мгновенного синка)"
-            command_names = [cmd.name for cmd in synced]
             logger.info(
-                f"Синхронизировано {len(synced)} команд {scope}: {', '.join(command_names)}"
+                f"Синхронизировано {len(synced)} команд {scope}: "
+                f"{', '.join(cmd.name for cmd in synced)}"
             )
             self._synced = True
         except Exception as e:

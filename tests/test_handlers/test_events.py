@@ -5,7 +5,7 @@
 для жизненного цикла бота и обработчика ошибок префиксных команд.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from discord.ext import commands
@@ -21,22 +21,26 @@ class TestEventsInit:
 
 class TestOnReady:
     @pytest.mark.asyncio
-    async def test_on_ready_syncs_and_sets_presence(self, mock_bot: MagicMock) -> None:
+    async def test_global_sync_when_no_guild_id(self, mock_bot: MagicMock) -> None:
+        """Без guild_id — один глобальный синк, без copy_global_to/очистки."""
         events = Events(mock_bot)
         mock_bot.tree.sync = AsyncMock(
             return_value=[MagicMock(name="cmd1"), MagicMock(name="cmd2")]
         )
         mock_bot.change_presence = AsyncMock()
 
-        with patch("handlers.events.logger") as mock_logger:
+        fake_settings = MagicMock()
+        fake_settings.guild_id = None
+        with patch("handlers.events.get_settings", return_value=fake_settings):
             await events.on_ready()
-            assert mock_logger.info.call_count >= 3
-            mock_bot.tree.sync.assert_called_once()
-            mock_bot.change_presence.assert_called_once()
+
+        mock_bot.tree.sync.assert_awaited_once_with()
+        mock_bot.tree.copy_global_to.assert_not_called()
+        mock_bot.change_presence.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_guild_scoped_sync_when_guild_id_set(self, mock_bot: MagicMock) -> None:
-        """При заданном guild_id команды копируются и синкаются точечно в гильдию."""
+        """При guild_id команды синкаются в гильдию, а глобальные дубликаты сносятся."""
         events = Events(mock_bot)
         mock_bot.tree.sync = AsyncMock(return_value=[MagicMock(name="cmd1")])
         mock_bot.change_presence = AsyncMock()
@@ -47,8 +51,12 @@ class TestOnReady:
             await events.on_ready()
 
         mock_bot.tree.copy_global_to.assert_called_once()
-        mock_bot.tree.sync.assert_awaited_once()
-        assert mock_bot.tree.sync.await_args.kwargs["guild"].id == 123456789
+        assert mock_bot.tree.copy_global_to.call_args.kwargs["guild"].id == 123456789
+        # Точечный синк в гильдию + пустой глобальный для удаления дубликатов.
+        guild_sync, global_sync = mock_bot.tree.sync.await_args_list
+        assert guild_sync.kwargs["guild"].id == 123456789
+        assert global_sync == call()
+        mock_bot.tree.clear_commands.assert_called_once_with(guild=None)
 
     @pytest.mark.asyncio
     async def test_on_ready_handles_sync_error(self, mock_bot: MagicMock) -> None:
@@ -59,10 +67,7 @@ class TestOnReady:
         with patch("handlers.events.logger") as mock_logger:
             await events.on_ready()
             mock_logger.error.assert_called_once()
-            assert (
-                "Не удалось синхронизировать команды"
-                in mock_logger.error.call_args[0][0]
-            )
+            assert "Не удалось синхронизировать команды" in mock_logger.error.call_args[0][0]
             mock_bot.change_presence.assert_called_once()
 
 
@@ -94,9 +99,7 @@ class TestOnMemberRemove:
             mock_text_channel.send.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_swallows_errors(
-        self, mock_bot: MagicMock, mock_member: MagicMock
-    ) -> None:
+    async def test_swallows_errors(self, mock_bot: MagicMock, mock_member: MagicMock) -> None:
         events = Events(mock_bot)
         mock_member.guild.text_channels = []
 
@@ -133,9 +136,7 @@ class TestOnCommandError:
             assert "Неверный аргумент" in sent_message
 
     @pytest.mark.asyncio
-    async def test_missing_permissions(
-        self, mock_bot: MagicMock, mock_context: MagicMock
-    ) -> None:
+    async def test_missing_permissions(self, mock_bot: MagicMock, mock_context: MagicMock) -> None:
         events = Events(mock_bot)
         with patch("handlers.events.safe_send_error", AsyncMock()) as mock_send:
             await events.on_command_error(
