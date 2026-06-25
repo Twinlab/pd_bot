@@ -2,8 +2,8 @@
 
 * :class:`PartyView` — кнопки «Готов» / «Не готов» в DM (фаза сбора).
 * :class:`PartyConfirmView` — кнопка «Подтверждаю» в DM (фаза чека готовности).
-* :class:`PartyPreviewView` — кнопки «Опубликовать» / «Отмена» в эфемерном
-  превью перед рассылкой DM.
+* :class:`PartyBuilderView` — пошаговый мастер ``/party`` (роль → параметры →
+  превью) в эфемерном сообщении.
 
 Каждое DM-сообщение получает свой экземпляр view: timeout привязан к
 ``deadline`` пати. После таймаута Discord сам деактивирует кнопки клиентам;
@@ -140,79 +140,54 @@ class PartyConfirmView(discord.ui.View):
                 child.disabled = True
 
 
-class PartyPreviewView(discord.ui.View):
-    """Эфемерное превью перед рассылкой: «Опубликовать» / «Отмена».
-
-    Кнопки доступны только автору сбора. Результат пишется в :attr:`choice`
-    (``"publish"`` / ``"cancel"`` / ``None`` по таймауту); публикацию делает
-    вызывающий код после :meth:`discord.ui.View.wait`.
-    """
-
-    def __init__(self, *, author_id: int, timeout: float = 120.0) -> None:
-        super().__init__(timeout=timeout)
-        self.author_id = author_id
-        self.choice: str | None = None
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Пускает к кнопкам только инициатора."""
-        if interaction.user.id != self.author_id:
-            await interaction.response.send_message("Это превью не для тебя.", ephemeral=True)
-            return False
-        return True
-
-    def _disable_all(self) -> None:
-        for child in self.children:
-            if isinstance(child, discord.ui.Button):
-                child.disabled = True
-
-    @discord.ui.button(label="Опубликовать", style=discord.ButtonStyle.success, emoji="📣")
-    async def publish_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,  # noqa: ARG002
-    ) -> None:
-        """Подтверждает публикацию сбора."""
-        self.choice = "publish"
-        self._disable_all()
-        self.stop()
-        try:
-            await interaction.response.edit_message(content="Публикую сбор…", view=None)
-        except discord.HTTPException as e:
-            logger.warning(f"Не удалось обновить превью при публикации: {e}")
-
-    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.danger, emoji="🚫")
-    async def cancel_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,  # noqa: ARG002
-    ) -> None:
-        """Отменяет публикацию."""
-        self.choice = "cancel"
-        self._disable_all()
-        self.stop()
-        try:
-            await interaction.response.edit_message(
-                content="Сбор отменён, рассылки не было.", embed=None, view=None
-            )
-        except discord.HTTPException as e:
-            logger.warning(f"Не удалось обновить превью при отмене: {e}")
-
-
 class _RoleSelect(discord.ui.Select["PartyBuilderView"]):
-    """Выпадающий список доступных игровых ролей."""
+    """Шаг 1 — выпадающий список доступных игровых ролей."""
 
     def __init__(self, builder: PartyBuilderView, roles: list[discord.Role]) -> None:
         options = [
             discord.SelectOption(label=role.name[:100], value=str(role.id)) for role in roles[:25]
         ]
         super().__init__(
-            placeholder="Выбери роль", min_values=1, max_values=1, options=options, row=0
+            placeholder="Шаг 1: выбери роль", min_values=1, max_values=1, options=options, row=0
         )
         self._builder = builder
 
     async def callback(self, interaction: discord.Interaction) -> None:
         self._builder.role_id = int(self.values[0])
-        await self._builder.refresh(interaction)
+        await self._builder.go_to_params(interaction)
+
+
+class _ParamsButton(discord.ui.Button["PartyBuilderView"]):
+    """Шаг 2 — открывает модалку свободного ввода параметров."""
+
+    def __init__(self, builder: PartyBuilderView) -> None:
+        super().__init__(label="Параметры", style=discord.ButtonStyle.primary, emoji="✏️", row=0)
+        self._builder = builder
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(_PartyParamsModal(self._builder))
+
+
+class _PublishButton(discord.ui.Button["PartyBuilderView"]):
+    """Шаг 3 — публикует сбор."""
+
+    def __init__(self, builder: PartyBuilderView) -> None:
+        super().__init__(label="Опубликовать", style=discord.ButtonStyle.success, emoji="📣", row=0)
+        self._builder = builder
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._builder.publish(interaction)
+
+
+class _CancelButton(discord.ui.Button["PartyBuilderView"]):
+    """Закрывает мастер без публикации (доступна на любом шаге)."""
+
+    def __init__(self, builder: PartyBuilderView) -> None:
+        super().__init__(label="Отмена", style=discord.ButtonStyle.danger, emoji="🚫", row=1)
+        self._builder = builder
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await self._builder.cancel(interaction)
 
 
 class _PartyParamsModal(discord.ui.Modal, title="Параметры сбора"):
@@ -257,15 +232,17 @@ class _PartyParamsModal(discord.ui.Modal, title="Параметры сбора")
         if error is not None:
             await interaction.response.send_message(error, ephemeral=True)
             return
-        await self._builder.refresh(interaction)
+        await self._builder.go_to_preview(interaction)
 
 
 class PartyBuilderView(discord.ui.View):
-    """Эфемерная панель сборки пати на меню (команда ``/party_beta``).
+    """Пошаговый мастер сбора пати (команда ``/party``).
 
-    Роль выбирается выпадушкой; время, размер состава и комментарий вводятся
-    свободным текстом в модалке «Параметры»; картинка приходит параметром
-    команды. По кнопке «Создать» дёргается ``cog._create_and_broadcast``.
+    Шаги переключаются редактированием одного эфемерного сообщения:
+    ``role`` (выпадушка ролей) → ``params`` (модалка свободного ввода времени,
+    состава и комментария) → ``preview`` (готовый embed + «Опубликовать»).
+    Картинка приходит параметром команды. Публикацию делает
+    ``cog._create_and_broadcast``.
     """
 
     def __init__(
@@ -285,12 +262,13 @@ class PartyBuilderView(discord.ui.View):
         self.roles = {role.id: role for role in roles}
         self.image_url = image_url
 
+        self.step = "role"
         self.role_id: int | None = None
         self.minutes: int | None = None
         self.count: int | None = None
         self.comment: str = ""
 
-        self.add_item(_RoleSelect(self, roles))
+        self._show_role_step()
 
     def apply_params(self, *, minutes_raw: str, count_raw: str, comment: str) -> str | None:
         """Валидирует и применяет ввод из модалки.
@@ -321,77 +299,95 @@ class PartyBuilderView(discord.ui.View):
         return None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """Пускает к панели только автора."""
+        """Пускает к мастеру только автора."""
         if interaction.user.id != self.author_id:
-            await interaction.response.send_message("Это не твоя панель.", ephemeral=True)
+            await interaction.response.send_message("Это не твоя форма.", ephemeral=True)
             return False
         return True
 
+    def _show_role_step(self) -> None:
+        self.clear_items()
+        self.add_item(_RoleSelect(self, list(self.roles.values())))
+        self.add_item(_CancelButton(self))
+
+    def _show_params_step(self) -> None:
+        self.clear_items()
+        self.add_item(_ParamsButton(self))
+        self.add_item(_CancelButton(self))
+
+    def _show_preview_step(self) -> None:
+        self.clear_items()
+        self.add_item(_PublishButton(self))
+        self.add_item(_CancelButton(self))
+
     def build_embed(self) -> discord.Embed:
-        """Сводка текущего выбора панели."""
-        role = self.roles.get(self.role_id) if self.role_id else None
-        embed = discord.Embed(
-            title="Сборка пати (бета)",
-            description="Выбери роль, жми «Параметры» (время/состав/коммент), затем «Создать».",
+        """Embed под текущий шаг мастера."""
+        if self.step == "preview":
+            role = self.roles.get(self.role_id) if self.role_id else None
+            if role is not None and self.minutes is not None and self.count is not None:
+                embed = self.cog.build_party_preview_embed(
+                    role=role,
+                    initiator=self.initiator,
+                    duration=timedelta(minutes=self.minutes),
+                    count=self.count,
+                    comment=self.comment,
+                    image_url=self.image_url,
+                )
+                embed.set_author(name="Шаг 3/3 — так будет выглядеть сбор")
+                return embed
+
+        if self.step == "params":
+            role = self.roles.get(self.role_id) if self.role_id else None
+            embed = discord.Embed(
+                title="Сбор пати — шаг 2/3",
+                description="Жми «Параметры» и заполни время, состав и комментарий.",
+                color=discord.Color.blurple(),
+            )
+            embed.add_field(name="Роль", value=role.mention if role else "—", inline=True)
+            return embed
+
+        return discord.Embed(
+            title="Сбор пати — шаг 1/3",
+            description="Выбери игровую роль из списка.",
             color=discord.Color.blurple(),
         )
-        embed.add_field(name="Роль", value=role.mention if role else "_не выбрана_", inline=True)
-        embed.add_field(
-            name="Закрытие",
-            value=f"{self.minutes} мин" if self.minutes else "_не выбрано_",
-            inline=True,
-        )
-        embed.add_field(
-            name="Состав",
-            value=f"{self.count} чел." if self.count else "_не выбран_",
-            inline=True,
-        )
-        embed.add_field(name="Комментарий", value=self.comment or "_пусто_", inline=False)
-        embed.add_field(name="Картинка", value="есть" if self.image_url else "нет", inline=True)
-        return embed
 
-    async def refresh(self, interaction: discord.Interaction) -> None:
-        """Перерисовывает панель с актуальным выбором."""
+    async def _render(self, interaction: discord.Interaction) -> None:
         try:
             await interaction.response.edit_message(embed=self.build_embed(), view=self)
         except discord.HTTPException as e:
-            logger.warning(f"Не удалось обновить панель сборки пати: {e}")
+            logger.warning(f"Не удалось обновить мастер сбора пати: {e}")
+
+    async def go_to_params(self, interaction: discord.Interaction) -> None:
+        """Переход на шаг ввода параметров."""
+        self.step = "params"
+        self._show_params_step()
+        await self._render(interaction)
+
+    async def go_to_preview(self, interaction: discord.Interaction) -> None:
+        """Переход на шаг превью после успешного ввода параметров."""
+        self.step = "preview"
+        self._show_preview_step()
+        await self._render(interaction)
 
     def _disable_all(self) -> None:
         for child in self.children:
             if isinstance(child, (discord.ui.Button, discord.ui.Select)):
                 child.disabled = True
 
-    @discord.ui.button(label="Параметры", style=discord.ButtonStyle.secondary, emoji="✏️", row=1)
-    async def params_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,  # noqa: ARG002
-    ) -> None:
-        """Открывает модалку ввода времени, состава и комментария."""
-        await interaction.response.send_modal(_PartyParamsModal(self))
-
-    @discord.ui.button(label="Создать", style=discord.ButtonStyle.success, emoji="📣", row=1)
-    async def create_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,  # noqa: ARG002
-    ) -> None:
-        """Валидирует выбор и публикует сбор."""
-        if self.role_id is None or self.minutes is None or self.count is None:
-            await interaction.response.send_message(
-                "Сначала выбери роль и заполни «Параметры» (время и состав).", ephemeral=True
-            )
-            return
-        role = self.roles.get(self.role_id)
+    async def publish(self, interaction: discord.Interaction) -> None:
+        """Публикует сбор по кнопке «Опубликовать»."""
+        role = self.roles.get(self.role_id) if self.role_id else None
         channel = interaction.channel
         if (
             role is None
+            or self.minutes is None
+            or self.count is None
             or interaction.guild is None
             or not isinstance(channel, discord.abc.Messageable)
         ):
             await interaction.response.send_message(
-                "Не получилось определить роль или канал.", ephemeral=True
+                "Не получилось определить роль, параметры или канал.", ephemeral=True
             )
             return
 
@@ -409,13 +405,8 @@ class PartyBuilderView(discord.ui.View):
             image_url=self.image_url,
         )
 
-    @discord.ui.button(label="Отмена", style=discord.ButtonStyle.danger, emoji="🚫", row=1)
-    async def cancel_button(
-        self,
-        interaction: discord.Interaction,
-        button: discord.ui.Button,  # noqa: ARG002
-    ) -> None:
-        """Закрывает панель без публикации."""
+    async def cancel(self, interaction: discord.Interaction) -> None:
+        """Закрывает мастер без публикации."""
         self._disable_all()
         self.stop()
         try:
@@ -423,4 +414,4 @@ class PartyBuilderView(discord.ui.View):
                 content="Сборка отменена.", embed=None, view=None
             )
         except discord.HTTPException as e:
-            logger.warning(f"Не удалось закрыть панель сборки пати: {e}")
+            logger.warning(f"Не удалось закрыть мастер сбора пати: {e}")

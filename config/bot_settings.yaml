@@ -211,6 +211,7 @@ party:
   enable_ready_check: true           # Чек готовности после заполнения основы
   confirm_window_seconds: 120        # Окно на «Подтверждаю» для каждого участника
   ready_check_poll_seconds: 1.0      # Период опроса дедлайнов подтверждения
+  confirm_request_message: "Пати собралось! Жми «Подтверждаю», если реди — иначе слот уйдёт начинке."
   confirm_nudge_message: "Освободилось место в пачете — жми «Подтверждаю» если реди!"
   partial_finished_message: "Пати собрано частично: {ready_pings} ({role}: {comment})."
 

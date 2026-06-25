@@ -1,8 +1,9 @@
 """Ког сбора пати в игры через DM-кнопки.
 
-Команда ``/party`` показывает инициатору эфемерное превью embed-а с кнопками
-**Опубликовать** / **Отмена**; после публикации создаётся публичный embed в
-канале и рассылаются DM каждому участнику с указанной серверной ролью.
+Команда ``/party`` открывает пошаговый эфемерный мастер: **роль** (выпадушка)
+→ **параметры** (модалка со свободным вводом времени, состава и комментария)
+→ **превью** с кнопкой **Опубликовать**. После публикации создаётся публичный
+embed в канале и рассылаются DM каждому участнику с указанной серверной ролью.
 В DM есть две кнопки: **Готов** и **Не готов**. Нажатие любой кнопки обновляет
 embed синхронно во всех личках и в публичном канале. К сбору можно приложить
 картинку (параметр ``image``).
@@ -29,22 +30,14 @@ from discord.ext import commands
 from config import get_settings
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.party.data_manager import PartyDataManager
-from utils.party.duration import parse_minutes
 from utils.party.embeds import build_party_embed
 from utils.party.manager import Party, PartyManager, PartyPhase
 from utils.party.views import (
     PartyBuilderView,
     PartyConfirmView,
-    PartyPreviewView,
     PartyView,
 )
 from utils.role_reaction_data_manager import RoleReactionDataManager
-
-
-def _party_cooldown(ctx: commands.Context) -> commands.Cooldown:
-    """Берёт текущий лимит кулдауна из настроек на каждый вызов команды."""
-    return commands.Cooldown(1, get_settings().party.command_cooldown_seconds)
-
 
 logger = logging.getLogger("bot.cogs.party")
 
@@ -58,6 +51,7 @@ class PartyCog(commands.Cog):
     role_reaction_manager: RoleReactionDataManager
     _timers: dict[str, asyncio.Task[None]]
     _check_timers: dict[str, asyncio.Task[None]]
+    _last_party: dict[int, datetime]
 
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
@@ -66,6 +60,7 @@ class PartyCog(commands.Cog):
         self.role_reaction_manager = RoleReactionDataManager()
         self._timers = {}
         self._check_timers = {}
+        self._last_party = {}
 
     async def _allowed_role_ids(self, guild_id: int) -> set[int]:
         """ID ролей, разрешённых для сбора (только выданные через /role_assign).
@@ -245,13 +240,13 @@ class PartyCog(commands.Cog):
             return_exceptions=True,
         )
 
-    async def _nudge_user(self, party: Party, user_id: int) -> None:
-        """Шлёт в DM короткий пинг тому, кого подняли из начинки в основу."""
+    async def _nudge_user(self, party: Party, user_id: int, text: str) -> None:
+        """Шлёт в DM отдельным сообщением пинг юзеру с просьбой подтвердиться."""
         msg = party.dm_messages.get(user_id)
         if msg is None:
             return
         try:
-            await msg.channel.send(get_settings().party.confirm_nudge_message)
+            await msg.channel.send(f"<@{user_id}> {text}")
         except (discord.Forbidden, discord.HTTPException) as e:
             logger.info(f"Не удалось пнуть юзера {user_id} в чеке: {e}")
 
@@ -269,6 +264,11 @@ class PartyCog(commands.Cog):
 
         await self._sync_check_views(started)
         await self._refresh_public_embed(started)
+        request = settings.party.confirm_request_message
+        await asyncio.gather(
+            *(self._nudge_user(started, uid, request) for uid in started.pending_confirm),
+            return_exceptions=True,
+        )
         self._start_check_loop(started)
         logger.info(f"Пати {party.id}: основа набрана, запущен чек готовности")
 
@@ -294,8 +294,9 @@ class PartyCog(commands.Cog):
                     await self._finalize(party)
                     return
                 if tick.changed:
+                    nudge = settings.party.confirm_nudge_message
                     for uid in tick.promoted:
-                        await self._nudge_user(party, uid)
+                        await self._nudge_user(party, uid, nudge)
                     await self._sync_check_views(party)
                     await self._refresh_public_embed(party)
         except asyncio.CancelledError:
@@ -386,88 +387,17 @@ class PartyCog(commands.Cog):
         if check_task is not None and check_task is not asyncio.current_task():
             check_task.cancel()
 
-    @commands.hybrid_command(
-        name="party",
-        description="Собрать пати в игру: разошлёт DM всем с этой ролью.",
-    )
-    @app_commands.describe(
-        role="Игровая роль (только из /role_assign)",
-        when="Через сколько закроется сбор (минут, максимум 240)",
-        count="Сколько человек нужно в состав пати (включая тебя)",
-        comment="Комментарий, который увидят все",
-        image="Картинка к сбору (опционально)",
-    )
-    @commands.dynamic_cooldown(_party_cooldown, commands.BucketType.user)
-    @command_error_handler
-    async def party(
+    def _party_cooldown_remaining(self, user_id: int) -> int:
+        """Сколько секунд осталось до следующего разрешённого сбора (0 — можно)."""
+        last = self._last_party.get(user_id)
+        if last is None:
+            return 0
+        elapsed = (datetime.now(UTC) - last).total_seconds()
+        remaining = get_settings().party.command_cooldown_seconds - elapsed
+        return max(0, int(remaining))
+
+    def build_party_preview_embed(
         self,
-        ctx: commands.Context,
-        role: discord.Role,
-        when: app_commands.Range[int, 1, 240],
-        count: app_commands.Range[int, 1, 25],
-        comment: str,
-        image: discord.Attachment | None = None,
-    ) -> None:
-        """Создаёт сбор пати. Подробности — в docstring модуля."""
-        settings = get_settings()
-
-        if ctx.guild is None:
-            await safe_send_error(ctx, "чел ты долбоёб? пиши команду в конфе")
-            return
-
-        if await self.data_manager.is_blocked(ctx.author.id):
-            await safe_send_error(ctx, "ты в бане")
-            return
-
-        allowed_role_ids = await self._allowed_role_ids(ctx.guild.id)
-        if role.id not in allowed_role_ids:
-            await safe_send_error(
-                ctx,
-                "Можно звать только в роли из /role_assign — выбери одну из них.",
-            )
-            return
-
-        try:
-            duration = parse_minutes(
-                when,
-                min_minutes=settings.party.min_duration_minutes,
-                max_minutes=settings.party.max_duration_minutes,
-            )
-        except ValueError as e:
-            await safe_send_error(ctx, str(e))
-            return
-
-        if not (settings.party.min_count <= count <= settings.party.max_count):
-            await safe_send_error(
-                ctx,
-                f"Число участников должно быть от {settings.party.min_count} "
-                f"до {settings.party.max_count}.",
-            )
-            return
-
-        if image is not None and not (image.content_type or "").startswith("image/"):
-            await safe_send_error(ctx, "Вложение должно быть картинкой.")
-            return
-
-        initiator = ctx.author
-        if not isinstance(initiator, discord.Member):
-            await safe_send_error(ctx, "чел ты не в конфе")
-            return
-
-        image_url = image.url if image is not None else None
-        await self._preview_and_publish(
-            ctx,
-            role=role,
-            initiator=initiator,
-            duration=duration,
-            count=count,
-            comment=comment,
-            image_url=image_url,
-        )
-
-    async def _preview_and_publish(
-        self,
-        ctx: commands.Context,
         *,
         role: discord.Role,
         initiator: discord.Member,
@@ -475,19 +405,13 @@ class PartyCog(commands.Cog):
         count: int,
         comment: str,
         image_url: str | None,
-    ) -> None:
-        """Показывает эфемерное превью и публикует сбор по подтверждению.
-
-        В превью видно, как embed будет выглядеть; кнопки «Опубликовать» /
-        «Отмена» решают судьбу. На отмене/таймауте кулдаун команды
-        сбрасывается, чтобы попытка не «сгорала».
-        """
-        assert ctx.guild is not None  # проверено выше в party()
+    ) -> discord.Embed:
+        """Строит embed-превью сбора (как он будет выглядеть после публикации)."""
         now = datetime.now(UTC)
         preview_party = Party(
             id="preview",
-            guild_id=ctx.guild.id,
-            channel_id=ctx.channel.id,
+            guild_id=initiator.guild.id,
+            channel_id=0,
             public_message_id=0,
             role_id=role.id,
             initiator_id=initiator.id,
@@ -499,69 +423,14 @@ class PartyCog(commands.Cog):
             joined_order=[initiator.id],
         )
         settings = get_settings()
-        preview_embed = build_party_embed(
+        return build_party_embed(
             preview_party,
             role_name=role.name,
             initiator=initiator,
-            member_resolver=self._member_resolver(ctx.guild),
+            member_resolver=self._member_resolver(initiator.guild),
             initiator_emoji=settings.party.initiator_emoji,
             finalized=False,
             jump_url=None,
-        )
-
-        view = PartyPreviewView(author_id=initiator.id)
-        preview_msg = await ctx.send(
-            content="Так будет выглядеть сбор. Опубликовать?",
-            embed=preview_embed,
-            view=view,
-            ephemeral=True,
-        )
-        await view.wait()
-
-        if view.choice == "publish":
-            await self._publish_party(
-                ctx,
-                role=role,
-                initiator=initiator,
-                duration=duration,
-                count=count,
-                comment=comment,
-                image_url=image_url,
-            )
-            return
-
-        if ctx.command is not None:
-            ctx.command.reset_cooldown(ctx)
-        if view.choice != "cancel" and preview_msg is not None:
-            try:
-                await preview_msg.edit(
-                    content="Превью истекло, сбор не создан.", embed=None, view=None
-                )
-            except discord.HTTPException:
-                pass
-
-    async def _publish_party(
-        self,
-        ctx: commands.Context,
-        *,
-        role: discord.Role,
-        initiator: discord.Member,
-        duration: timedelta,
-        count: int,
-        comment: str,
-        image_url: str | None,
-    ) -> None:
-        """Публикует сбор из контекста команды (обёртка над _create_and_broadcast)."""
-        assert ctx.guild is not None
-        await self._create_and_broadcast(
-            guild=ctx.guild,
-            channel=ctx.channel,
-            role=role,
-            initiator=initiator,
-            duration=duration,
-            count=count,
-            comment=comment,
-            image_url=image_url,
         )
 
     async def _create_and_broadcast(
@@ -625,19 +494,20 @@ class PartyCog(commands.Cog):
             self._finalize_after(party, seconds), name=f"party-finalize-{party.id}"
         )
         self._timers[party.id] = task
+        self._last_party[initiator.id] = now
         return party
 
     @app_commands.command(
-        name="party_beta",
-        description="(Бета) Собрать пати через панель с меню.",
+        name="party",
+        description="Собрать пати: пошаговый мастер (роль → параметры → публикация).",
     )
     @app_commands.describe(image="Картинка к сбору (опционально)")
-    async def party_beta(
+    async def party(
         self,
         interaction: discord.Interaction,
         image: discord.Attachment | None = None,
     ) -> None:
-        """Открывает эфемерную панель сборки пати."""
+        """Открывает пошаговый эфемерный мастер сбора пати."""
         guild = interaction.guild
         if guild is None:
             await interaction.response.send_message("Только в конфе, чел.", ephemeral=True)
@@ -646,6 +516,19 @@ class PartyCog(commands.Cog):
         initiator = interaction.user
         if not isinstance(initiator, discord.Member):
             await interaction.response.send_message("Ты не в конфе.", ephemeral=True)
+            return
+
+        if await self.data_manager.is_blocked(initiator.id):
+            await interaction.response.send_message("ты в бане", ephemeral=True)
+            return
+
+        remaining = self._party_cooldown_remaining(initiator.id)
+        if remaining > 0:
+            await interaction.response.send_message(
+                f"Слишком часто — следующий сбор можно через {remaining // 60} мин "
+                f"{remaining % 60} сек.",
+                ephemeral=True,
+            )
             return
 
         allowed_role_ids = await self._allowed_role_ids(guild.id)

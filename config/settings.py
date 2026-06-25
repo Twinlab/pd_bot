@@ -485,6 +485,8 @@ class PartyConfig(BaseModel):
         enable_ready_check: Включить фазу чека готовности после заполнения основы.
         confirm_window_seconds: Окно подтверждения на одного участника в чеке.
         ready_check_poll_seconds: Период опроса дедлайнов подтверждения.
+        confirm_request_message: DM-пинг каждому из основы при старте чека —
+            «состав собрался, подтверди готовность».
         confirm_nudge_message: DM-нудж тому, кого подняли из начинки в основу.
         partial_finished_message: Шаблон финала, если после чека состав собрался
             лишь частично. Поддерживает {ready_pings}, {role}, {comment}.
@@ -507,6 +509,9 @@ class PartyConfig(BaseModel):
     enable_ready_check: bool = True
     confirm_window_seconds: int = 120
     ready_check_poll_seconds: float = 1.0
+    confirm_request_message: str = (
+        "🔔 Состав собрался! Жми «Подтверждаю», что готов играть — иначе слот уйдёт запасному."
+    )
     confirm_nudge_message: str = (
         "🔔 Освободилось место в основе — жми «Подтверждаю», пока не уплыло!"
     )

@@ -12,7 +12,6 @@ from utils.party.manager import Party, PartyManager, PartyPhase, ReadyCheckTick
 from utils.party.views import (
     PartyBuilderView,
     PartyConfirmView,
-    PartyPreviewView,
     PartyView,
 )
 
@@ -23,7 +22,6 @@ __all__ = [
     "PartyDataManager",
     "PartyManager",
     "PartyPhase",
-    "PartyPreviewView",
     "PartyView",
     "ReadyCheckTick",
     "build_party_embed",
