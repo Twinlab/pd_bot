@@ -336,13 +336,17 @@ async def handle_lastmatch(
     # Components V2: контейнер с превью героя в шапке (Section + Thumbnail),
     # компактными метаданными и кнопками-ссылками на внешние ресурсы.
     sep = "\u2002·\u2002"
+    nbsp = "\u2002"
+    dur_str = f"{duration // 60}:{duration % 60:02}"
+    date_str = datetime_obj.strftime("%d/%m/%Y")
     header = f"### {kda_comment}\n**{player_name}**{sep}{role}"
+    # Статы сгруппированы построчно: бой → экономика → параметры матча → рекорды,
+    # чтобы разнородные цифры не смешивались в одну ленту.
     stats = (
-        f"**KDA:** {kills}/{deaths}/{assists}{sep}**Режим:** {game_mode}{sep}"
-        f"**Длительность:** {duration // 60}:{duration % 60:02}\n"
-        f"**Аверага:** {rank}{sep}**GPM/XPM:** {gpm}/{xpm}{sep}**Networth:** {networth}\n"
-        f"**Hero Damage:** {hero_damage}{sep}**Дата:** {datetime_obj.strftime('%d/%m/%Y')}\n"
-        f"**Daily W-L:** {daily_wl_str}{sep}**Weekly W-L:** {weekly_wl_str}"
+        f"⚔️{nbsp}**KDA** {kills}/{deaths}/{assists}{sep}🔥{nbsp}**Урон** {hero_damage}\n"
+        f"💰{nbsp}**Networth** {networth}{sep}📈{nbsp}**GPM/XPM** {gpm}/{xpm}\n"
+        f"🏅{nbsp}**Ранг** {rank}{sep}🎮{nbsp}**{game_mode}**{sep}⏱️{nbsp}{dur_str}\n"
+        f"📊{nbsp}**W-L** день {daily_wl_str}{sep}неделя {weekly_wl_str}{sep}📅{nbsp}{date_str}"
     )
 
     container: discord.ui.Container = discord.ui.Container(accent_colour=accent)

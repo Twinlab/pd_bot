@@ -50,15 +50,30 @@ class RoleReactionCog(commands.Cog):
         self.message_cache: dict[
             int, tuple[int, int]
         ] = {}  # Кеш для хранения ID сообщений с реакциями {guild_id: (channel_id, message_id)}
+        self._migrated = False  # Перерисовку на кнопки делаем один раз за процесс
 
     async def cog_load(self) -> None:
-        """Регистрирует persistent-кнопки, грузит кеш и мигрирует старое сообщение.
+        """Регистрирует persistent-кнопки ролей.
 
-        ``add_dynamic_items`` оживляет кнопки ролей после рестарта. Для уже
-        существующего ролевого сообщения (которое могло быть на старых
-        эмодзи-реакциях) перерисовываем его на кнопки.
+        ``add_dynamic_items`` оживляет кнопки после рестарта (``role_id`` зашит в
+        ``custom_id``). Загрузку кеша и перерисовку старого сообщения делаем в
+        :meth:`on_ready` — на момент ``cog_load`` бот ещё не подключён к гильдиям
+        (``self.bot.guilds`` пуст), и кеш просто не загрузился бы.
         """
         self.bot.add_dynamic_items(RoleButton)
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Один раз за процесс грузит кеш и мигрирует сообщение на кнопки.
+
+        Старое ролевое сообщение могло быть на эмодзи-реакциях — перерисовываем
+        его на кнопки и снимаем легаси-реакции. ``on_ready`` может срабатывать на
+        каждый реконнект, поэтому защищаемся флагом ``_migrated``.
+        """
+        if self._migrated:
+            return
+        self._migrated = True
+
         await self.load_message_cache()
         for guild_id in list(self.message_cache):
             try:
@@ -141,6 +156,12 @@ class RoleReactionCog(commands.Cog):
 
         try:
             await message.edit(content=content, view=view)
+            # Снимаем легаси эмодзи-реакции, оставшиеся от старой схемы выдачи ролей.
+            if message.reactions:
+                try:
+                    await message.clear_reactions()
+                except (discord.Forbidden, discord.HTTPException) as e:
+                    logger.warning(f"Не удалось снять старые реакции с {message_id}: {e}")
             logger.info(f"Обновлено ролевое сообщение для сервера {guild_id}")
             return True
         except Exception as e:

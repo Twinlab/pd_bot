@@ -512,14 +512,16 @@ class TopReactionsCog(commands.Cog):
         """Сводит (month, year, all_time) к (period, year, month, limit).
 
         Логика как в /mystats: явные year/month имеют приоритет; all_time
-        переопределяет всё и берёт расширенный лимит ``all_time_top``.
+        переопределяет всё. Ручные команды всегда берут расширенный лимит
+        ``all_time_top`` — так лидерборд листается (``live_top`` оставлен только
+        для авто-отчёта, который одной страницей шлёт топ месяца).
         """
         settings = get_settings()
         if all_time:
             return "all", None, None, settings.top_reactions.all_time_top
         # period="month" — placeholder; resolve_period_range сам учтёт явные
         # year/month, а если их нет — возьмёт текущий месяц.
-        return "month", year, month, settings.top_reactions.live_top
+        return "month", year, month, settings.top_reactions.all_time_top
 
     async def _validate_period_args(
         self, ctx: commands.Context, *, month: int | None, year: int | None

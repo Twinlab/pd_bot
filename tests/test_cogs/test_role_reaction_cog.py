@@ -135,16 +135,29 @@ class TestRoleReactionCogInitAndLoad:
         assert not role_reaction_cog.message_cache
 
     @pytest.mark.asyncio
-    async def test_cog_load_registers_buttons_and_loads_cache(
+    async def test_cog_load_registers_buttons(
         self, role_reaction_cog: RoleReactionCog, mock_bot: commands.Bot
     ):
-        """cog_load регистрирует persistent-кнопки и грузит кеш сообщений."""
+        """cog_load только регистрирует persistent-кнопки (кеш грузится в on_ready)."""
         from utils.role_reaction_views import RoleButton
 
         role_reaction_cog.load_message_cache = AsyncMock()
         await role_reaction_cog.cog_load()
-        role_reaction_cog.load_message_cache.assert_called_once()
         mock_bot.add_dynamic_items.assert_called_once_with(RoleButton)
+        role_reaction_cog.load_message_cache.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_on_ready_migrates_once(self, role_reaction_cog: RoleReactionCog):
+        """on_ready грузит кеш и перерисовывает сообщение ровно один раз за процесс."""
+        role_reaction_cog.load_message_cache = AsyncMock()
+        role_reaction_cog.update_reaction_message = AsyncMock()
+        role_reaction_cog.message_cache = {123: (1, 2)}
+
+        await role_reaction_cog.on_ready()
+        await role_reaction_cog.on_ready()  # повторный реконнект не должен мигрировать снова
+
+        role_reaction_cog.load_message_cache.assert_called_once()
+        role_reaction_cog.update_reaction_message.assert_called_once_with(123)
 
     @pytest.mark.asyncio
     async def test_load_message_cache_empty(
@@ -265,7 +278,9 @@ class TestSetupRoleMessageCommand:
         with patch("cogs.role_reaction.safe_send", new_callable=AsyncMock) as mock_safe_send:
             await role_reaction_cog.setup_role_message.callback(role_reaction_cog, mock_ctx)
             mock_safe_send.assert_called_once_with(
-                mock_ctx, "У бота нет прав для отправки сообщений в указанный канал.", ephemeral=True
+                mock_ctx,
+                "У бота нет прав для отправки сообщений в указанный канал.",
+                ephemeral=True,
             )
 
 
@@ -368,7 +383,9 @@ class TestRoleRemoveCommand:
         mock_data_manager: RoleReactionDataManager,
     ):
         mock_data_manager.get_message_info.return_value = None
-        await role_reaction_cog.role_remove.callback(role_reaction_cog, mock_interaction, emoji="👍")
+        await role_reaction_cog.role_remove.callback(
+            role_reaction_cog, mock_interaction, emoji="👍"
+        )
         mock_interaction.response.send_message.assert_called_once()
         assert (
             "Сообщение с реакциями не найдено."
