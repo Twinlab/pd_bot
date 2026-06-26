@@ -340,15 +340,16 @@ async def handle_lastmatch(
     dur_str = f"{duration // 60}:{duration % 60:02}"
     date_str = datetime_obj.strftime("%d/%m/%Y")
 
-    # Шапка: вердикт крупно + кто играл и на какой роли.
-    header = f"### {kda_comment}\n**{player_name}**{sep}{role}"
+    # Шапка: вердикт крупно (## — у Discord нет цвета текста, вес держим размером
+    # заголовка) + кто играл и на какой роли.
+    header = f"## {kda_comment}\n**{player_name}**{sep}{role}"
 
     # Блок «Матч» — контекст игры, дата в подписи.
     match_block = f"-# МАТЧ{sep}{date_str}\n**{game_mode}**{sep}{dur_str}\nаверага **{rank}**"
 
-    # Блок «Игрок» — KDA крупным числом + личная стата.
+    # Блок «Игрок» — KDA крупным числом-якорем (# — самый большой) + личная стата.
     player_block = (
-        f"### {kda_value:.2f}\n"
+        f"# {kda_value:.2f}\n"
         f"-# KDA\n"
         f"K/D/A **{kills}/{deaths}/{assists}**{sep}урон **{hero_damage}**\n"
         f"networth **{networth}**{sep}GPM/XPM **{gpm}/{xpm}**\n"
@@ -368,7 +369,7 @@ async def handle_lastmatch(
     )
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(match_block))
-    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
+    container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(player_block))
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(items_block))

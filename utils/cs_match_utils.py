@@ -411,8 +411,9 @@ async def handle_cs_lastmatch(
 
     sep = "\u2002·\u2002"
 
-    # Шапка: вердикт крупно + кто играл.
-    header = f"### {kda_comment}\n**{nickname}**{sep}LVL {level_str}{sep}{elo_str} ELO"
+    # Шапка: вердикт крупно (## — у Discord нет цвета текста, так что вес держим
+    # размером заголовка) + кто играл.
+    header = f"## {kda_comment}\n**{nickname}**{sep}LVL {level_str}{sep}{elo_str} ELO"
 
     # Блок «Матч» — контекст игры, выносим выше личной статы. Дата — в подписи.
     match_lines = [
@@ -423,9 +424,9 @@ async def handle_cs_lastmatch(
         match_lines.append(f"avg lobby lvl **{avg_lvl:.1f}**")
     match_block = "\n".join(match_lines)
 
-    # Блок «Игрок» — рейтинг крупным числом + личная стата.
+    # Блок «Игрок» — рейтинг крупным числом-якорем (# — самый большой) + личная стата.
     player_block = (
-        f"### {rating_str}\n"
+        f"# {rating_str}\n"
         f"-# RATING\n"
         f"K/D/A **{kills}/{deaths}/{assists}**{sep}K/D **{kd_ratio:.2f}**\n"
         f"ADR **{adr_str}**{sep}HS **{hs_percent}%**{sep}MVP **{mvps}**\n"
@@ -441,7 +442,7 @@ async def handle_cs_lastmatch(
         container.add_item(discord.ui.TextDisplay(header))
     container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(match_block))
-    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
+    container.add_item(discord.ui.Separator())
     container.add_item(discord.ui.TextDisplay(player_block))
 
     buttons: list[Button] = []
