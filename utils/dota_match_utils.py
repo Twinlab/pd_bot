@@ -8,6 +8,7 @@
 import asyncio
 import logging
 from datetime import UTC, datetime
+from io import BytesIO
 
 import discord
 from discord.ext import commands  # Для type hint в docstring
@@ -16,6 +17,13 @@ from discord.ui import Button
 # Импорт других утилит
 from utils.dota_api import fetch_items_data, query_api_with_retry
 from utils.dota_utils import convert_average_rank_to_medal, get_game_mode, get_role, get_win_rates
+from utils.match_card import (
+    DotaCardData,
+    ItemImage,
+    fetch_image_bytes,
+    item_image_url,
+    render_dota_card,
+)
 
 logger = logging.getLogger("bot.utils.dota_match_utils")
 
@@ -313,86 +321,87 @@ async def handle_lastmatch(
         except Exception as wl_error:
             logger.error(f"Ошибка при расчете винрейта: {wl_error}")
 
-    # Предметы игрока (основные 6 слотов) + нейтралка выделена жирным.
-    items_str = []
-    if items_dict:
-        for i in range(6):
-            item_id = player_data.get(f"item{i}Id")
-            if item_id and item_id > 0 and item_id in items_dict:
-                items_str.append(items_dict[item_id].get("displayName", f"Item {item_id}"))
-    neutral_str = ""
-    if items_dict:
-        neutral_id = player_data.get("neutral0Id")
-        if neutral_id and neutral_id > 0 and neutral_id in items_dict:
-            neutral_str = (
-                " | **" + items_dict[neutral_id].get("displayName", f"Item {neutral_id}") + "**"
-            )
-    all_items = ", ".join(items_str) + neutral_str
+    # Иконки предметов (6 слотов) + нейтралка; картинки тянем с Valve cdn по item-name.
+    item_list: list[ItemImage] = []
+    for i in range(6):
+        item_id = player_data.get(f"item{i}Id")
+        info = items_dict.get(item_id) if (items_dict and item_id and item_id > 0) else None
+        if info:
+            image = await fetch_image_bytes(item_image_url(info["name"]))
+            item_list.append(ItemImage(info.get("displayName", ""), image))
+        else:
+            item_list.append(ItemImage("", None))
+
+    neutral_item: ItemImage | None = None
+    neutral_id = player_data.get("neutral0Id")
+    if items_dict and neutral_id and neutral_id > 0 and neutral_id in items_dict:
+        info = items_dict[neutral_id]
+        neutral_item = ItemImage(
+            info.get("displayName", ""), await fetch_image_bytes(item_image_url(info["name"]))
+        )
 
     from config.settings import get_settings
 
     settings = get_settings()
 
-    # Components V2: иерархия секций без эмодзи — шапка (вердикт + кто),
-    # блок «Матч» (контекст игры), блок «Игрок» (KDA крупно + личная стата),
-    # отдельный блок предметов и кнопки-ссылки.
-    sep = "\u2002·\u2002"
     dur_str = f"{duration // 60}:{duration % 60:02}"
     date_str = datetime_obj.strftime("%d/%m/%Y")
 
-    # Шапка: вердикт крупно (## — у Discord нет цвета текста, вес держим размером
-    # заголовка) + кто играл и на какой роли.
-    header = f"## {kda_comment}\n**{player_name}**{sep}{role}"
-
-    # Блок «Матч» — контекст игры, дата в подписи.
-    match_block = f"-# МАТЧ{sep}{date_str}\n**{game_mode}**{sep}{dur_str}\nаверага **{rank}**"
-
-    # Блок «Игрок» — KDA крупным числом-якорем (# — самый большой) + личная стата.
-    player_block = (
-        f"# {kda_value:.2f}\n"
-        f"-# KDA\n"
-        f"K/D/A **{kills}/{deaths}/{assists}**{sep}урон **{hero_damage}**\n"
-        f"networth **{networth}**{sep}GPM/XPM **{gpm}/{xpm}**\n"
-        f"W-L день **{daily_wl_str}**{sep}неделя **{weekly_wl_str}**"
+    hero_bg = await fetch_image_bytes(
+        f"https://cdn.stratz.com/images/dota2/heroes/{hero_name}_horz.png"
     )
+    avatar = await fetch_image_bytes(player_data.get("steamAccount", {}).get("avatar"))
 
-    items_block = f"-# ПРЕДМЕТЫ\n{all_items or 'нет данных'}"
+    card = DotaCardData(
+        verdict=kda_comment,
+        is_victory=is_victory,
+        player_name=player_name,
+        role=role,
+        game_mode=game_mode,
+        rank=rank,
+        kda_value_str=f"{kda_value:.2f}",
+        kda_str=f"{kills}/{deaths}/{assists}",
+        hero_damage=hero_damage,
+        networth=networth,
+        gpm=str(gpm),
+        xpm=str(xpm),
+        daily_wl=daily_wl_str,
+        weekly_wl=weekly_wl_str,
+        date_str=date_str,
+        duration_str=dur_str,
+        items=item_list,
+        neutral=neutral_item,
+        hero_bg=hero_bg,
+        avatar=avatar,
+    )
+    png = await asyncio.to_thread(render_dota_card, card)
+    file = discord.File(BytesIO(png), filename="dota_match.png")
 
+    buttons: list[Button] = [
+        Button(
+            style=discord.ButtonStyle.link,
+            label="Dotabuff",
+            url=f"https://www.dotabuff.com/matches/{match_id}",
+        ),
+        Button(
+            style=discord.ButtonStyle.link,
+            label="OpenDota",
+            url=f"https://opendota.com/matches/{match_id}",
+        ),
+        Button(
+            style=discord.ButtonStyle.link,
+            label="Stratz",
+            url=f"https://stratz.com/matches/{match_id}",
+        ),
+    ]
+
+    # PNG вставляем в Components V2 через attachment:// — accent-полоса и кнопки в одном сообщении.
     container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
     container.add_item(
-        discord.ui.Section(
-            header,
-            accessory=discord.ui.Thumbnail(
-                f"https://cdn.stratz.com/images/dota2/heroes/{hero_name}_horz.png"
-            ),
-        )
+        discord.ui.MediaGallery(discord.MediaGalleryItem(media="attachment://dota_match.png"))
     )
-    container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay(match_block))
-    container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay(player_block))
-    container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay(items_block))
-    container.add_item(
-        discord.ui.ActionRow(
-            Button(
-                style=discord.ButtonStyle.link,
-                label="Dotabuff",
-                url=f"https://www.dotabuff.com/matches/{match_id}",
-            ),
-            Button(
-                style=discord.ButtonStyle.link,
-                label="OpenDota",
-                url=f"https://opendota.com/matches/{match_id}",
-            ),
-            Button(
-                style=discord.ButtonStyle.link,
-                label="Stratz",
-                url=f"https://stratz.com/matches/{match_id}",
-            ),
-        )
-    )
+    container.add_item(discord.ui.ActionRow(*buttons))
 
     view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=settings.dota.match_view_timeout)
     view.add_item(container)
-    await ctx.send(view=view)
+    await ctx.send(view=view, file=file)

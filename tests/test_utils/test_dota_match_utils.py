@@ -7,21 +7,7 @@ import pytest
 
 from utils.dota_match_utils import get_match_data, handle_lastmatch
 
-
-def _collect_text(view: discord.ui.LayoutView) -> str:
-    """Склеивает текст всех TextDisplay/Section внутри LayoutView."""
-    texts: list[str] = []
-
-    def walk(items) -> None:
-        for item in items:
-            if isinstance(item, discord.ui.TextDisplay):
-                texts.append(item.content)
-            children = getattr(item, "children", None)
-            if children:
-                walk(children)
-
-    walk(view.children)
-    return "\n".join(texts)
+_PNG = b"\x89PNG\r\n\x1a\n"
 
 
 def _count_buttons(view: discord.ui.LayoutView) -> int:
@@ -149,7 +135,12 @@ class TestGetMatchData:
 
 
 class TestHandleLastmatch:
-    """Тесты для функции handle_lastmatch."""
+    """Тесты для функции handle_lastmatch.
+
+    После перехода на PNG-карточку контент уезжает в картинку, поэтому проверяем
+    не текст вью, а аргумент-дата-класс, который хендлер отдаёт в ``render_dota_card``,
+    плюс факт отправки ``file`` + сохранённых accent-полосы и кнопок.
+    """
 
     def setup_method(self):
         """Настройка для каждого теста."""
@@ -236,7 +227,7 @@ class TestHandleLastmatch:
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_successful_victory(self):
-        """Тест успешного отображения победного матча."""
+        """Победный матч: карточка-картинка + зелёный accent + 3 кнопки, вердикт/предметы в дата-классе."""
         user_links_list = [12345]
 
         mock_match_data = {
@@ -270,14 +261,15 @@ class TestHandleLastmatch:
             "player": {"matches": [{"startDateTime": 1640995200, "players": [{"isVictory": True}]}]}
         }
 
-        mock_items_dict = {1: {"displayName": "Iron Branch"}, 100: {"displayName": "Keen Optic"}}
+        mock_items_dict = {
+            1: {"name": "item_branches", "displayName": "Iron Branch"},
+            100: {"name": "item_keen_optic", "displayName": "Keen Optic"},
+        }
 
         with (
             patch("utils.dota_match_utils.get_match_data") as mock_get_match,
-            patch("utils.dota_utils.get_game_mode") as mock_game_mode,
-            patch("utils.dota_utils.get_role") as mock_role,
-            patch("utils.dota_utils.convert_average_rank_to_medal") as mock_rank,
-            patch("utils.dota_utils.get_win_rates") as mock_win_rates,
+            patch("utils.dota_match_utils.render_dota_card", return_value=_PNG) as mock_render,
+            patch("utils.dota_match_utils.fetch_image_bytes", new_callable=AsyncMock) as mock_fetch,
         ):
             mock_get_match.return_value = (
                 mock_match_data,
@@ -285,29 +277,30 @@ class TestHandleLastmatch:
                 7000000000,
                 mock_items_dict,
             )
-            mock_game_mode.return_value = "All Pick"
-            mock_role.return_value = "Support"
-            mock_rank.return_value = "Archon [3]"
-            mock_win_rates.return_value = ([1], [0], 1, 1)
+            mock_fetch.return_value = None
 
             await handle_lastmatch(self.mock_ctx, user_links_list)
 
-            self.mock_ctx.send.assert_called_once()
-            call_args = self.mock_ctx.send.call_args
-            assert "embed" not in call_args.kwargs
-            assert "view" in call_args.kwargs
+        self.mock_ctx.send.assert_called_once()
+        call_args = self.mock_ctx.send.call_args
+        assert "embed" not in call_args.kwargs
+        assert call_args.kwargs["file"].filename == "dota_match.png"
 
-            view = call_args.kwargs["view"]
-            assert isinstance(view, discord.ui.LayoutView)
-            text = _collect_text(view)
-            assert "красава разъебал" in text
-            container = view.children[0]
-            assert container.accent_colour == discord.Color.green()
-            assert _count_buttons(view) == 3
+        view = call_args.kwargs["view"]
+        assert isinstance(view, discord.ui.LayoutView)
+        assert view.children[0].accent_colour == discord.Color.green()
+        assert _count_buttons(view) == 3
+
+        card = mock_render.call_args.args[0]
+        assert card.verdict == "красава разъебал"
+        assert card.is_victory is True
+        assert card.items[0].display_name == "Iron Branch"
+        assert card.neutral is not None
+        assert card.neutral.display_name == "Keen Optic"
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_defeat_poor_kda(self):
-        """Тест отображения поражения с плохим KDA."""
+        """Поражение с плохим KDA: красный accent и соответствующий вердикт в дата-классе."""
         user_links_list = [12345]
 
         mock_match_data = {
@@ -337,21 +330,20 @@ class TestHandleLastmatch:
 
         with (
             patch("utils.dota_match_utils.get_match_data") as mock_get_match,
-            patch("utils.dota_utils.get_game_mode"),
-            patch("utils.dota_utils.get_role"),
-            patch("utils.dota_utils.convert_average_rank_to_medal"),
-            patch("utils.dota_utils.get_win_rates") as mock_win_rates,
+            patch("utils.dota_match_utils.render_dota_card", return_value=_PNG) as mock_render,
+            patch("utils.dota_match_utils.fetch_image_bytes", new_callable=AsyncMock) as mock_fetch,
         ):
             mock_get_match.return_value = (mock_match_data, None, 7000000001, {})
-            mock_win_rates.side_effect = Exception("No data")
+            mock_fetch.return_value = None
 
             await handle_lastmatch(self.mock_ctx, user_links_list)
 
-            call_args = self.mock_ctx.send.call_args
-            view = call_args.kwargs["view"]
+        view = self.mock_ctx.send.call_args.kwargs["view"]
+        assert view.children[0].accent_colour == discord.Color.red()
 
-            assert "заруинил пидорас" in _collect_text(view)
-            assert view.children[0].accent_colour == discord.Color.red()
+        card = mock_render.call_args.args[0]
+        assert card.verdict == "заруинил пидорас"
+        assert card.is_victory is False
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_with_member_parameter(self):
@@ -388,12 +380,11 @@ class TestHandleLastmatch:
 
         with (
             patch("utils.dota_match_utils.get_match_data") as mock_get_match,
-            patch("utils.dota_utils.get_game_mode"),
-            patch("utils.dota_utils.get_role"),
-            patch("utils.dota_utils.convert_average_rank_to_medal"),
-            patch("utils.dota_utils.get_win_rates"),
+            patch("utils.dota_match_utils.render_dota_card", return_value=_PNG),
+            patch("utils.dota_match_utils.fetch_image_bytes", new_callable=AsyncMock) as mock_fetch,
         ):
             mock_get_match.return_value = (mock_match_data, None, 7000000002, {})
+            mock_fetch.return_value = None
 
             await handle_lastmatch(self.mock_ctx, user_links_list, mock_member)
 
@@ -404,8 +395,8 @@ class TestHandleLastmatch:
             assert user_id == "789012"
 
     @pytest.mark.asyncio
-    async def test_handle_lastmatch_items_formatting(self):
-        """Тест форматирования предметов."""
+    async def test_handle_lastmatch_items_in_card(self):
+        """Предметы: валидные попадают в дата-класс с именами, нулевые/неизвестные → пустые слоты."""
         user_links_list = [12345]
 
         mock_match_data = {
@@ -441,35 +432,31 @@ class TestHandleLastmatch:
         }
 
         mock_items_dict = {
-            1: {"displayName": "Iron Branch"},
-            4: {"displayName": "Magic Stick"},
-            5: {"displayName": "Observer Ward"},
-            100: {"displayName": "Keen Optic"},
+            1: {"name": "item_branches", "displayName": "Iron Branch"},
+            4: {"name": "item_magic_stick", "displayName": "Magic Stick"},
+            5: {"name": "item_ward_observer", "displayName": "Observer Ward"},
+            100: {"name": "item_keen_optic", "displayName": "Keen Optic"},
         }
 
         with (
             patch("utils.dota_match_utils.get_match_data") as mock_get_match,
-            patch("utils.dota_utils.get_game_mode"),
-            patch("utils.dota_utils.get_role"),
-            patch("utils.dota_utils.convert_average_rank_to_medal"),
-            patch("utils.dota_utils.get_win_rates"),
+            patch("utils.dota_match_utils.render_dota_card", return_value=_PNG) as mock_render,
+            patch("utils.dota_match_utils.fetch_image_bytes", new_callable=AsyncMock) as mock_fetch,
         ):
             mock_get_match.return_value = (mock_match_data, None, 7000000003, mock_items_dict)
+            mock_fetch.return_value = None
 
             await handle_lastmatch(self.mock_ctx, user_links_list)
 
-            call_args = self.mock_ctx.send.call_args
-            view = call_args.kwargs["view"]
-
-            text = _collect_text(view)
-            assert "ПРЕДМЕТЫ" in text
-            assert "Iron Branch" in text
-            assert "**Keen Optic**" in text
-            assert "999" not in text
+        card = mock_render.call_args.args[0]
+        names = [it.display_name for it in card.items]
+        assert names == ["Iron Branch", "", "", "", "Magic Stick", "Observer Ward"]
+        assert card.neutral is not None
+        assert card.neutral.display_name == "Keen Optic"
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_no_items_data(self):
-        """Тест когда нет данных о предметах."""
+        """Когда предметов нет (items_dict=None): все слоты пустые, нейтралки нет."""
         user_links_list = [12345]
 
         mock_match_data = {
@@ -501,17 +488,15 @@ class TestHandleLastmatch:
 
         with (
             patch("utils.dota_match_utils.get_match_data") as mock_get_match,
-            patch("utils.dota_utils.get_game_mode"),
-            patch("utils.dota_utils.get_role"),
-            patch("utils.dota_utils.convert_average_rank_to_medal"),
-            patch("utils.dota_utils.get_win_rates"),
+            patch("utils.dota_match_utils.render_dota_card", return_value=_PNG) as mock_render,
+            patch("utils.dota_match_utils.fetch_image_bytes", new_callable=AsyncMock) as mock_fetch,
         ):
             mock_get_match.return_value = (mock_match_data, None, 7000000004, None)
+            mock_fetch.return_value = None
 
             await handle_lastmatch(self.mock_ctx, user_links_list)
 
-            call_args = self.mock_ctx.send.call_args
-            view = call_args.kwargs["view"]
-
-            assert "ПРЕДМЕТЫ" in _collect_text(view)
-            assert "нет данных" in _collect_text(view)
+        card = mock_render.call_args.args[0]
+        assert len(card.items) == 6
+        assert all(it.display_name == "" and it.image is None for it in card.items)
+        assert card.neutral is None

@@ -339,6 +339,7 @@ graph TD
     D --> D8[models.py]
     D --> D9[user_stats_data_manager.py]
     D --> D10[wrapped/ - voice, builder, render]
+    D --> D11[match_card/ - PNG-карточки матчей Pillow]
 
     D6 --> D6_1[player.py - MusicPlayer/setup_node]
     D6 --> D6_2[ui.py - Views]

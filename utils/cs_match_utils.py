@@ -8,6 +8,7 @@ recent W-L и рисует тот же Components V2 контейнер, что 
 import asyncio
 import logging
 from datetime import UTC, datetime
+from io import BytesIO
 from typing import Any
 
 import discord
@@ -16,6 +17,7 @@ from discord.ui import Button
 
 from utils.cs_api import faceit_get_with_retry
 from utils.cs_links_data_manager import CsLink
+from utils.match_card import CsCardData, fetch_image_bytes, load_map_image, render_cs_card
 
 logger = logging.getLogger("bot.utils.cs_match_utils")
 
@@ -100,6 +102,19 @@ def _compute_recent_wl(items: list[dict[str, Any]], player_id: str) -> tuple[int
         elif result is False:
             losses += 1
     return wins, losses
+
+
+def _compute_recent_results(items: list[dict[str, Any]], player_id: str) -> list[bool]:
+    """Упорядоченная (свежие первыми) последовательность исходов для плиток W/L.
+
+    Матчи с неопределённым результатом пропускаются — в ряд идут только явные W/L.
+    """
+    results: list[bool] = []
+    for item in items:
+        outcome = _item_is_win(item, player_id)
+        if outcome is not None:
+            results.append(outcome)
+    return results
 
 
 def _extract_match_stats(
@@ -219,12 +234,14 @@ async def get_cs_match_data(
         return None
 
     recent_wl = _compute_recent_wl(latest_items, latest_player_id)
+    recent_results = _compute_recent_results(latest_items, latest_player_id)
 
     return {
         "item": latest_item,
         "stats": stats,
         "player": player,
         "recent_wl": recent_wl,
+        "recent_results": recent_results,
         "player_id": latest_player_id,
     }
 
@@ -349,6 +366,22 @@ async def handle_cs_lastmatch(
     hs_percent = _to_int(player_stats.get("Headshots %"))
     mvps = _to_int(player_stats.get("MVPs"))
 
+    # FACEIT advanced-статы: показываем «—», если поля нет в ответе, чтобы не
+    # выдавать отсутствие данных за честный ноль.
+    entry_count = player_stats.get("Entry Count")
+    entry_wins = player_stats.get("Entry Wins")
+    entry_str = f"{_to_int(entry_wins)}/{_to_int(entry_count)}" if entry_count is not None else "—"
+
+    clutch_vals = [player_stats.get(f"1v{n}Wins") for n in range(1, 6)]
+    clutch_str = (
+        str(sum(_to_int(v) for v in clutch_vals))
+        if any(v is not None for v in clutch_vals)
+        else "—"
+    )
+
+    util_dmg = player_stats.get("Utility Damage")
+    util_str = str(_to_int(util_dmg)) if util_dmg is not None else "—"
+
     is_victory = str(player_team.get("team_stats", {}).get("Team Win")) == "1"
     player_score = _to_int(player_team.get("team_stats", {}).get("Final Score"))
     opp_score = _to_int(other_team.get("team_stats", {}).get("Final Score"))
@@ -393,6 +426,7 @@ async def handle_cs_lastmatch(
     level_str = str(level) if level is not None else "N/A"
 
     wins, losses = data["recent_wl"]
+    recent_results = data["recent_results"]
 
     finished_at = item.get("finished_at", 0) or 0
     started_at = item.get("started_at", 0) or 0
@@ -403,48 +437,45 @@ async def handle_cs_lastmatch(
 
     adr_str = f"{_to_float(adr):.0f}" if adr is not None else "N/A"
     rating_str = f"{rating:.2f}" if rating is not None else "N/A"
+    kr_str = f"{kills / rounds_played:.2f}" if rounds_played else "N/A"
     avg_lvl = _compute_lobby_avg_level(item)
 
     from config.settings import get_settings
 
     settings = get_settings()
 
-    sep = "\u2002·\u2002"
-
-    # Шапка: вердикт крупно (## — у Discord нет цвета текста, так что вес держим
-    # размером заголовка) + кто играл.
-    header = f"## {kda_comment}\n**{nickname}**{sep}LVL {level_str}{sep}{elo_str} ELO"
-
-    # Блок «Матч» — контекст игры, выносим выше личной статы. Дата — в подписи.
-    match_lines = [
-        f"-# МАТЧ{sep}{date_str}",
-        f"**{map_name}**{sep}{player_score}:{opp_score}{sep}{dur_str}",
-    ]
-    if avg_lvl is not None:
-        match_lines.append(f"avg lobby lvl **{avg_lvl:.1f}**")
-    match_block = "\n".join(match_lines)
-
-    # Блок «Игрок» — рейтинг крупным числом-якорем (# — самый большой) + личная стата.
-    player_block = (
-        f"# {rating_str}\n"
-        f"-# RATING\n"
-        f"K/D/A **{kills}/{deaths}/{assists}**{sep}K/D **{kd_ratio:.2f}**\n"
-        f"ADR **{adr_str}**{sep}HS **{hs_percent}%**{sep}MVP **{mvps}**\n"
-        f"last {recent_count} W-L{sep}**{wins}-{losses}**"
+    card = CsCardData(
+        verdict=kda_comment,
+        is_victory=is_victory,
+        nickname=nickname,
+        level=level_str,
+        elo=elo_str,
+        player_score=player_score,
+        opp_score=opp_score,
+        rating_str=rating_str,
+        rating_is_good=rating is not None and score_metric > good,
+        kda_str=f"{kills}/{deaths}/{assists}",
+        kd_str=f"{kd_ratio:.2f}",
+        adr_str=adr_str,
+        hs_percent=hs_percent,
+        kr_str=kr_str,
+        mvp_str=str(mvps),
+        entry_str=entry_str,
+        clutch_str=clutch_str,
+        util_str=util_str,
+        recent_wins=wins,
+        recent_losses=losses,
+        recent_results=recent_results,
+        date_str=date_str,
+        duration_str=dur_str,
+        avg_lobby_lvl=f"{avg_lvl:.1f}" if avg_lvl is not None else None,
+        avatar=await fetch_image_bytes(avatar),
+        map_bg=load_map_image(map_name),
     )
+    png = await asyncio.to_thread(render_cs_card, card)
+    file = discord.File(BytesIO(png), filename="cs_match.png")
 
     faceit_url = str(item.get("faceit_url", "")).replace("{lang}", "en")
-
-    container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
-    if avatar:
-        container.add_item(discord.ui.Section(header, accessory=discord.ui.Thumbnail(avatar)))
-    else:
-        container.add_item(discord.ui.TextDisplay(header))
-    container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay(match_block))
-    container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay(player_block))
-
     buttons: list[Button] = []
     if faceit_url:
         buttons.append(Button(style=discord.ButtonStyle.link, label="FACEIT матч", url=faceit_url))
@@ -455,8 +486,15 @@ async def handle_cs_lastmatch(
             url=f"https://www.faceit.com/en/players/{nickname}",
         )
     )
+
+    # PNG вставляем в Components V2 через attachment:// — контейнер сохраняет
+    # accent-полосу (зелёная/красная) и кнопки-ссылки в одном сообщении.
+    container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
+    container.add_item(
+        discord.ui.MediaGallery(discord.MediaGalleryItem(media="attachment://cs_match.png"))
+    )
     container.add_item(discord.ui.ActionRow(*buttons))
 
     view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=settings.cs.match_view_timeout)
     view.add_item(container)
-    await ctx.send(view=view)
+    await ctx.send(view=view, file=file)

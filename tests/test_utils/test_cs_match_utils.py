@@ -2,11 +2,13 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import discord
 import pytest
 
 from utils.cs_match_utils import (
     _compute_hltv1_rating,
     _compute_lobby_avg_level,
+    _compute_recent_results,
     _compute_recent_wl,
     _extract_match_stats,
     _item_is_win,
@@ -116,6 +118,16 @@ class TestPureHelpers:
         wins, losses = _compute_recent_wl(items, "p1")
         assert wins == 2
         assert losses == 1
+
+    def test_compute_recent_results(self):
+        items = [
+            _sample_item(winner="faction1"),
+            _sample_item(winner="faction2"),
+            _sample_item(winner=None),
+            _sample_item(winner="faction1"),
+        ]
+        # Свежие первыми, матч с неизвестным исходом пропущен.
+        assert _compute_recent_results(items, "p1") == [True, False, True]
 
     def test_extract_match_stats(self):
         result = _extract_match_stats(_sample_stats(), "p1")
@@ -303,11 +315,29 @@ class TestHandleCsLastmatch:
             "stats": _sample_stats(),
             "player": _sample_player(),
             "recent_wl": (5, 3),
+            "recent_results": [True, False, True, True, False],
             "player_id": "p1",
         }
-        with patch("utils.cs_match_utils.get_cs_match_data", new_callable=AsyncMock) as mock_data:
+        with (
+            patch("utils.cs_match_utils.get_cs_match_data", new_callable=AsyncMock) as mock_data,
+            patch(
+                "utils.cs_match_utils.render_cs_card", return_value=b"\x89PNG\r\n\x1a\n"
+            ) as mock_render,
+            patch("utils.cs_match_utils.fetch_image_bytes", new_callable=AsyncMock) as mock_fetch,
+            patch("utils.cs_match_utils.load_map_image", return_value=None),
+        ):
             mock_data.return_value = data
+            mock_fetch.return_value = None
             await handle_cs_lastmatch(ctx, [link], None)
 
         ctx.send.assert_awaited_once()
-        assert "view" in ctx.send.call_args.kwargs
+        kwargs = ctx.send.call_args.kwargs
+        assert kwargs["file"].filename == "cs_match.png"
+        view = kwargs["view"]
+        assert isinstance(view, discord.ui.LayoutView)
+        assert view.children[0].accent_colour == discord.Color.green()
+
+        card = mock_render.call_args.args[0]
+        assert card.is_victory is True
+        assert card.verdict
+        assert card.kda_str == "20/10/5"

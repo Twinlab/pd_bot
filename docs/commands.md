@@ -140,7 +140,13 @@ anime:
 | `/link <player_id>` | Привязка Steam ID (до 5 аккаунтов) |
 | `/unlink [player_id]` | Отвязка Steam ID |
 | `/links` | Список привязанных аккаунтов |
-| `/lastmatch [member]` | Информация о последнем матче |
+| `/lastmatch [member]` | Информация о последнем матче (PNG-карточка) |
+
+Карточка матча рисуется как **PNG-изображение** (`utils/match_card/`, Pillow): квадрат
+1080×1080, фон — затемнённый рендер героя со Stratz cdn, «результат во главе»
+(ПОБЕДА/ПОРАЖЕНИЕ цветом + вердикт), число-якорь KDA, сетка статов и ряд иконок
+предметов. Картинка отдаётся внутри Components V2 (`MediaGallery` через
+`attachment://`) вместе с accent-полосой и кнопками Dotabuff/OpenDota/Stratz.
 
 ## CS2 / FACEIT (`cogs/cs_lastmatch.py`, `cogs/cs_links.py`)
 
@@ -151,7 +157,14 @@ anime:
 | `/cslink <ник>` | Привязка аккаунта FACEIT по нику (до 5 аккаунтов) |
 | `/csunlink [ник]` | Отвязка аккаунта FACEIT (без аргумента — все) |
 | `/cslinks` | Список привязанных аккаунтов FACEIT |
-| `/cslastmatch [member]` | Информация о последнем матче CS2 (KDA, ADR, HS%, MVP, карта, счёт, recent W-L) |
+| `/cslastmatch [member]` | Информация о последнем матче CS2 (PNG-карточка: Rating, K/D/A, K/D, ADR, HS, MVP, K/R, Entry, Clutch, Utility, счёт, recent-форма) |
+
+Карточка CS2 рисуется тем же модулем `utils/match_card/` (квадрат 1080×1080): фон — сплеш
+карты из `utils/match_card/assets/maps/<карта>.jpg` (если файла нет — procedural-фон),
+круглый аватар FACEIT (или буква-заглушка), число-якорь Rating, плитки W/L по последним
+матчам и сетка статов 3×3. Лейблы английские, вердикт-комментарий — русский.
+Advanced-статы (Entry/Clutch/Utility) показывают `—`, если FACEIT их не отдаёт.
+Кнопки — FACEIT-матч и Профиль.
 
 ## Музыка (`cogs/music.py`)
 

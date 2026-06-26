@@ -29,18 +29,18 @@ def get_role(player_position: str | None) -> str:
         player_position: Строка с позицией игрока, либо None.
 
     Returns:
-        Название роли ('Керри', 'Мидер', 'Оффлейнер', 'Саппорт') или 'Неизвестно'.
+        Название роли ('Carry', 'Mid', 'Offlane', 'Support') или 'Unknown'.
     """
     if not player_position:
-        return "Неизвестно"
+        return "Unknown"
 
     value = str(player_position)
     match = _POSITION_PATTERN.match(value)
     if match:
         value = match.group(1)
 
-    roles = {"1": "Керри", "2": "Мидер", "3": "Оффлейнер", "4": "Саппорт", "5": "Саппорт"}
-    return roles.get(value, "Неизвестно")
+    roles = {"1": "Carry", "2": "Mid", "3": "Offlane", "4": "Support", "5": "Support"}
+    return roles.get(value, "Unknown")
 
 
 def convert_average_rank_to_medal(average_rank: int | None) -> str:

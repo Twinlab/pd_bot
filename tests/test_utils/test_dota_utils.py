@@ -7,24 +7,24 @@ from utils.dota_utils import convert_average_rank_to_medal, get_game_mode, get_r
     "player_position,expected",
     [
         # Короткий формат (legacy / OpenDota совместимость).
-        ("1", "Керри"),
-        ("2", "Мидер"),
-        ("3", "Оффлейнер"),
-        ("4", "Саппорт"),
-        ("5", "Саппорт"),
+        ("1", "Carry"),
+        ("2", "Mid"),
+        ("3", "Offlane"),
+        ("4", "Support"),
+        ("5", "Support"),
         # Реальный формат Stratz GraphQL.
-        ("POSITION_1", "Керри"),
-        ("POSITION_2", "Мидер"),
-        ("POSITION_3", "Оффлейнер"),
-        ("POSITION_4", "Саппорт"),
-        ("POSITION_5", "Саппорт"),
+        ("POSITION_1", "Carry"),
+        ("POSITION_2", "Mid"),
+        ("POSITION_3", "Offlane"),
+        ("POSITION_4", "Support"),
+        ("POSITION_5", "Support"),
         # Неизвестные/пустые значения.
-        (None, "Неизвестно"),
-        ("", "Неизвестно"),
-        ("unknown", "Неизвестно"),
-        ("POSITION_0", "Неизвестно"),
-        ("POSITION_6", "Неизвестно"),
-        ("position_1", "Неизвестно"),  # регистр важен — Stratz всегда ВЕРХНИЙ
+        (None, "Unknown"),
+        ("", "Unknown"),
+        ("unknown", "Unknown"),
+        ("POSITION_0", "Unknown"),
+        ("POSITION_6", "Unknown"),
+        ("position_1", "Unknown"),  # регистр важен — Stratz всегда ВЕРХНИЙ
     ],
 )
 def test_get_role(player_position: str | None, expected: str) -> None:
