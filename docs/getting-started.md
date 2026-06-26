@@ -26,6 +26,7 @@
     - `STRATZ_API_KEY` — API ключ для Dota 2 (Stratz)
     - `LAVALINK_SERVER_PASSWORD` — случайный пароль для Lavalink (`openssl rand -hex 32`)
     - `YOUTUBE_REFRESH_TOKEN` — OAuth refresh от burner-аккаунта Google (получается через device-flow при первом запуске Lavalink)
+    - `FACEIT_API_KEY` — (опционально) для CS2-статистики (`/cslastmatch`), берётся на https://developers.faceit.com
     - `TWITCH_CLIENT_ID` / `TWITCH_CLIENT_SECRET` — (опционально) для Twitch уведомлений
     - `SPOTIFY_CLIENT_ID` / `SPOTIFY_CLIENT_SECRET` — (опционально) для Spotify-ссылок
     - `GUILD_ID` — (рекомендуется) ID единственной гильдии бота. Если задан, slash-команды синкаются точечно в эту гильдию и применяются **мгновенно**; без него — глобальный синк с раскаткой до часа

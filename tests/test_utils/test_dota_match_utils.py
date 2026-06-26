@@ -462,7 +462,7 @@ class TestHandleLastmatch:
             view = call_args.kwargs["view"]
 
             text = _collect_text(view)
-            assert "Предметы:" in text
+            assert "ПРЕДМЕТЫ" in text
             assert "Iron Branch" in text
             assert "**Keen Optic**" in text
             assert "999" not in text
@@ -513,4 +513,5 @@ class TestHandleLastmatch:
             call_args = self.mock_ctx.send.call_args
             view = call_args.kwargs["view"]
 
-            assert "**Предметы:** Нет данных" in _collect_text(view)
+            assert "ПРЕДМЕТЫ" in _collect_text(view)
+            assert "нет данных" in _collect_text(view)

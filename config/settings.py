@@ -463,6 +463,18 @@ class DotaConfig(BaseModel):
     match_view_timeout: int = 180  # 3 минуты
 
 
+class CsConfig(BaseModel):
+    """Конфигурация модуля CS2 (FACEIT).
+
+    Attributes:
+        match_view_timeout: Таймаут для View кнопок матча в секундах.
+        recent_matches_count: Сколько последних матчей брать для расчёта recent W-L.
+    """
+
+    match_view_timeout: int = 180  # 3 минуты
+    recent_matches_count: int = 20
+
+
 class PartyConfig(BaseModel):
     """Конфигурация модуля сбора пати.
 
@@ -592,6 +604,7 @@ class Messages(BaseModel):
         ),
         "anime_channel_not_configured": "Канал для публикации аниме не настроен или не найден.",
         "stratz_api_key_missing": "STRATZ_API_KEY не найден в конфигурации бота.",
+        "faceit_api_key_missing": "FACEIT_API_KEY не найден в конфигурации бота.",
     }
     success: dict[str, str] = {
         "purge_complete": "Удалено {count} сообщений",
@@ -628,6 +641,7 @@ class BotSettings(BaseSettings):
     # Основные настройки из .env
     bot_token: str = Field(default="test_token_here", alias="BOT_TOKEN")
     stratz_api_key: str = Field(default="test_stratz_key_here", alias="STRATZ_API_KEY")
+    faceit_api_key: str | None = Field(default=None, alias="FACEIT_API_KEY")
     prefix: str = Field(default="!", alias="BOT_PREFIX")
     environment: Environment = Field(default=Environment.PRODUCTION, alias="BOT_ENVIRONMENT")
 
@@ -666,6 +680,7 @@ class BotSettings(BaseSettings):
     activity: ActivityConfig = ActivityConfig()
     user_stats: UserStatsConfig = UserStatsConfig()
     dota: DotaConfig = DotaConfig()
+    cs: CsConfig = CsConfig()
     update: UpdateSettings = UpdateSettings()
     reactions: ReactionsConfig = ReactionsConfig()
     top_reactions: TopReactionsConfig = TopReactionsConfig()

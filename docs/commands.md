@@ -142,6 +142,17 @@ anime:
 | `/links` | Список привязанных аккаунтов |
 | `/lastmatch [member]` | Информация о последнем матче |
 
+## CS2 / FACEIT (`cogs/cs_lastmatch.py`, `cogs/cs_links.py`)
+
+Данные берутся из [FACEIT Data API](https://developers.faceit.com) — нужен `FACEIT_API_KEY` в `.env`. Покрываются матчи FACEIT (официальный матчмейкинг Valve публичного API не имеет).
+
+| Команда | Описание |
+|---------|----------|
+| `/cslink <ник>` | Привязка аккаунта FACEIT по нику (до 5 аккаунтов) |
+| `/csunlink [ник]` | Отвязка аккаунта FACEIT (без аргумента — все) |
+| `/cslinks` | Список привязанных аккаунтов FACEIT |
+| `/cslastmatch [member]` | Информация о последнем матче CS2 (KDA, ADR, HS%, MVP, карта, счёт, recent W-L) |
+
 ## Музыка (`cogs/music.py`)
 
 Базируется на **Lavalink v4** (отдельный JVM-контейнер) и Python-клиенте **wavelink 3.x**. Подробности развёртывания см. в [Деплое](deployment.md).

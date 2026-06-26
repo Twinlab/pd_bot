@@ -202,6 +202,10 @@ user_stats:
 dota:
   match_view_timeout: 180
 
+cs:
+  match_view_timeout: 180
+  recent_matches_count: 20   # Сколько последних матчей брать для recent W-L
+
 party:
   initiator_emoji: "👑"           # Эмодзи рядом с инициатором (он автоматически готов)
   min_duration_minutes: 1

@@ -16,6 +16,18 @@ class Link(models.Model):
         unique_together = (("discord_user_id", "steam_id"),)
 
 
+class CsLink(models.Model):
+    """Привязка аккаунта Discord к аккаунту FACEIT (CS2)."""
+
+    discord_user_id = fields.BigIntField()
+    faceit_player_id = fields.CharField(max_length=64)
+    nickname = fields.TextField()
+
+    class Meta:
+        table = "cs_links"
+        unique_together = (("discord_user_id", "faceit_player_id"),)
+
+
 class DailyActivity(models.Model):
     """Ежедневная статистика игровой активности."""
 

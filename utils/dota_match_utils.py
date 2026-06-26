@@ -333,21 +333,29 @@ async def handle_lastmatch(
 
     settings = get_settings()
 
-    # Components V2: контейнер с превью героя в шапке (Section + Thumbnail),
-    # компактными метаданными и кнопками-ссылками на внешние ресурсы.
+    # Components V2: иерархия секций без эмодзи — шапка (вердикт + кто),
+    # блок «Матч» (контекст игры), блок «Игрок» (KDA крупно + личная стата),
+    # отдельный блок предметов и кнопки-ссылки.
     sep = "\u2002·\u2002"
-    nbsp = "\u2002"
     dur_str = f"{duration // 60}:{duration % 60:02}"
     date_str = datetime_obj.strftime("%d/%m/%Y")
+
+    # Шапка: вердикт крупно + кто играл и на какой роли.
     header = f"### {kda_comment}\n**{player_name}**{sep}{role}"
-    # Статы сгруппированы построчно: бой → экономика → параметры матча → рекорды,
-    # чтобы разнородные цифры не смешивались в одну ленту.
-    stats = (
-        f"⚔️{nbsp}**KDA** {kills}/{deaths}/{assists}{sep}🔥{nbsp}**Урон** {hero_damage}\n"
-        f"💰{nbsp}**Networth** {networth}{sep}📈{nbsp}**GPM/XPM** {gpm}/{xpm}\n"
-        f"🏅{nbsp}**Ранг** {rank}{sep}🎮{nbsp}**{game_mode}**{sep}⏱️{nbsp}{dur_str}\n"
-        f"📊{nbsp}**W-L** день {daily_wl_str}{sep}неделя {weekly_wl_str}{sep}📅{nbsp}{date_str}"
+
+    # Блок «Матч» — контекст игры, дата в подписи.
+    match_block = f"-# МАТЧ{sep}{date_str}\n**{game_mode}**{sep}{dur_str}\nаверага **{rank}**"
+
+    # Блок «Игрок» — KDA крупным числом + личная стата.
+    player_block = (
+        f"### {kda_value:.2f}\n"
+        f"-# KDA\n"
+        f"K/D/A **{kills}/{deaths}/{assists}**{sep}урон **{hero_damage}**\n"
+        f"networth **{networth}**{sep}GPM/XPM **{gpm}/{xpm}**\n"
+        f"W-L день **{daily_wl_str}**{sep}неделя **{weekly_wl_str}**"
     )
+
+    items_block = f"-# ПРЕДМЕТЫ\n{all_items or 'нет данных'}"
 
     container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
     container.add_item(
@@ -359,8 +367,11 @@ async def handle_lastmatch(
         )
     )
     container.add_item(discord.ui.Separator())
-    container.add_item(discord.ui.TextDisplay(stats))
-    container.add_item(discord.ui.TextDisplay(f"**Предметы:** {all_items or 'Нет данных'}"))
+    container.add_item(discord.ui.TextDisplay(match_block))
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
+    container.add_item(discord.ui.TextDisplay(player_block))
+    container.add_item(discord.ui.Separator())
+    container.add_item(discord.ui.TextDisplay(items_block))
     container.add_item(
         discord.ui.ActionRow(
             Button(

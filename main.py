@@ -187,10 +187,12 @@ async def main() -> None:
 
         # Закрываем шаренные aiohttp-сессии модулей, чтобы не светить
         # «Unclosed client session» в логи при shutdown.
+        from utils.cs_api import close_session as close_cs_session
         from utils.deathbattle_utils import close_session as close_deathbattle_session
         from utils.dota_api import close_session as close_dota_session
 
         await close_dota_session()
+        await close_cs_session()
         await close_deathbattle_session()
         await close_database()
 
