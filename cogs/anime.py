@@ -26,6 +26,7 @@ from discord.ext import commands, tasks
 from config import get_settings
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.models import AnimeCache
+from utils.ui import image_card
 
 logger: logging.Logger = logging.getLogger("bot.cogs.anime")
 
@@ -82,18 +83,18 @@ def _build_post_view(post: AnimePost, color: discord.Color) -> discord.ui.Layout
     title = post.characters[:256] if post.characters else "Открыть на Danbooru"
     rating_label = RATING_LABELS.get(post.rating, post.rating or "—")
 
-    container: discord.ui.Container = discord.ui.Container(accent_colour=color)
-    container.add_item(discord.ui.TextDisplay(f"### [{title}]({source_url})"))
-    container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(media=post.url)))
     meta_lines: list[str] = []
     if post.artists:
         meta_lines.append(f"**Художник:** {post.artists[:1000]}")
     meta_lines.append(f"-# score: {post.score} · rating: {rating_label}")
-    container.add_item(discord.ui.TextDisplay("\n".join(meta_lines)))
 
-    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
-    view.add_item(container)
-    return view
+    return image_card(
+        media=post.url,
+        accent=color,
+        text_above=[f"### [{title}]({source_url})"],
+        text_below=["\n".join(meta_lines)],
+        timeout=None,
+    )
 
 
 class AnimeCog(commands.Cog):

@@ -14,13 +14,21 @@ import logging
 import random
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from utils.avatar_utils import display_avatar
 from utils.deathbattle_utils import run_battle
-from utils.error_handler import command_error_handler
+from utils.error_handler import command_error_handler, safe_send_error
 from utils.penis_utils import measure_penis
-from utils.quotes_utils import scan_quotes_folders, send_random_quote_image, validate_folder_exists
+from utils.quotes_utils import (
+    NoImagesFoundError,
+    QuotesError,
+    add_quote_from_message,
+    scan_quotes_folders,
+    send_random_quote_image,
+    validate_folder_exists,
+)
 from utils.snipe_utils import save_deleted_message, show_sniped_message
 
 logger: logging.Logger = logging.getLogger("bot.cogs.fun")  # Иерархическое имя логгера
@@ -44,6 +52,26 @@ class FunCog(commands.Cog):
             bot: Экземпляр бота discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
+        self.add_quote_menu = app_commands.ContextMenu(
+            name="В цитаты",
+            callback=self.add_quote_context_menu,
+        )
+        self.bot.tree.add_command(self.add_quote_menu)
+
+    @app_commands.guild_only()
+    async def add_quote_context_menu(
+        self, interaction: discord.Interaction, message: discord.Message
+    ) -> None:
+        """Контекст-меню (ПКМ по сообщению) «В цитаты»: сохраняет картинку в цитаты автора."""
+        try:
+            folder = await add_quote_from_message(message)
+        except (NoImagesFoundError, QuotesError) as e:
+            await safe_send_error(interaction, str(e))
+            return
+        await interaction.response.send_message(
+            f"Добавил в цитаты `{folder}` ✅ — теперь доступно через `/quote {folder}`.",
+            ephemeral=True,
+        )
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message) -> None:
@@ -59,6 +87,10 @@ class FunCog(commands.Cog):
         await save_deleted_message(message)
 
     @commands.hybrid_command(description="Запускает дезбаттл между двумя пользователями")
+    @discord.app_commands.describe(
+        member1="Первый боец (по умолчанию — автор команды)",
+        member2="Второй боец (по умолчанию — случайный участник)",
+    )
     @command_error_handler
     async def deathbattle(
         self,
@@ -86,6 +118,7 @@ class FunCog(commands.Cog):
         await show_sniped_message(ctx)
 
     @commands.hybrid_command(description="Показывает размер пениса")
+    @discord.app_commands.describe(mentioned_user="Чей размер измерить (по умолчанию — твой)")
     @command_error_handler
     async def penis(
         self, ctx: commands.Context, mentioned_user: discord.Member | None = None
@@ -100,6 +133,7 @@ class FunCog(commands.Cog):
         await measure_penis(ctx, mentioned_user)
 
     @commands.hybrid_command(description="Показывает аватар пользователя")
+    @discord.app_commands.describe(mentioned_user="Чей аватар показать (по умолчанию — твой)")
     @command_error_handler
     async def avatar(
         self, ctx: commands.Context, mentioned_user: discord.Member | None = None
@@ -114,6 +148,7 @@ class FunCog(commands.Cog):
         await display_avatar(ctx, mentioned_user)
 
     @commands.hybrid_command(description="Отправляет рандомную цитату указанного юзера")
+    @discord.app_commands.describe(user="Чьи цитаты показать (по умолчанию — случайный участник)")
     @command_error_handler
     async def quote(self, ctx: commands.Context, user: str | None = None) -> None:
         """Отправляет случайную цитату пользователя.
@@ -183,6 +218,7 @@ class FunCog(commands.Cog):
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""
+        self.bot.tree.remove_command(self.add_quote_menu.name, type=self.add_quote_menu.type)
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
 
 

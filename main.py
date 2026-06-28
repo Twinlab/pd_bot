@@ -81,6 +81,44 @@ class MyBot(commands.Bot):
         super().__init__(*args, **kwargs)
         # Атрибуты config и log_file_path будут установлены после инициализации экземпляра
 
+    async def setup_hook(self) -> None:
+        """Синхронизирует дерево команд один раз за процесс.
+
+        ``setup_hook`` вызывается после логина, но до коннекта к gateway и ровно
+        один раз за запуск — поэтому здесь не нужен ручной флаг «синкали уже», как
+        было в ``on_ready`` (тот срабатывает на каждый reconnect). Коги к этому
+        моменту уже загружены в :func:`main` до ``bot.start``, так что дерево
+        заполнено. Persistent-вью по-прежнему регистрируются в ``cog_load`` когов.
+        """
+        await self._sync_commands()
+
+    async def _sync_commands(self) -> None:
+        """Синхронизирует slash-команды.
+
+        Single-guild дизайн: при заданном ``guild_id`` команды живут только в этой
+        гильдии и применяются мгновенно; глобальную копию очищаем, иначе команды
+        задваиваются. Без ``guild_id`` — обычный глобальный синк (раскатка до часа).
+        """
+        guild_id = get_settings().guild_id
+        logger.info("Синхронизация slash-команд...")
+        try:
+            if guild_id:
+                guild = discord.Object(id=guild_id)
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                self.tree.clear_commands(guild=None)
+                await self.tree.sync()
+                scope = f"в гильдию {guild_id}"
+            else:
+                synced = await self.tree.sync()
+                scope = "глобально (раскатка до часа; задай GUILD_ID для мгновенного синка)"
+            logger.info(
+                f"Синхронизировано {len(synced)} команд {scope}: "
+                f"{', '.join(cmd.name for cmd in synced)}"
+            )
+        except Exception as e:
+            logger.error(f"Не удалось синхронизировать команды: {e}")
+
 
 def initialize_bot() -> MyBot:
     """Инициализирует бота с настройками."""

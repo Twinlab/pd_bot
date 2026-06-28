@@ -11,6 +11,7 @@
 
 import logging
 
+from discord import Interaction, app_commands
 from discord.ext import commands
 
 from config import get_settings
@@ -39,6 +40,7 @@ class LinksCog(commands.Cog):
         await safe_send(ctx, message, ephemeral=True)
 
     @commands.hybrid_command(description="Привязать аккаунт Dota 2")
+    @app_commands.describe(player_id="Steam ID аккаунта Dota 2 (32-битное число)")
     @command_error_handler
     async def link(self, ctx: commands.Context, player_id: int) -> None:
         """Привязывает аккаунт Dota 2 к Discord аккаунту."""
@@ -99,6 +101,7 @@ class LinksCog(commands.Cog):
             )
 
     @commands.hybrid_command(description="Отвязать аккаунт Dota 2")
+    @app_commands.describe(player_id="Какой ID отвязать (без указания — отвяжутся все)")
     @command_error_handler
     async def unlink(self, ctx: commands.Context, player_id: int | None = None) -> None:
         """Отвязывает аккаунт Dota 2 от Discord аккаунта."""
@@ -156,6 +159,23 @@ class LinksCog(commands.Cog):
                     ctx,
                     "Не удалось отвязать аккаунты (возможно, их уже не было или произошла ошибка).",
                 )
+
+    @unlink.autocomplete("player_id")
+    async def unlink_autocomplete(
+        self, interaction: Interaction, current: str
+    ) -> list[app_commands.Choice[int]]:
+        """Подсказывает при отвязке только уже привязанные к пользователю ID."""
+        try:
+            links = await self.links_manager.get_links(interaction.user.id)
+        except Exception as e:
+            logger.debug(f"Автокомплит unlink не смог получить привязки: {e}")
+            return []
+        cur = current.strip()
+        return [
+            app_commands.Choice(name=str(pid), value=pid)
+            for pid in links
+            if not cur or cur in str(pid)
+        ][:25]
 
     @commands.hybrid_command(description="Показать привязанные аккаунты Dota 2")
     @command_error_handler

@@ -325,3 +325,82 @@ class TestUIComponents:
             
             assert view.original_interaction == mock_interaction
             assert view.timeout == 300.0
+
+
+def _message_with_attachment(filename: str, *, author_name: str = "Coolguy") -> MagicMock:
+    """Мок сообщения с одним вложением ``filename`` от автора ``author_name``."""
+    attachment = MagicMock()
+    attachment.filename = filename
+    attachment.read = AsyncMock(return_value=b"img-bytes")
+    message = MagicMock()
+    message.id = 4242
+    message.attachments = [attachment]
+    message.author = MagicMock()
+    message.author.name = author_name
+    return message
+
+
+class TestSanitizeFolderName:
+    """Тесты для _sanitize_folder_name."""
+
+    def test_strips_path_separators(self):
+        from utils.quotes_utils import _sanitize_folder_name
+
+        assert _sanitize_folder_name("../../etc") == "etc"
+        assert _sanitize_folder_name("a/b") == "a_b"
+
+    def test_empty_falls_back(self):
+        from utils.quotes_utils import _sanitize_folder_name
+
+        assert _sanitize_folder_name("...") == "unknown"
+
+
+class TestAddQuoteFromMessage:
+    """Тесты для add_quote_from_message."""
+
+    @pytest.mark.asyncio
+    @patch("utils.quotes_utils.get_quotes_path")
+    @patch("utils.quotes_utils.get_supported_extensions")
+    async def test_saves_image_attachment(self, mock_extensions, mock_path):
+        from utils.quotes_utils import add_quote_from_message
+
+        mock_extensions.return_value = [".jpg", ".png"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_path.return_value = Path(temp_dir)
+            message = _message_with_attachment("pic.PNG", author_name="Cool/Guy")
+
+            folder = await add_quote_from_message(message)
+
+            assert folder == "Cool_Guy"
+            saved = Path(temp_dir) / "Cool_Guy" / "4242.png"
+            assert saved.exists()
+            assert saved.read_bytes() == b"img-bytes"
+
+    @pytest.mark.asyncio
+    @patch("utils.quotes_utils.get_quotes_path")
+    @patch("utils.quotes_utils.get_supported_extensions")
+    async def test_no_image_raises(self, mock_extensions, mock_path):
+        from utils.quotes_utils import NoImagesFoundError, add_quote_from_message
+
+        mock_extensions.return_value = [".jpg", ".png"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_path.return_value = Path(temp_dir)
+            message = _message_with_attachment("notes.txt")
+
+            with pytest.raises(NoImagesFoundError):
+                await add_quote_from_message(message)
+
+    @pytest.mark.asyncio
+    @patch("utils.quotes_utils.get_quotes_path")
+    @patch("utils.quotes_utils.get_supported_extensions")
+    async def test_read_failure_raises_quoteserror(self, mock_extensions, mock_path):
+        from utils.quotes_utils import QuotesError, add_quote_from_message
+
+        mock_extensions.return_value = [".jpg", ".png"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_path.return_value = Path(temp_dir)
+            message = _message_with_attachment("pic.jpg")
+            message.attachments[0].read = AsyncMock(side_effect=RuntimeError("network"))
+
+            with pytest.raises(QuotesError):
+                await add_quote_from_message(message)

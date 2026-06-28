@@ -141,6 +141,10 @@ class AdminCog(commands.Cog):
         return deleted_count
 
     @commands.hybrid_command(description="Очистить сообщения в канале")
+    @app_commands.describe(
+        count="Сколько сообщений удалить (по умолчанию 10)",
+        user="Удалять только сообщения этого участника (необязательно)",
+    )
     @app_commands.default_permissions(manage_messages=True)
     @app_commands.guild_only()
     @commands.has_permissions(manage_messages=True)
@@ -223,6 +227,10 @@ class AdminCog(commands.Cog):
         )
 
     @commands.hybrid_command(description="Кикнуть пользователя с сервера")
+    @app_commands.describe(
+        member="Кого кикнуть",
+        reason="Причина кика (необязательно)",
+    )
     @app_commands.default_permissions(kick_members=True)
     @app_commands.guild_only()
     @commands.has_permissions(kick_members=True)

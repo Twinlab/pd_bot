@@ -249,6 +249,48 @@ class TestCsLinks:
         assert "cslink" in mock_send.call_args[0][1]
 
 
+class TestCsunlinkAutocomplete:
+    """Тесты автокомплита /csunlink."""
+
+    @pytest.mark.asyncio
+    async def test_lists_linked_nicknames(self, cs_links_cog, mock_links_manager):
+        """Без ввода отдаёт ники всех привязанных аккаунтов."""
+        mock_links_manager.get_links.return_value = [
+            _make_link("p1", "Coolguy"),
+            _make_link("p2", "Other"),
+        ]
+        interaction = MagicMock()
+        interaction.user = MagicMock(id=1)
+
+        choices = await cs_links_cog.csunlink_autocomplete(interaction, "")
+
+        mock_links_manager.get_links.assert_awaited_once_with(1)
+        assert [c.value for c in choices] == ["Coolguy", "Other"]
+
+    @pytest.mark.asyncio
+    async def test_filters_case_insensitive(self, cs_links_cog, mock_links_manager):
+        """Ввод сужает выдачу без учёта регистра."""
+        mock_links_manager.get_links.return_value = [
+            _make_link("p1", "Coolguy"),
+            _make_link("p2", "Other"),
+        ]
+        interaction = MagicMock()
+        interaction.user = MagicMock(id=1)
+
+        choices = await cs_links_cog.csunlink_autocomplete(interaction, "cool")
+
+        assert [c.value for c in choices] == ["Coolguy"]
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_error(self, cs_links_cog, mock_links_manager):
+        """Ошибка менеджера приводит к пустому списку, а не к исключению."""
+        mock_links_manager.get_links.side_effect = RuntimeError("db down")
+        interaction = MagicMock()
+        interaction.user = MagicMock(id=1)
+
+        assert await cs_links_cog.csunlink_autocomplete(interaction, "") == []
+
+
 class TestLifecycle:
     """Тесты жизненного цикла кога."""
 

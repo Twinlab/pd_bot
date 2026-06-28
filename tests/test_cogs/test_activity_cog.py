@@ -431,9 +431,6 @@ class TestCommands:
 
             # Настраиваем mock_context
             mock_context.channel = MagicMock(spec=discord.TextChannel)
-            mock_context.interaction = MagicMock()
-            mock_context.interaction.followup = MagicMock()
-            mock_context.interaction.followup.send = AsyncMock()
 
             # Патчим send_daily_report
             with patch("cogs.activity.send_daily_report") as mock_send:
@@ -452,9 +449,9 @@ class TestCommands:
                 assert args[1] == mock_bot
                 assert args[2] == activity_tracker.data_manager
 
-                # Проверяем, что ctx.interaction.followup.send был вызван с правильными аргументами
-                mock_context.interaction.followup.send.assert_called_once()
-                assert "успешно отправлен" in mock_context.interaction.followup.send.call_args[0][0]
+                # Статус уходит через safe_send → ctx.send(content=..., ephemeral=True)
+                mock_context.send.assert_called_once()
+                assert "успешно отправлен" in mock_context.send.call_args.kwargs["content"]
 
     @pytest.mark.asyncio
     async def test_report_monthly_command(self, mock_bot, mock_context):
@@ -466,9 +463,6 @@ class TestCommands:
 
             # Настраиваем mock_context
             mock_context.channel = MagicMock(spec=discord.TextChannel)
-            mock_context.interaction = MagicMock()
-            mock_context.interaction.followup = MagicMock()
-            mock_context.interaction.followup.send = AsyncMock()
 
             # Патчим send_monthly_report
             with patch("cogs.activity.send_monthly_report") as mock_send:
@@ -488,9 +482,9 @@ class TestCommands:
                 assert args[2] == mock_bot
                 assert args[3] == activity_tracker.data_manager
 
-                # Проверяем, что ctx.interaction.followup.send был вызван с правильными аргументами
-                mock_context.interaction.followup.send.assert_called_once()
-                assert "успешно отправлен" in mock_context.interaction.followup.send.call_args[0][0]
+                # Статус уходит через safe_send → ctx.send(content=..., ephemeral=True)
+                mock_context.send.assert_called_once()
+                assert "успешно отправлен" in mock_context.send.call_args.kwargs["content"]
 
 
 class TestEventHandlers:
@@ -1038,9 +1032,9 @@ class TestCommandsEdgeCases:
                     activity_tracker, mock_context, False
                 )
 
-                # Проверяем, что было отправлено сообщение об отсутствии данных
+                # Пустое состояние уходит через safe_send → ctx.send(content=...)
                 mock_context.send.assert_called_once()
-                assert "никто не играл" in mock_context.send.call_args[0][0]
+                assert "никто не играл" in mock_context.send.call_args.kwargs["content"]
 
     @pytest.mark.asyncio
     async def test_activity_command_test_mode(
@@ -1108,9 +1102,9 @@ class TestCommandsEdgeCases:
                 None,  # Месяц 13 - неверный
             )
 
-            # Проверяем, что было отправлено сообщение об ошибке
+            # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "Неверный номер месяца" in mock_context.send.call_args[0][0]
+            assert "Неверный номер месяца" in mock_context.send.call_args.kwargs["embed"].description
 
     @pytest.mark.asyncio
     async def test_mystats_command_no_data(self, mock_bot, mock_context, mock_member):
@@ -1149,9 +1143,9 @@ class TestReportCommandsEdgeCases:
                 activity_tracker, mock_context, tomorrow.year, tomorrow.month, tomorrow.day
             )
 
-            # Проверяем, что было отправлено сообщение об ошибке
+            # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "будущую дату" in mock_context.send.call_args[0][0]
+            assert "будущую дату" in mock_context.send.call_args.kwargs["embed"].description
 
     @pytest.mark.asyncio
     async def test_report_daily_command_invalid_date(self, mock_bot, mock_context):
@@ -1166,9 +1160,9 @@ class TestReportCommandsEdgeCases:
                 activity_tracker, mock_context, 2024, 1, 32
             )
 
-            # Проверяем, что было отправлено сообщение об ошибке
+            # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "Некорректная дата" in mock_context.send.call_args[0][0]
+            assert "Некорректная дата" in mock_context.send.call_args.kwargs["embed"].description
 
     @pytest.mark.asyncio
     async def test_report_daily_command_failed(self, mock_bot, mock_context):
@@ -1180,9 +1174,6 @@ class TestReportCommandsEdgeCases:
 
             # Настраиваем mock_context
             mock_context.channel = MagicMock(spec=discord.TextChannel)
-            mock_context.interaction = MagicMock()
-            mock_context.interaction.followup = MagicMock()
-            mock_context.interaction.followup.send = AsyncMock()
             mock_context.defer = AsyncMock()
 
             # Патчим send_daily_report для возврата False
@@ -1194,11 +1185,9 @@ class TestReportCommandsEdgeCases:
                     activity_tracker, mock_context, 2024, 1, 1
                 )
 
-                # Проверяем, что было отправлено сообщение о неудаче
-                mock_context.interaction.followup.send.assert_called_once()
-                assert (
-                    "Не удалось отправить" in mock_context.interaction.followup.send.call_args[0][0]
-                )
+                # Статус неудачи уходит через safe_send → ctx.send(content=...)
+                mock_context.send.assert_called_once()
+                assert "Не удалось отправить" in mock_context.send.call_args.kwargs["content"]
 
     @pytest.mark.asyncio
     async def test_report_monthly_command_invalid_month(self, mock_bot, mock_context):
@@ -1216,9 +1205,9 @@ class TestReportCommandsEdgeCases:
                 13,  # Месяц 13 - неверный
             )
 
-            # Проверяем, что было отправлено сообщение об ошибке
+            # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "Неверный номер месяца" in mock_context.send.call_args[0][0]
+            assert "Неверный номер месяца" in mock_context.send.call_args.kwargs["embed"].description
 
     @pytest.mark.asyncio
     async def test_report_monthly_command_invalid_year(self, mock_bot, mock_context):
@@ -1236,9 +1225,9 @@ class TestReportCommandsEdgeCases:
                 1,  # Год 2010 - слишком старый
             )
 
-            # Проверяем, что было отправлено сообщение об ошибке
+            # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "Некорректный год" in mock_context.send.call_args[0][0]
+            assert "Некорректный год" in mock_context.send.call_args.kwargs["embed"].description
 
     @pytest.mark.asyncio
     async def test_report_monthly_command_current_month(self, mock_bot, mock_context):
@@ -1256,9 +1245,12 @@ class TestReportCommandsEdgeCases:
                 activity_tracker, mock_context, today.year, today.month
             )
 
-            # Проверяем, что было отправлено сообщение об ошибке
+            # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "текущий или будущий месяц" in mock_context.send.call_args[0][0]
+            assert (
+                "текущий или будущий месяц"
+                in mock_context.send.call_args.kwargs["embed"].description
+            )
 
 
 class TestCogUnloadErrorHandling:
@@ -1683,4 +1675,108 @@ class TestStaleSessionCleanup:
             # Сессия удалена без записи в БД
             assert stale_user_id not in activity_tracker.current_activities
             mock_update.assert_not_called()
+
+
+class TestStatsContextMenu:
+    """Тесты контекст-меню «Статистика за месяц»."""
+
+    @pytest.mark.asyncio
+    async def test_build_returns_view_when_data(self, mock_bot, mock_member):
+        """Есть игры за месяц → возвращается StatsView, без эмбеда-заглушки."""
+        tracker = ActivityTracker(mock_bot)
+        with (
+            patch.object(tracker, "update_current_activities", new_callable=AsyncMock),
+            patch.object(
+                tracker.data_manager, "get_monthly_stats", new_callable=AsyncMock
+            ) as m_month,
+            patch.object(
+                tracker.data_manager, "get_daily_stats", new_callable=AsyncMock
+            ) as m_daily,
+            patch.object(
+                tracker.user_stats_manager, "get_user_monthly", new_callable=AsyncMock
+            ) as m_us,
+            patch.object(
+                tracker.user_stats_manager, "get_daily_totals_by_prefix", new_callable=AsyncMock
+            ) as m_prefix,
+            patch("cogs.activity.StatsView") as mock_view,
+        ):
+            m_month.return_value = {"Dota 2": 3600}
+            m_daily.return_value = {}
+            m_us.return_value = MagicMock(messages=10, voice_seconds=120)
+            m_prefix.return_value = {}
+
+            view, embed = await tracker._build_current_month_stats(mock_member)
+
+            assert embed is None
+            assert view is mock_view.return_value
+            mock_view.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_build_returns_embed_when_no_data(self, mock_bot, mock_member):
+        """Нет ни игр, ни активности → эмбед-заглушка «нет данных»."""
+        tracker = ActivityTracker(mock_bot)
+        with (
+            patch.object(tracker, "update_current_activities", new_callable=AsyncMock),
+            patch.object(
+                tracker.data_manager, "get_monthly_stats", new_callable=AsyncMock
+            ) as m_month,
+            patch.object(
+                tracker.data_manager, "get_daily_stats", new_callable=AsyncMock
+            ) as m_daily,
+            patch.object(
+                tracker.user_stats_manager, "get_user_monthly", new_callable=AsyncMock
+            ) as m_us,
+            patch.object(
+                tracker.user_stats_manager, "get_daily_totals_by_prefix", new_callable=AsyncMock
+            ) as m_prefix,
+        ):
+            m_month.return_value = {}
+            m_daily.return_value = {}
+            m_us.return_value = MagicMock(messages=0, voice_seconds=0)
+            m_prefix.return_value = {}
+
+            view, embed = await tracker._build_current_month_stats(mock_member)
+
+            assert view is None
+            assert embed is not None
+            assert "Нет данных" in embed.description
+
+    @pytest.mark.asyncio
+    async def test_context_menu_sends_view_ephemeral(self, mock_bot, mock_member):
+        """При наличии данных контекст-меню шлёт вью эфемерно."""
+        tracker = ActivityTracker(mock_bot)
+        fake_view = MagicMock()
+        with patch.object(
+            tracker, "_build_current_month_stats", new_callable=AsyncMock
+        ) as m_build:
+            m_build.return_value = (fake_view, None)
+            interaction = MagicMock(spec=discord.Interaction)
+            interaction.response = MagicMock()
+            interaction.response.send_message = AsyncMock()
+            interaction.original_response = AsyncMock(return_value=MagicMock())
+
+            await tracker.stats_context_menu(interaction, mock_member)
+
+            kwargs = interaction.response.send_message.await_args.kwargs
+            assert kwargs["ephemeral"] is True
+            assert kwargs["view"] is fake_view
+
+    @pytest.mark.asyncio
+    async def test_context_menu_sends_embed_when_no_data(self, mock_bot, mock_member):
+        """Без данных контекст-меню шлёт эмбед-заглушку эфемерно."""
+        tracker = ActivityTracker(mock_bot)
+        fake_embed = discord.Embed(description="Нет данных")
+        with patch.object(
+            tracker, "_build_current_month_stats", new_callable=AsyncMock
+        ) as m_build:
+            m_build.return_value = (None, fake_embed)
+            interaction = MagicMock(spec=discord.Interaction)
+            interaction.response = MagicMock()
+            interaction.response.send_message = AsyncMock()
+
+            await tracker.stats_context_menu(interaction, mock_member)
+
+            kwargs = interaction.response.send_message.await_args.kwargs
+            assert kwargs["embed"] is fake_embed
+            assert kwargs["ephemeral"] is True
 

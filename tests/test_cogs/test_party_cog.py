@@ -641,6 +641,7 @@ def _slash_interaction(user_id: int = 100, guild_id: int | None = 1) -> MagicMoc
     interaction.user = MagicMock(spec=discord.Member, id=user_id)
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
+    interaction.response.is_done = MagicMock(return_value=False)
     return interaction
 
 
@@ -658,7 +659,7 @@ class TestPartySlashCommand:
         await cog.party.callback(cog, interaction, image=None)
 
         interaction.response.send_message.assert_awaited_once()
-        assert "конфе" in interaction.response.send_message.await_args.args[0]
+        assert "конфе" in interaction.response.send_message.await_args.kwargs["embed"].description
 
     @pytest.mark.asyncio
     async def test_blocked_user_rejected(
@@ -671,7 +672,9 @@ class TestPartySlashCommand:
         await cog.party.callback(cog, interaction, image=None)
 
         interaction.response.send_message.assert_awaited_once()
-        assert interaction.response.send_message.await_args.args[0] == "ты в бане"
+        assert (
+            interaction.response.send_message.await_args.kwargs["embed"].description == "ты в бане"
+        )
 
     @pytest.mark.asyncio
     async def test_cooldown_blocks_reopen(
@@ -685,7 +688,8 @@ class TestPartySlashCommand:
         await cog.party.callback(cog, interaction, image=None)
 
         interaction.response.send_message.assert_awaited_once()
-        assert "через" in interaction.response.send_message.await_args.args[0]
+        embed = interaction.response.send_message.await_args.kwargs["embed"]
+        assert "через" in embed.description
 
     @pytest.mark.asyncio
     async def test_no_roles_rejected(self, cog: PartyCog, patched_settings: BotSettings) -> None:
@@ -697,7 +701,10 @@ class TestPartySlashCommand:
         await cog.party.callback(cog, interaction, image=None)
 
         interaction.response.send_message.assert_awaited_once()
-        assert "Нет доступных ролей" in interaction.response.send_message.await_args.args[0]
+        assert (
+            "Нет доступных ролей"
+            in interaction.response.send_message.await_args.kwargs["embed"].description
+        )
 
     @pytest.mark.asyncio
     async def test_opens_wizard_on_role_step(
@@ -896,7 +903,7 @@ class TestBlocklistCommands:
 
     @pytest.mark.asyncio
     async def test_party_unblock_removes_record(self, cog: PartyCog) -> None:
-        """party_unblock зовёт data_manager.remove_block."""
+        """party_unblock парсит строковый id из автокомплита и зовёт remove_block."""
         cog.data_manager.remove_block = AsyncMock(return_value=True)
 
         interaction = MagicMock(spec=discord.Interaction)
@@ -904,14 +911,43 @@ class TestBlocklistCommands:
         interaction.response = MagicMock()
         interaction.response.send_message = AsyncMock()
 
-        target = MagicMock(spec=discord.User)
-        target.id = 2
-        target.mention = "<@2>"
-
-        await cog.party_unblock.callback(cog, interaction, target)
+        await cog.party_unblock.callback(cog, interaction, "2")
 
         cog.data_manager.remove_block.assert_awaited_once_with(user_id=2)
         interaction.response.send_message.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_party_unblock_invalid_id(self, cog: PartyCog) -> None:
+        """Некорректный id не доходит до data_manager и отдаёт ошибку."""
+        cog.data_manager.remove_block = AsyncMock(return_value=True)
+
+        interaction = _slash_interaction()
+
+        await cog.party_unblock.callback(cog, interaction, "не-число")
+
+        cog.data_manager.remove_block.assert_not_awaited()
+        embed = interaction.response.send_message.await_args.kwargs["embed"]
+        assert "Некорректный" in embed.description
+
+    @pytest.mark.asyncio
+    async def test_party_unblock_autocomplete(self, cog: PartyCog) -> None:
+        """Автокомплит отдаёт только заблокированных и фильтрует по вводу."""
+        cog.data_manager.list_blocks = AsyncMock(
+            return_value=[
+                {"user_id": 2, "blocked_by": 1, "reason": "спам"},
+                {"user_id": 3, "blocked_by": 1, "reason": None},
+            ]
+        )
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = None
+
+        choices = await cog.party_unblock_autocomplete(interaction, "")
+        assert {c.value for c in choices} == {"2", "3"}
+        assert any("спам" in c.name for c in choices)
+
+        filtered = await cog.party_unblock_autocomplete(interaction, "2")
+        assert [c.value for c in filtered] == ["2"]
 
     @pytest.mark.asyncio
     async def test_party_blocklist_empty(self, cog: PartyCog) -> None:

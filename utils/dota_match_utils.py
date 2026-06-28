@@ -12,7 +12,6 @@ from io import BytesIO
 
 import discord
 from discord.ext import commands  # Для type hint в docstring
-from discord.ui import Button
 
 # Импорт других утилит
 from utils.dota_api import fetch_items_data, query_api_with_retry
@@ -24,6 +23,7 @@ from utils.match_card import (
     item_image_url,
     render_dota_card,
 )
+from utils.ui import image_card
 
 logger = logging.getLogger("bot.utils.dota_match_utils")
 
@@ -377,31 +377,15 @@ async def handle_lastmatch(
     png = await asyncio.to_thread(render_dota_card, card)
     file = discord.File(BytesIO(png), filename="dota_match.png")
 
-    buttons: list[Button] = [
-        Button(
-            style=discord.ButtonStyle.link,
-            label="Dotabuff",
-            url=f"https://www.dotabuff.com/matches/{match_id}",
-        ),
-        Button(
-            style=discord.ButtonStyle.link,
-            label="OpenDota",
-            url=f"https://opendota.com/matches/{match_id}",
-        ),
-        Button(
-            style=discord.ButtonStyle.link,
-            label="Stratz",
-            url=f"https://stratz.com/matches/{match_id}",
-        ),
-    ]
-
     # PNG вставляем в Components V2 через attachment:// — accent-полоса и кнопки в одном сообщении.
-    container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
-    container.add_item(
-        discord.ui.MediaGallery(discord.MediaGalleryItem(media="attachment://dota_match.png"))
+    view = image_card(
+        media="attachment://dota_match.png",
+        accent=accent,
+        links=[
+            ("Dotabuff", f"https://www.dotabuff.com/matches/{match_id}"),
+            ("OpenDota", f"https://opendota.com/matches/{match_id}"),
+            ("Stratz", f"https://stratz.com/matches/{match_id}"),
+        ],
+        timeout=settings.dota.match_view_timeout,
     )
-    container.add_item(discord.ui.ActionRow(*buttons))
-
-    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=settings.dota.match_view_timeout)
-    view.add_item(container)
     await ctx.send(view=view, file=file)

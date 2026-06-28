@@ -12,7 +12,6 @@ import logging
 import discord
 from discord.ext import commands
 
-from config import get_settings
 from utils.error_handler import get_error_message, safe_send_error
 
 logger = logging.getLogger("bot.handlers.events")
@@ -46,7 +45,6 @@ class Events(commands.Cog):
             bot: Экземпляр бота Discord.
         """
         self.bot: commands.Bot = bot
-        self._synced: bool = False
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.
@@ -59,50 +57,14 @@ class Events(commands.Cog):
     async def on_ready(self) -> None:
         """Событие: бот готов к работе.
 
-        Вызывается, когда бот успешно подключился к Discord и готов обрабатывать события.
-        Выполняет синхронизацию slash-команд и устанавливает статус бота.
+        Синк slash-команд переехал в ``MyBot.setup_hook`` (один раз за процесс),
+        поэтому здесь остаётся только логирование готовности и установка статуса.
         """
         logger.info(f"Бот {self.bot.user.name} (ID: {self.bot.user.id}) готов к работе.")
         logger.info(f"Версия discord.py: {discord.__version__}")
 
-        # Синхронизация slash-команд (только один раз, on_ready вызывается при каждом reconnect)
-        if not self._synced:
-            await self._sync_commands()
-
-        # Установка статуса
         await self.bot.change_presence(activity=discord.Game(name="Делаю милые вещи и пью чай"))
         logger.info("Статус бота установлен.")
-
-    async def _sync_commands(self) -> None:
-        """Синхронизирует slash-команды один раз за сессию.
-
-        Single-guild дизайн: при заданном ``guild_id`` команды живут только в этой
-        гильдии и применяются мгновенно. Глобальную копию очищаем — иначе команды
-        задваиваются в списке (наследие прежнего глобального синка). Без
-        ``guild_id`` — обычный глобальный синк (раскатка до часа).
-        """
-        tree = self.bot.tree
-        guild_id = get_settings().guild_id
-        logger.info("Синхронизация slash-команд...")
-        try:
-            if guild_id:
-                guild = discord.Object(id=guild_id)
-                tree.copy_global_to(guild=guild)
-                synced = await tree.sync(guild=guild)
-                # Сносим глобальные дубликаты: команды нужны только в гильдии.
-                tree.clear_commands(guild=None)
-                await tree.sync()
-                scope = f"в гильдию {guild_id}"
-            else:
-                synced = await tree.sync()
-                scope = "глобально (раскатка до часа; задай GUILD_ID для мгновенного синка)"
-            logger.info(
-                f"Синхронизировано {len(synced)} команд {scope}: "
-                f"{', '.join(cmd.name for cmd in synced)}"
-            )
-            self._synced = True
-        except Exception as e:
-            logger.error(f"Не удалось синхронизировать команды: {e}")
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member) -> None:

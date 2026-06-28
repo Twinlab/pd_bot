@@ -11,6 +11,7 @@ import asyncio
 import io
 import logging
 import random
+import re
 import time
 from pathlib import Path
 
@@ -292,6 +293,58 @@ async def send_random_quote_image(
         )
 
         await ctx.send(embed=error_embed, ephemeral=True)
+
+
+def _sanitize_folder_name(name: str) -> str:
+    """Приводит ник к безопасному имени папки (без разделителей пути)."""
+    cleaned = re.sub(r"[^\w.-]", "_", name).strip("._")
+    return cleaned or "unknown"
+
+
+def _write_quote_file(dest: Path, data: bytes) -> None:
+    """Создаёт папку при необходимости и пишет файл цитаты на диск."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+
+
+async def add_quote_from_message(message: discord.Message) -> str:
+    """Сохраняет первую картинку-вложение сообщения в папку цитат его автора.
+
+    Папка называется по нику автора (как и существующие папки цитат), имя файла —
+    id сообщения, поэтому повторное добавление того же сообщения не плодит дубли.
+
+    Args:
+        message: Сообщение, из которого берётся картинка.
+
+    Returns:
+        Имя папки (== ник автора), куда сохранена цитата.
+
+    Raises:
+        NoImagesFoundError: В сообщении нет поддерживаемого изображения.
+        QuotesError: Не удалось прочитать вложение или записать файл.
+    """
+    supported = get_supported_extensions()
+    attachment = next(
+        (a for a in message.attachments if Path(a.filename).suffix.lower() in supported),
+        None,
+    )
+    if attachment is None:
+        raise NoImagesFoundError("В сообщении нет картинки для цитаты.")
+
+    folder_name = _sanitize_folder_name(message.author.name)
+    ext = Path(attachment.filename).suffix.lower()
+    dest = get_quotes_path() / folder_name / f"{message.id}{ext}"
+
+    try:
+        data = await attachment.read()
+        await asyncio.to_thread(_write_quote_file, dest, data)
+    except Exception as e:
+        logger.error(f"Не удалось сохранить цитату из сообщения {message.id}: {e}", exc_info=True)
+        raise QuotesError("Не удалось сохранить цитату.") from e
+
+    _invalidate_quotes_cache()
+    logger.info(f"Добавлена цитата {dest.name} в папку {folder_name}")
+    return folder_name
 
 
 def get_folder_stats(folder_name: str) -> dict[str, int]:

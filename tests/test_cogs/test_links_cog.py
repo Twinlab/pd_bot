@@ -356,6 +356,42 @@ class TestLinksCommand:
 # в handlers/events.py. Старые тесты вместе с ним выпилены.
 
 
+class TestUnlinkAutocomplete:
+    """Тесты автокомплита /unlink."""
+
+    @pytest.mark.asyncio
+    async def test_lists_linked_ids(self, links_cog, mock_links_manager):
+        """Без ввода отдаёт все привязанные ID пользователя."""
+        mock_links_manager.get_links.return_value = [111, 222]
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=1)
+
+        choices = await links_cog.unlink_autocomplete(interaction, "")
+
+        mock_links_manager.get_links.assert_awaited_once_with(1)
+        assert [c.value for c in choices] == [111, 222]
+
+    @pytest.mark.asyncio
+    async def test_filters_by_substring(self, links_cog, mock_links_manager):
+        """Ввод подстроки сужает выдачу по строковому представлению ID."""
+        mock_links_manager.get_links.return_value = [111, 222]
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=1)
+
+        choices = await links_cog.unlink_autocomplete(interaction, "22")
+
+        assert [c.value for c in choices] == [222]
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_error(self, links_cog, mock_links_manager):
+        """Ошибка менеджера не ломает автокомплит — возвращается пустой список."""
+        mock_links_manager.get_links.side_effect = RuntimeError("db down")
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=1)
+
+        assert await links_cog.unlink_autocomplete(interaction, "") == []
+
+
 class TestCogLifecycle:
     """Тесты жизненного цикла кога."""
 

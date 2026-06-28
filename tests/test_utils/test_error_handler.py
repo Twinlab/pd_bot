@@ -351,7 +351,9 @@ class TestSafeSend:
         result = await safe_send(mock_context, "Test message", embed=None)
 
         # Проверяем результат
-        mock_context.send.assert_called_once_with(content="Test message", embed=None, delete_after=None)
+        mock_context.send.assert_called_once_with(
+            content="Test message", embed=None, delete_after=None, ephemeral=False
+        )
         assert result == mock_context.send.return_value
 
     @pytest.mark.asyncio

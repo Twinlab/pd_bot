@@ -10,6 +10,7 @@
 
 import logging
 
+from discord import Interaction, app_commands
 from discord.ext import commands
 
 from config import get_settings
@@ -33,6 +34,7 @@ class CsLinksCog(commands.Cog):
         await safe_send(ctx, message, ephemeral=True)
 
     @commands.hybrid_command(description="Привязать аккаунт FACEIT (CS2) по нику")
+    @app_commands.describe(nickname="Ник на FACEIT")
     @command_error_handler
     async def cslink(self, ctx: commands.Context, nickname: str) -> None:
         """Привязывает аккаунт FACEIT к Discord аккаунту по нику."""
@@ -86,6 +88,7 @@ class CsLinksCog(commands.Cog):
             await self.send_response(ctx, "Произошла ошибка при добавлении привязки.")
 
     @commands.hybrid_command(description="Отвязать аккаунт FACEIT (CS2)")
+    @app_commands.describe(nickname="Какой ник отвязать (без указания — отвяжутся все)")
     @command_error_handler
     async def csunlink(self, ctx: commands.Context, nickname: str | None = None) -> None:
         """Отвязывает аккаунт FACEIT от Discord аккаунта."""
@@ -140,6 +143,23 @@ class CsLinksCog(commands.Cog):
                 await self.send_response(ctx, f"Все {count} аккаунтов FACEIT были отвязаны.")
             else:
                 await self.send_response(ctx, "Не удалось отвязать аккаунты.")
+
+    @csunlink.autocomplete("nickname")
+    async def csunlink_autocomplete(
+        self, interaction: Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Подсказывает при отвязке только уже привязанные ники."""
+        try:
+            links = await self.links_manager.get_links(interaction.user.id)
+        except Exception as e:
+            logger.debug(f"Автокомплит csunlink не смог получить привязки: {e}")
+            return []
+        cur = current.lower().strip()
+        return [
+            app_commands.Choice(name=link.nickname, value=link.nickname)
+            for link in links
+            if not cur or cur in link.nickname.lower()
+        ][:25]
 
     @commands.hybrid_command(description="Показать привязанные аккаунты FACEIT (CS2)")
     @command_error_handler

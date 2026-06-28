@@ -19,8 +19,10 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import get_settings
+from utils.error_handler import handle_app_command_error, safe_send_error
 from utils.twitch_api import TwitchAPI
 from utils.twitch_data_manager import TwitchDataManager
+from utils.ui import image_card
 
 logger = logging.getLogger("bot.cogs.twitch")
 
@@ -49,27 +51,20 @@ def _build_stream_view(
         stream_data["thumbnail_url"].replace("{width}", "1280").replace("{height}", "720")
     )
 
-    container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
-    container.add_item(discord.ui.TextDisplay(f"🔴 **{stream_data['user_name']}** начал(а) стрим!"))
-    container.add_item(discord.ui.TextDisplay(f"### [{title}]({stream_url})"))
-    container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(media=thumbnail_url)))
-    container.add_item(
-        discord.ui.TextDisplay(
+    return image_card(
+        media=thumbnail_url,
+        accent=accent,
+        text_above=[
+            f"🔴 **{stream_data['user_name']}** начал(а) стрим!",
+            f"### [{title}]({stream_url})",
+        ],
+        text_below=[
             f"**Категория:** {stream_data['game_name'] or 'Не указана'}\n"
             f"**Зрители:** {stream_data['viewer_count']}"
-        )
+        ],
+        links=[("Смотреть на Twitch", stream_url)],
+        timeout=None,
     )
-    container.add_item(
-        discord.ui.ActionRow(
-            discord.ui.Button(
-                style=discord.ButtonStyle.link, label="Смотреть на Twitch", url=stream_url
-            )
-        )
-    )
-
-    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
-    view.add_item(container)
-    return view
 
 
 class TwitchCog(commands.Cog):
@@ -440,9 +435,8 @@ class TwitchCog(commands.Cog):
         # Проверяем, инициализирован ли Twitch API
         if not self.twitch_api:
             settings = get_settings()
-            await interaction.response.send_message(
-                settings.messages.errors["twitch_api_not_configured"],
-                ephemeral=True,
+            await safe_send_error(
+                interaction, settings.messages.errors["twitch_api_not_configured"]
             )
             return
 
@@ -479,7 +473,7 @@ class TwitchCog(commands.Cog):
                         "Укажите канал явно или убедитесь, что команда "
                         "вызывается из текстового канала."
                     )
-                    await interaction.response.send_message(msg, ephemeral=True)
+                    await safe_send_error(interaction, msg)
                     return
                 logger.warning(
                     f"Канал по умолчанию {default_channel_id} не найден или не TextChannel, "
@@ -489,16 +483,14 @@ class TwitchCog(commands.Cog):
         # Проверяем, существует ли пользователь Twitch
         user = await self.twitch_api.get_user_by_username(twitch_username)
         if not user:
-            await interaction.response.send_message(
-                f"Пользователь Twitch с именем **{twitch_username}** не найден.", ephemeral=True
+            await safe_send_error(
+                interaction, f"Пользователь Twitch с именем **{twitch_username}** не найден."
             )
             return
 
         # Добавляем стримера в базу данных
         if interaction.guild_id is None:
-            await interaction.response.send_message(
-                "Ошибка: не удалось определить ID сервера.", ephemeral=True
-            )
+            await safe_send_error(interaction, "Ошибка: не удалось определить ID сервера.")
             return
         if isinstance(notification_channel, discord.TextChannel):
             channel_id = notification_channel.id
@@ -583,12 +575,10 @@ class TwitchCog(commands.Cog):
                     f"Добавлен стример {user['login']} для сервера {interaction.guild.name}"
                 )
         else:
-            await interaction.response.send_message(
-                (
-                    f"Не удалось добавить стримера **{twitch_username}**. "
-                    "Возможно, он уже отслеживается."
-                ),
-                ephemeral=True,
+            await safe_send_error(
+                interaction,
+                f"Не удалось добавить стримера **{twitch_username}**. "
+                "Возможно, он уже отслеживается.",
             )
 
     @app_commands.command(
@@ -607,9 +597,7 @@ class TwitchCog(commands.Cog):
         """
         # Удаляем стримера из базы данных
         if interaction.guild_id is None:
-            await interaction.response.send_message(
-                "Ошибка: не удалось определить ID сервера.", ephemeral=True
-            )
+            await safe_send_error(interaction, "Ошибка: не удалось определить ID сервера.")
             return
         success = await self.data_manager.remove_streamer(interaction.guild_id, twitch_username)
 
@@ -627,8 +615,8 @@ class TwitchCog(commands.Cog):
                     f"Удален стример {twitch_username} для сервера {interaction.guild.name}"
                 )
         else:
-            await interaction.response.send_message(
-                f"Стример **{twitch_username}** не найден в списке отслеживаемых.", ephemeral=True
+            await safe_send_error(
+                interaction, f"Стример **{twitch_username}** не найден в списке отслеживаемых."
             )
 
     @app_commands.command(
@@ -642,9 +630,7 @@ class TwitchCog(commands.Cog):
         """
         # Получаем список отслеживаемых стримеров для этого сервера
         if interaction.guild_id is None:
-            await interaction.response.send_message(
-                "Ошибка: не удалось определить ID сервера.", ephemeral=True
-            )
+            await safe_send_error(interaction, "Ошибка: не удалось определить ID сервера.")
             return
         streamers = await self.data_manager.get_streamers(interaction.guild_id)
 
@@ -711,24 +697,8 @@ class TwitchCog(commands.Cog):
     async def cog_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
     ) -> None:
-        """Обрабатывает ошибки app_commands для этого кога."""
-        original_error = getattr(error, "original", error)
-        cmd_name = interaction.command.name if interaction.command else "N/A"
-        logger.error(
-            f"Ошибка при выполнении app_command в TwitchCog: {cmd_name}",
-            exc_info=True,
-        )
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(
-                    f"Произошла ошибка: {str(original_error)}", ephemeral=True
-                )
-            else:
-                await interaction.response.send_message(
-                    f"Произошла ошибка: {str(original_error)}", ephemeral=True
-                )
-        except Exception as send_error:
-            logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
+        """Делегирует ошибки app_commands единому обработчику (унифицированный embed)."""
+        await handle_app_command_error(interaction, error)
 
 
 async def setup(bot: commands.Bot) -> None:

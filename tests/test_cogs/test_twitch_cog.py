@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from discord import app_commands
 from discord.ext import commands
 
 from cogs.twitch import TwitchCog
@@ -62,6 +63,8 @@ def mock_interaction(mock_guild: discord.Guild, mock_text_channel: discord.TextC
     interaction.channel = mock_text_channel
     interaction.response = AsyncMock(spec=discord.InteractionResponse)
     interaction.response.send_message = AsyncMock()
+    interaction.response.is_done = MagicMock(return_value=False)
+    interaction.followup.send = AsyncMock()
     interaction.command = MagicMock(name="test_twitch_command")
     return interaction
 
@@ -260,8 +263,10 @@ class TestTwitchCommands:
         await twitch_cog.twitch_add.callback(
             twitch_cog, mock_interaction, twitch_username="nonexistent", channel=None
         )
-        mock_interaction.response.send_message.assert_called_once_with(
-            "Пользователь Twitch с именем **nonexistent** не найден.", ephemeral=True
+        mock_interaction.response.send_message.assert_called_once()
+        assert (
+            "Пользователь Twitch с именем **nonexistent** не найден."
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
 
     @pytest.mark.asyncio
@@ -281,7 +286,7 @@ class TestTwitchCommands:
             mock_interaction.response.send_message.assert_called_once()
             assert (
                 "Не указаны TWITCH_CLIENT_ID"
-                in mock_interaction.response.send_message.call_args[0][0]
+                in mock_interaction.response.send_message.call_args.kwargs["embed"].description
             )
 
     @pytest.mark.asyncio
@@ -292,8 +297,10 @@ class TestTwitchCommands:
         await twitch_cog.twitch_add.callback(
             twitch_cog, mock_interaction, twitch_username="test", channel=None
         )
-        mock_interaction.response.send_message.assert_called_once_with(
-            "Ошибка: не удалось определить ID сервера.", ephemeral=True
+        mock_interaction.response.send_message.assert_called_once()
+        assert (
+            "Ошибка: не удалось определить ID сервера."
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
 
     @pytest.mark.asyncio
@@ -314,7 +321,7 @@ class TestTwitchCommands:
         mock_interaction.response.send_message.assert_called_once()
         assert (
             "Не удалось определить подходящий текстовый канал"
-            in mock_interaction.response.send_message.call_args[0][0]
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
 
     @pytest.mark.asyncio
@@ -351,8 +358,10 @@ class TestTwitchCommands:
         await twitch_cog.twitch_remove.callback(
             twitch_cog, mock_interaction, twitch_username=twitch_username
         )
-        mock_interaction.response.send_message.assert_called_once_with(
-            f"Стример **{twitch_username}** не найден в списке отслеживаемых.", ephemeral=True
+        mock_interaction.response.send_message.assert_called_once()
+        assert (
+            f"Стример **{twitch_username}** не найден в списке отслеживаемых."
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
 
     @pytest.mark.asyncio
@@ -722,43 +731,42 @@ class TestSendStreamNotification:
 
 class TestCogCommandErrorHandling:
     @pytest.mark.asyncio
-    async def test_cog_command_error_sends_message(
+    async def test_cog_command_error_delegates_to_global_handler(
         self, twitch_cog: TwitchCog, mock_interaction: discord.Interaction
     ):
-        error = Exception("Test error in command")
-        original_error = ValueError("Original error detail")
-        error.original = original_error  # Прикрепляем original для теста
+        """Ког делегирует ошибки единому handle_app_command_error (унифицированный embed)."""
+        error = app_commands.CommandInvokeError(MagicMock(), ValueError("Original error detail"))
 
-        # Случай, когда interaction.response.is_done() == False
+        # Случай, когда interaction.response.is_done() == False — отвечаем напрямую.
         mock_interaction.response.is_done = MagicMock(return_value=False)
         await twitch_cog.cog_app_command_error(mock_interaction, error)
-        mock_interaction.response.send_message.assert_called_once_with(
-            f"Произошла ошибка: {str(original_error)}", ephemeral=True
-        )
+        mock_interaction.response.send_message.assert_called_once()
+        embed = mock_interaction.response.send_message.call_args.kwargs["embed"]
+        assert embed.title == "❌ Ошибка"
+        assert "Original error detail" in embed.description
 
-        # Случай, когда interaction.response.is_done() == True
+        # Случай, когда interaction.response.is_done() == True — через followup.
         mock_interaction.response.send_message.reset_mock()
         mock_interaction.response.is_done = MagicMock(return_value=True)
         await twitch_cog.cog_app_command_error(mock_interaction, error)
-        mock_interaction.followup.send.assert_called_once_with(
-            f"Произошла ошибка: {str(original_error)}", ephemeral=True
-        )
+        mock_interaction.followup.send.assert_called_once()
+        assert mock_interaction.followup.send.call_args.kwargs["ephemeral"] is True
 
     @pytest.mark.asyncio
     async def test_cog_command_error_send_fails(
         self, twitch_cog: TwitchCog, mock_interaction: discord.Interaction
     ):
-        error = Exception("Test error")
+        """Если отправка падает с HTTPException — ошибка логируется, не пробрасывается."""
+        error = app_commands.CommandInvokeError(MagicMock(), Exception("Test error"))
         mock_interaction.response.is_done = MagicMock(return_value=False)
         mock_interaction.response.send_message.side_effect = discord.HTTPException(
             MagicMock(), "Failed to send error"
         )
 
-        with patch("cogs.twitch.logger.error") as mock_logger_error:
+        with patch("utils.error_handler.logger.error") as mock_logger_error:
             await twitch_cog.cog_app_command_error(mock_interaction, error)
-            # Проверяем, что была попытка залогировать ошибку отправки сообщения
             assert any(
-                "Не удалось отправить сообщение об ошибке пользователю" in call_args[0][0]
+                "Не удалось отправить сообщение об ошибке slash-команды" in call_args[0][0]
                 for call_args in mock_logger_error.call_args_list
             )
 

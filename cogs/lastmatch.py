@@ -12,6 +12,7 @@
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from utils.dota_match_utils import handle_lastmatch
@@ -37,6 +38,7 @@ class LastMatchCog(commands.Cog):
         self.links_manager = LinksDataManager()
 
     @commands.hybrid_command(description="Показать информацию о последнем матче Dota 2")
+    @app_commands.describe(member="Чей матч показать (по умолчанию — твой)")
     @command_error_handler
     async def lastmatch(self, ctx: commands.Context, member: discord.Member | None = None) -> None:
         """Показывает информацию о последнем матче Dota 2.

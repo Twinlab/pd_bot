@@ -8,6 +8,7 @@ FACEIT Data API и показывает их в виде Components V2 конт�
 import logging
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 
 from utils.cs_links_data_manager import CsLinksDataManager
@@ -26,6 +27,7 @@ class CsLastMatchCog(commands.Cog):
         self.links_manager = CsLinksDataManager()
 
     @commands.hybrid_command(description="Показать информацию о последнем матче CS2 (FACEIT)")
+    @app_commands.describe(member="Чей матч показать (по умолчанию — твой)")
     @command_error_handler
     async def cslastmatch(
         self, ctx: commands.Context, member: discord.Member | None = None

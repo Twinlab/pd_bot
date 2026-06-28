@@ -16,7 +16,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from utils.error_handler import command_error_handler, safe_send
+from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.role_reaction_data_manager import RoleReactionDataManager
 from utils.role_reaction_views import MAX_BUTTONS, RoleButton, parse_emoji
 
@@ -280,11 +280,10 @@ class RoleReactionCog(commands.Cog):
         # Проверяем, существует ли сообщение с реакциями для этого сервера
         message_info = await self.data_manager.get_message_info(interaction.guild.id)
         if not message_info:
-            # Если сообщения нет, предлагаем создать его
-            await interaction.response.send_message(
+            await safe_send_error(
+                interaction,
                 "Сообщение с реакциями не найдено. Сначала создайте его с помощью "
                 "команды `/setup_role_message`.",
-                ephemeral=True,
             )
             return
 
@@ -322,8 +321,8 @@ class RoleReactionCog(commands.Cog):
                     f"на сервере {interaction.guild.id}"
                 )
             else:
-                await interaction.response.send_message(
-                    "Не удалось добавить привязку роли. Проверьте журнал ошибок.", ephemeral=True
+                await safe_send_error(
+                    interaction, "Не удалось добавить привязку роли. Проверьте журнал ошибок."
                 )
         except discord.NotFound as e:
             # Если это ошибка "Unknown interaction", просто логируем
@@ -334,20 +333,10 @@ class RoleReactionCog(commands.Cog):
 
             # Для других ошибок NotFound пытаемся отправить сообщение
             logger.error(f"Ошибка 'Not Found' при добавлении привязки роли: {e}", exc_info=True)
-            try:
-                await interaction.response.send_message(
-                    f"Произошла ошибка: {str(e)}", ephemeral=True
-                )
-            except Exception:
-                pass
+            await safe_send_error(interaction, str(e))
         except Exception as e:
             logger.error(f"Ошибка при добавлении привязки роли: {e}", exc_info=True)
-            try:
-                await interaction.response.send_message(
-                    f"Произошла ошибка: {str(e)}", ephemeral=True
-                )
-            except Exception:
-                pass
+            await safe_send_error(interaction, str(e))
 
     @app_commands.command(
         name="role_remove", description="Удаляет роль из списка ролей, получаемых через реакции"
@@ -365,10 +354,10 @@ class RoleReactionCog(commands.Cog):
         # Проверяем, существует ли сообщение с реакциями для этого сервера
         message_info = await self.data_manager.get_message_info(interaction.guild.id)
         if not message_info:
-            await interaction.response.send_message(
+            await safe_send_error(
+                interaction,
                 "Сообщение с реакциями не найдено. Сначала создайте его с помощью "
                 "команды `/setup_role_message`.",
-                ephemeral=True,
             )
             return
 
@@ -399,9 +388,7 @@ class RoleReactionCog(commands.Cog):
                     f"на сервере {interaction.guild.id}"
                 )
             else:
-                await interaction.response.send_message(
-                    f"Не найдена привязка роли к эмодзи {emoji}.", ephemeral=True
-                )
+                await safe_send_error(interaction, f"Не найдена привязка роли к эмодзи {emoji}.")
         except discord.NotFound as e:
             # Если это ошибка "Unknown interaction", просто логируем
             error_str = str(e).lower()
@@ -411,20 +398,10 @@ class RoleReactionCog(commands.Cog):
 
             # Для других ошибок NotFound пытаемся отправить сообщение
             logger.error(f"Ошибка 'Not Found' при удалении привязки роли: {e}", exc_info=True)
-            try:
-                await interaction.response.send_message(
-                    f"Произошла ошибка: {str(e)}", ephemeral=True
-                )
-            except Exception:
-                pass
+            await safe_send_error(interaction, str(e))
         except Exception as e:
             logger.error(f"Ошибка при удалении привязки роли: {e}", exc_info=True)
-            try:
-                await interaction.response.send_message(
-                    f"Произошла ошибка: {str(e)}", ephemeral=True
-                )
-            except Exception:
-                pass
+            await safe_send_error(interaction, str(e))
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""

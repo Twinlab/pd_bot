@@ -31,6 +31,7 @@ from utils.activity.reports import (
 )
 from utils.activity.views import ActivityView, StatsView
 from utils.activity_data_manager import ActivityDataManager
+from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.time_utils import MOSCOW_TZ
 from utils.user_stats_data_manager import UserStatsDataManager
 
@@ -84,6 +85,77 @@ class ActivityTracker(commands.Cog):
             )
         except Exception as e:
             logger.error(f"Не удалось запустить фоновые задачи ActivityTracker: {e}", exc_info=True)
+
+        self.stats_menu = app_commands.ContextMenu(
+            name="Статистика за месяц",
+            callback=self.stats_context_menu,
+        )
+        self.bot.tree.add_command(self.stats_menu)
+
+    @app_commands.guild_only()
+    async def stats_context_menu(
+        self, interaction: discord.Interaction, member: discord.Member
+    ) -> None:
+        """Контекст-меню (ПКМ по юзеру) «Статистика за месяц» — эфемерный ответ автору."""
+        view, embed = await self._build_current_month_stats(member)
+        if view is None:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        await interaction.response.send_message(view=view, ephemeral=True)
+        view.message = await interaction.original_response()
+
+    async def _build_current_month_stats(
+        self, target_user: discord.Member
+    ) -> tuple[StatsView | None, discord.Embed | None]:
+        """Собирает статистику пользователя за текущий месяц.
+
+        Returns:
+            Кортеж ``(view, embed)``: заполнен ровно один элемент — готовая
+            вью-пагинация по играм либо эмбед-заглушка, если играть не во что.
+        """
+        user_id = target_user.id
+        today = date.today()
+        await self.update_current_activities()
+
+        monthly_data = await self.data_manager.get_monthly_stats(user_id, today.year, today.month)
+        today_stats = await self.data_manager.get_daily_stats(today)
+        if user_id in today_stats:
+            for game, seconds in today_stats[user_id].items():
+                monthly_data[game] = monthly_data.get(game, 0) + seconds
+
+        us_month = await self.user_stats_manager.get_user_monthly(user_id, today.year, today.month)
+        us_extra = (
+            await self.user_stats_manager.get_daily_totals_by_prefix(
+                f"{today.year}-{today.month:02d}"
+            )
+        ).get(user_id)
+        period_messages = us_month.messages + (us_extra.messages if us_extra else 0)
+        period_voice = us_month.voice_seconds + (us_extra.voice_seconds if us_extra else 0)
+
+        title = f"📊 Статистика {target_user.display_name} за текущий месяц"
+        if not monthly_data:
+            embed = discord.Embed(title=title, color=discord.Color.blue())
+            embed.set_thumbnail(url=target_user.display_avatar.url)
+            if period_messages or period_voice:
+                embed.description = "Игр не зафиксировано, но активность есть:"
+                embed.add_field(name="💬 Сообщения", value=str(period_messages), inline=True)
+                embed.add_field(
+                    name="🎙️ В войсе", value=format_time_short(period_voice), inline=True
+                )
+            else:
+                embed.description = "Нет данных об активности за текущий месяц 😢"
+            return None, embed
+
+        sorted_games = sorted(monthly_data.items(), key=lambda item: item[1], reverse=True)
+        view = StatsView(
+            title,
+            sorted_games,
+            user=target_user,
+            items_per_page=get_settings().limits.activity_items_per_page,
+            messages_count=period_messages,
+            voice_seconds=period_voice,
+        )  # type: ignore[arg-type]
+        return view, None
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -141,6 +213,7 @@ class ActivityTracker(commands.Cog):
         self.daily_report.cancel()
         self.monthly_report.cancel()
         self.periodic_save.cancel()
+        self.bot.tree.remove_command(self.stats_menu.name, type=self.stats_menu.type)
         logger.info("Фоновые задачи ActivityTracker остановлены.")
         # Попытка сохранить последние данные об активности перед выгрузкой
         try:
@@ -527,6 +600,7 @@ class ActivityTracker(commands.Cog):
     @app_commands.describe(
         test_mode="[Только для теста] Использовать тестовые данные, если реальных нет."
     )
+    @command_error_handler
     async def activity_command(self, ctx: commands.Context, test_mode: bool = False) -> None:
         """Показывает статистику игровой активности за СЕГОДНЯШНИЙ день.
 
@@ -553,7 +627,7 @@ class ActivityTracker(commands.Cog):
                     today_data[members[1].id] = {"Test Game 1": 1200, "Third Game": 5000}
 
         if not today_data:
-            await ctx.send("Сегодня пока никто не играл в игры 😢", ephemeral=True)
+            await safe_send(ctx, "Сегодня пока никто не играл в игры 😢", ephemeral=True)
             return
 
         # Создаем и отправляем View
@@ -574,6 +648,7 @@ class ActivityTracker(commands.Cog):
         month="Месяц (число от 1 до 12, по умолчанию - текущий).",
         year="Год (по умолчанию - текущий).",
     )
+    @command_error_handler
     async def mystats_command(
         self,
         ctx: commands.Context,
@@ -590,120 +665,106 @@ class ActivityTracker(commands.Cog):
             f"Команда /mystats вызвана {ctx.author} для {target_user} (Месяц: {month}, Год: {year})"
         )
 
-        try:
-            user_id = target_user.id
-            today = date.today()
+        user_id = target_user.id
+        today = date.today()
 
-            # Валидация и установка значений по умолчанию для года и месяца
-            target_year = year if year is not None else today.year
-            if month is not None:
-                if not 1 <= month <= 12:
-                    await ctx.send(
-                        "Неверный номер месяца. Укажите число от 1 до 12.", ephemeral=True
-                    )
-                    return
-                target_month = month
-            else:
-                target_month = today.month
-
-            # Проверка, является ли запрашиваемый период текущим месяцем
-            is_current_month = target_year == today.year and target_month == today.month
-
-            # Обновляем текущие сессии, если смотрим статистику за текущий месяц
-            if is_current_month:
-                await self.update_current_activities()
-
-            # Получаем месячные данные из БД
-            monthly_data = await self.data_manager.get_monthly_stats(
-                user_id, target_year, target_month
-            )
-
-            # Если текущий месяц, добавляем данные за сегодня из daily_activity
-            if is_current_month:
-                today_stats = await self.data_manager.get_daily_stats(today)
-                if user_id in today_stats:
-                    for game, seconds in today_stats[user_id].items():
-                        monthly_data[game] = monthly_data.get(game, 0) + seconds
-
-            # Сообщения и «умный» войс за тот же период: помесячная таблица +
-            # ещё не перенесённые дневные строки этого месяца. Отсутствие данных
-            # даёт 0, поэтому команда не падает у неактивных пользователей.
-            us_month = await self.user_stats_manager.get_user_monthly(
-                user_id, target_year, target_month
-            )
-            us_extra = (
-                await self.user_stats_manager.get_daily_totals_by_prefix(
-                    f"{target_year}-{target_month:02d}"
-                )
-            ).get(user_id)
-            period_messages = us_month.messages + (us_extra.messages if us_extra else 0)
-            period_voice = us_month.voice_seconds + (us_extra.voice_seconds if us_extra else 0)
-
-            # Формируем заголовок и проверяем наличие данных
-            month_name = MONTH_NAMES_RU.get(target_month, str(target_month))
-            data_period_str = (
-                f"за {month_name} {target_year}"
-                if month is not None or year is not None
-                else "за текущий месяц"
-            )
-
-            if not monthly_data:
-                embed = discord.Embed(
-                    title=f"📊 Статистика {target_user.display_name} {data_period_str}",
-                    color=discord.Color.blue(),
-                )
-                embed.set_thumbnail(url=target_user.display_avatar.url)
-                if period_messages or period_voice:
-                    embed.description = "Игр не зафиксировано, но активность есть:"
-                    embed.add_field(name="💬 Сообщения", value=str(period_messages), inline=True)
-                    embed.add_field(
-                        name="🎙️ В войсе", value=format_time_short(period_voice), inline=True
-                    )
-                else:
-                    embed.description = f"Нет данных об активности {data_period_str} 😢"
-                await ctx.send(embed=embed, ephemeral=True)
+        target_year = year if year is not None else today.year
+        if month is not None:
+            if not 1 <= month <= 12:
+                await safe_send_error(ctx, "Неверный номер месяца. Укажите число от 1 до 12.")
                 return
+            target_month = month
+        else:
+            target_month = today.month
 
-            # Сортируем игры по времени
-            sorted_games: list[tuple[str, int]] = sorted(
-                monthly_data.items(), key=lambda item: item[1], reverse=True
+        is_current_month = target_year == today.year and target_month == today.month
+
+        if is_current_month:
+            await self.update_current_activities()
+
+        monthly_data = await self.data_manager.get_monthly_stats(user_id, target_year, target_month)
+
+        # Если текущий месяц, добавляем данные за сегодня из daily_activity
+        if is_current_month:
+            today_stats = await self.data_manager.get_daily_stats(today)
+            if user_id in today_stats:
+                for game, seconds in today_stats[user_id].items():
+                    monthly_data[game] = monthly_data.get(game, 0) + seconds
+
+        # Сообщения и «умный» войс за тот же период: помесячная таблица +
+        # ещё не перенесённые дневные строки этого месяца. Отсутствие данных
+        # даёт 0, поэтому команда не падает у неактивных пользователей.
+        us_month = await self.user_stats_manager.get_user_monthly(
+            user_id, target_year, target_month
+        )
+        us_extra = (
+            await self.user_stats_manager.get_daily_totals_by_prefix(
+                f"{target_year}-{target_month:02d}"
             )
+        ).get(user_id)
+        period_messages = us_month.messages + (us_extra.messages if us_extra else 0)
+        period_voice = us_month.voice_seconds + (us_extra.voice_seconds if us_extra else 0)
 
-            # Создаем и отправляем View
-            title = f"📊 Статистика {target_user.display_name} {data_period_str}"
-            view = StatsView(
-                title,
-                sorted_games,
-                user=target_user,
-                items_per_page=get_settings().limits.activity_items_per_page,
-                messages_count=period_messages,
-                voice_seconds=period_voice,
-            )  # type: ignore[arg-type]
-            message = await ctx.send(view=view, ephemeral=False)  # Статистика теперь публичная
-            view.message = message
+        month_name = MONTH_NAMES_RU.get(target_month, str(target_month))
+        data_period_str = (
+            f"за {month_name} {target_year}"
+            if month is not None or year is not None
+            else "за текущий месяц"
+        )
 
-            # Показываем текущую сессию, если смотрим текущий месяц
-            if is_current_month and user_id in self.current_activities:
-                game_name, start_time = self.current_activities[user_id]
-                now_utc = datetime.now(UTC)
-                current_session_seconds = int((now_utc - start_time).total_seconds())
-                if current_session_seconds > 10:  # Показываем только если сессия длится > 10 сек
-                    current_info = (
-                        f"🔴 **{target_user.display_name}** сейчас играет в **{game_name}** "
-                        f"(текущая сессия: {format_time_short(current_session_seconds)})"
-                    )
-                    # Отправляем отдельно
-                    await ctx.send(current_info, ephemeral=False)
+        if not monthly_data:
+            embed = discord.Embed(
+                title=f"📊 Статистика {target_user.display_name} {data_period_str}",
+                color=discord.Color.blue(),
+            )
+            embed.set_thumbnail(url=target_user.display_avatar.url)
+            if period_messages or period_voice:
+                embed.description = "Игр не зафиксировано, но активность есть:"
+                embed.add_field(name="💬 Сообщения", value=str(period_messages), inline=True)
+                embed.add_field(
+                    name="🎙️ В войсе", value=format_time_short(period_voice), inline=True
+                )
+            else:
+                embed.description = f"Нет данных об активности {data_period_str} 😢"
+            await safe_send(ctx, embed=embed, ephemeral=True)
+            return
 
-        except Exception as e:
-            logger.error(f"Ошибка при выполнении команды /mystats: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при получении статистики: {e}", ephemeral=True)
+        # Сортируем игры по времени
+        sorted_games: list[tuple[str, int]] = sorted(
+            monthly_data.items(), key=lambda item: item[1], reverse=True
+        )
+
+        # Создаем и отправляем View
+        title = f"📊 Статистика {target_user.display_name} {data_period_str}"
+        view = StatsView(
+            title,
+            sorted_games,
+            user=target_user,
+            items_per_page=get_settings().limits.activity_items_per_page,
+            messages_count=period_messages,
+            voice_seconds=period_voice,
+        )  # type: ignore[arg-type]
+        message = await ctx.send(view=view, ephemeral=False)  # Статистика теперь публичная
+        view.message = message
+
+        # Показываем текущую сессию, если смотрим текущий месяц
+        if is_current_month and user_id in self.current_activities:
+            game_name, start_time = self.current_activities[user_id]
+            now_utc = datetime.now(UTC)
+            current_session_seconds = int((now_utc - start_time).total_seconds())
+            if current_session_seconds > 10:  # Показываем только если сессия длится > 10 сек
+                current_info = (
+                    f"🔴 **{target_user.display_name}** сейчас играет в **{game_name}** "
+                    f"(текущая сессия: {format_time_short(current_session_seconds)})"
+                )
+                await ctx.send(current_info, ephemeral=False)
 
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="mystatsall",
         description="Показывает статистику игровой активности пользователя за всё время.",
     )
     @app_commands.describe(user="Пользователь, чью статистику показать (по умолчанию - вы).")
+    @command_error_handler
     async def mystatsall_command(
         self, ctx: commands.Context, user: discord.Member | None = None
     ) -> None:
@@ -711,41 +772,34 @@ class ActivityTracker(commands.Cog):
         target_user = user if user else ctx.author
         logger.info(f"Команда /mystatsall вызвана {ctx.author} для {target_user}")
 
-        try:
-            user_id = target_user.id
-            # Обновляем текущие сессии перед получением статистики за всё время
-            await self.update_current_activities()
-            all_user_games = await self.data_manager.get_all_time_stats(user_id)
+        user_id = target_user.id
+        await self.update_current_activities()
+        all_user_games = await self.data_manager.get_all_time_stats(user_id)
 
-            if not all_user_games:
-                embed = discord.Embed(
-                    title=f"📊 Статистика {target_user.display_name}",
-                    description="Нет данных об активности за всё время 😢",
-                    color=discord.Color.blue(),
-                )
-                embed.set_thumbnail(url=target_user.display_avatar.url)
-                await ctx.send(embed=embed, ephemeral=True)
-                return
-
-            # Сортируем игры по времени
-            sorted_games: list[tuple[str, int]] = sorted(
-                all_user_games.items(), key=lambda item: item[1], reverse=True
+        if not all_user_games:
+            embed = discord.Embed(
+                title=f"📊 Статистика {target_user.display_name}",
+                description="Нет данных об активности за всё время 😢",
+                color=discord.Color.blue(),
             )
+            embed.set_thumbnail(url=target_user.display_avatar.url)
+            await safe_send(ctx, embed=embed, ephemeral=True)
+            return
 
-            # Создаем и отправляем View
-            title = f"📊 Статистика {target_user.display_name} за всё время"
-            view = StatsView(
-                title,
-                sorted_games,
-                user=target_user,
-                items_per_page=get_settings().limits.activity_items_per_page,
-            )  # type: ignore[arg-type]
-            message = await ctx.send(view=view, ephemeral=False)
-            view.message = message
+        # Сортируем игры по времени
+        sorted_games: list[tuple[str, int]] = sorted(
+            all_user_games.items(), key=lambda item: item[1], reverse=True
+        )
 
-        except Exception as e:
-            logger.error(f"Ошибка при выполнении команды /mystatsall: {e}", exc_info=True)
-            await ctx.send(f"Произошла ошибка при получении статистики: {e}", ephemeral=True)
+        title = f"📊 Статистика {target_user.display_name} за всё время"
+        view = StatsView(
+            title,
+            sorted_games,
+            user=target_user,
+            items_per_page=get_settings().limits.activity_items_per_page,
+        )  # type: ignore[arg-type]
+        message = await ctx.send(view=view, ephemeral=False)
+        view.message = message
 
     # --- Команды для ручного запуска отчетов ---
 
@@ -756,6 +810,7 @@ class ActivityTracker(commands.Cog):
     @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(year="Год (например, 2024).", month="Месяц (1-12).", day="День (1-31).")
+    @command_error_handler
     async def report_daily_command(
         self, ctx: commands.Context, year: int, month: int, day: int
     ) -> None:
@@ -768,67 +823,33 @@ class ActivityTracker(commands.Cog):
         )
         try:
             target_date = date(year, month, day)
-            # Проверяем, что дата не в будущем
-            if target_date >= date.today():
-                await ctx.send(
-                    "Нельзя генерировать отчет за сегодня или будущую дату.", ephemeral=True
-                )
-                return
-
         except ValueError:
-            await ctx.send("Некорректная дата. Проверьте год, месяц и день.", ephemeral=True)
+            await safe_send_error(ctx, "Некорректная дата. Проверьте год, месяц и день.")
             return
 
-        try:
-            await ctx.defer(ephemeral=True)  # Даем боту время на генерацию
-            report_channel = ctx.channel if isinstance(ctx.channel, discord.TextChannel) else None
-            # Передаем текущий канал в функцию send_daily_report
-            success = await send_daily_report(
-                target_date, self.bot, self.data_manager, channel=report_channel
+        if target_date >= date.today():
+            await safe_send_error(ctx, "Нельзя генерировать отчет за сегодня или будущую дату.")
+            return
+
+        await ctx.defer(ephemeral=True)  # Даем боту время на генерацию
+        report_channel = ctx.channel if isinstance(ctx.channel, discord.TextChannel) else None
+        success = await send_daily_report(
+            target_date, self.bot, self.data_manager, channel=report_channel
+        )
+
+        date_str = target_date.strftime("%d.%m.%Y")
+        if success:
+            await safe_send(
+                ctx,
+                f"Ежедневный отчет за {date_str} успешно отправлен (или данных не было).",
+                ephemeral=True,
             )
-
-            if success:
-                # Проверяем, является ли команда слэш-командой
-                if ctx.interaction:
-                    await ctx.interaction.followup.send(
-                        (
-                            f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} "
-                            "успешно отправлен (или данных не было)."
-                        ),
-                        ephemeral=True,
-                    )
-                else:
-                    await ctx.send(
-                        f"Ежедневный отчет за {target_date.strftime('%d.%m.%Y')} "
-                        "успешно отправлен (или данных не было)."
-                    )
-            else:
-                if ctx.interaction:
-                    await ctx.interaction.followup.send(
-                        (
-                            f"Не удалось отправить ежедневный отчет за "
-                            f"{target_date.strftime('%d.%m.%Y')}. Проверьте логи."
-                        ),
-                        ephemeral=True,
-                    )
-                else:
-                    await ctx.send(
-                        f"Не удалось отправить ежедневный отчет за "
-                        f"{target_date.strftime('%d.%m.%Y')}. Проверьте логи."
-                    )
-
-        except Exception as e:
-            logger.error(f"Ошибка при выполнении команды /report_daily: {e}", exc_info=True)
-            try:
-                # Используем followup, если взаимодействие было отложено (defer)
-                if ctx.interaction and ctx.interaction.response.is_done():
-                    await ctx.interaction.followup.send(
-                        f"Произошла критическая ошибка при выполнении команды: {e}", ephemeral=True
-                    )
-                else:
-                    await ctx.send(f"Произошла критическая ошибка при выполнении команды: {e}")
-            except Exception as send_error:
-                logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
+        else:
+            await safe_send(
+                ctx,
+                f"Не удалось отправить ежедневный отчет за {date_str}. Проверьте логи.",
+                ephemeral=True,
+            )
 
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="report_monthly",
@@ -838,79 +859,46 @@ class ActivityTracker(commands.Cog):
     @app_commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(year="Год (например, 2024).", month="Месяц (1-12).")
+    @command_error_handler
     async def report_monthly_command(self, ctx: commands.Context, year: int, month: int) -> None:
         """Позволяет администратору вручную запустить генерацию и отправку ежемесячного отчета.
 
         Отчет генерируется за конкретный месяц и год.
         """
         logger.info(f"Команда /report_monthly вызвана {ctx.author} для периода {year}-{month:02d}")
-        # Валидация месяца
         if not 1 <= month <= 12:
-            await ctx.send("Неверный номер месяца. Укажите число от 1 до 12.", ephemeral=True)
+            await safe_send_error(ctx, "Неверный номер месяца. Укажите число от 1 до 12.")
             return
-        # Валидация года (простая проверка на разумность)
         if not 2020 <= year <= date.today().year + 1:
-            await ctx.send("Некорректный год.", ephemeral=True)
+            await safe_send_error(ctx, "Некорректный год.")
             return
 
-        # Проверяем, что запрашиваемый период не текущий или будущий месяц
         today = date.today()
         if year > today.year or (year == today.year and month >= today.month):
-            await ctx.send(
-                "Нельзя генерировать месячный отчет за текущий или будущий месяц.", ephemeral=True
+            await safe_send_error(
+                ctx, "Нельзя генерировать месячный отчет за текущий или будущий месяц."
             )
             return
 
-        try:
-            await ctx.defer(ephemeral=True)  # Даем боту время на генерацию
-            report_channel = ctx.channel if isinstance(ctx.channel, discord.TextChannel) else None
-            # Передаем текущий канал в функцию send_monthly_report
-            success = await send_monthly_report(
-                year, month, self.bot, self.data_manager, channel=report_channel
+        await ctx.defer(ephemeral=True)  # Даем боту время на генерацию
+        report_channel = ctx.channel if isinstance(ctx.channel, discord.TextChannel) else None
+        success = await send_monthly_report(
+            year, month, self.bot, self.data_manager, channel=report_channel
+        )
+
+        month_name = MONTH_NAMES_RU.get(month, str(month))
+        if success:
+            await safe_send(
+                ctx,
+                f"Ежемесячный отчет за {month_name} {year} успешно отправлен (или данных не было).",
+                ephemeral=True,
             )
-
-            if success:
-                month_name = MONTH_NAMES_RU.get(month, str(month))
-                if ctx.interaction:
-                    await ctx.interaction.followup.send(
-                        (
-                            f"Ежемесячный отчет за {month_name} {year} "
-                            "успешно отправлен (или данных не было)."
-                        ),
-                        ephemeral=True,
-                    )
-                else:
-                    await ctx.send(
-                        f"Ежемесячный отчет за {month_name} {year} "
-                        "успешно отправлен (или данных не было)."
-                    )
-            else:  # Этот else соответствует 'if success:' (строка 779)
-                if ctx.interaction:
-                    await ctx.interaction.followup.send(
-                        (
-                            f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. "
-                            "Проверьте логи."
-                        ),
-                        ephemeral=True,
-                    )
-                else:
-                    await ctx.send(
-                        f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. "
-                        "Проверьте логи."
-                    )
-
-        except Exception as e:
-            logger.error(f"Ошибка при выполнении команды /report_monthly: {e}", exc_info=True)
-            try:
-                # Используем followup, если взаимодействие было отложено (defer)
-                if ctx.interaction and ctx.interaction.response.is_done():
-                    await ctx.interaction.followup.send(
-                        f"Произошла критическая ошибка при выполнении команды: {e}", ephemeral=True
-                    )
-                else:
-                    await ctx.send(f"Произошла критическая ошибка при выполнении команды: {e}")
-            except Exception as send_error:
-                logger.error(f"Не удалось отправить сообщение об ошибке пользователю: {send_error}")
+        else:
+            await safe_send(
+                ctx,
+                f"Не удалось отправить ежемесячный отчет за {year}-{month:02d}. Проверьте логи.",
+                ephemeral=True,
+            )
 
 
 async def setup(bot: commands.Bot) -> None:

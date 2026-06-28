@@ -81,6 +81,7 @@ def mock_interaction(
     interaction.channel = mock_text_channel
     interaction.response = AsyncMock(spec=discord.InteractionResponse)
     interaction.response.send_message = AsyncMock()
+    interaction.response.is_done = MagicMock(return_value=False)
     return interaction
 
 
@@ -300,7 +301,7 @@ class TestRoleAssignCommand:
         mock_interaction.response.send_message.assert_called_once()
         assert (
             "Сообщение с реакциями не найдено."
-            in mock_interaction.response.send_message.call_args[0][0]
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
         mock_data_manager.add_role_reaction.assert_not_called()
 
@@ -369,7 +370,7 @@ class TestRoleAssignCommand:
         mock_interaction.response.send_message.assert_called_once()
         assert (
             "Не удалось добавить привязку роли."
-            in mock_interaction.response.send_message.call_args[0][0]
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
         role_reaction_cog.update_reaction_message.assert_not_called()
 
@@ -389,7 +390,7 @@ class TestRoleRemoveCommand:
         mock_interaction.response.send_message.assert_called_once()
         assert (
             "Сообщение с реакциями не найдено."
-            in mock_interaction.response.send_message.call_args[0][0]
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
         mock_data_manager.remove_role_reaction.assert_not_called()
 
@@ -427,7 +428,7 @@ class TestRoleRemoveCommand:
         mock_interaction.response.send_message.assert_called_once()
         assert (
             "Не найдена привязка роли к эмодзи 🤔."
-            in mock_interaction.response.send_message.call_args[0][0]
+            in mock_interaction.response.send_message.call_args.kwargs["embed"].description
         )
         role_reaction_cog.update_reaction_message.assert_not_called()
 

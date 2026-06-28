@@ -388,7 +388,14 @@ class PartyCog(commands.Cog):
             check_task.cancel()
 
     def _party_cooldown_remaining(self, user_id: int) -> int:
-        """Сколько секунд осталось до следующего разрешённого сбора (0 — можно)."""
+        """Сколько секунд осталось до следующего разрешённого сбора (0 — можно).
+
+        Кулдаун специально привязан к ФАКТУ публикации пати (см. ``_last_party``),
+        а не к вызову ``/party``: команда лишь открывает эфемерный мастер, и
+        пользователь может открыть/закрыть его сколько угодно раз, пока ничего не
+        опубликовал. Поэтому ``@app_commands.checks.cooldown`` (кулдаун на вызов)
+        здесь не подходит — он банил бы и тех, кто просто передумал в мастере.
+        """
         last = self._last_party.get(user_id)
         if last is None:
             return 0
@@ -510,39 +517,35 @@ class PartyCog(commands.Cog):
         """Открывает пошаговый эфемерный мастер сбора пати."""
         guild = interaction.guild
         if guild is None:
-            await interaction.response.send_message("Только в конфе, чел.", ephemeral=True)
+            await safe_send_error(interaction, "Только в конфе, чел.")
             return
 
         initiator = interaction.user
         if not isinstance(initiator, discord.Member):
-            await interaction.response.send_message("Ты не в конфе.", ephemeral=True)
+            await safe_send_error(interaction, "Ты не в конфе.")
             return
 
         if await self.data_manager.is_blocked(initiator.id):
-            await interaction.response.send_message("ты в бане", ephemeral=True)
+            await safe_send_error(interaction, "ты в бане")
             return
 
         remaining = self._party_cooldown_remaining(initiator.id)
         if remaining > 0:
-            await interaction.response.send_message(
+            await safe_send_error(
+                interaction,
                 f"Слишком часто — следующий сбор можно через {remaining // 60} мин "
                 f"{remaining % 60} сек.",
-                ephemeral=True,
             )
             return
 
         allowed_role_ids = await self._allowed_role_ids(guild.id)
         roles = [role for rid in allowed_role_ids if (role := guild.get_role(rid)) is not None]
         if not roles:
-            await interaction.response.send_message(
-                "Нет доступных ролей из /role_assign.", ephemeral=True
-            )
+            await safe_send_error(interaction, "Нет доступных ролей из /role_assign.")
             return
 
         if image is not None and not (image.content_type or "").startswith("image/"):
-            await interaction.response.send_message(
-                "Вложение должно быть картинкой.", ephemeral=True
-            )
+            await safe_send_error(interaction, "Вложение должно быть картинкой.")
             return
 
         view = PartyBuilderView(
@@ -604,29 +607,64 @@ class PartyCog(commands.Cog):
                 ephemeral=True,
             )
         else:
-            await interaction.response.send_message(
-                "Не удалось заблокировать пользователя — см. логи.", ephemeral=True
-            )
+            await safe_send_error(interaction, "Не удалось заблокировать пользователя — см. логи.")
 
     @app_commands.command(
         name="party_unblock",
         description="(Админ) Снять запрет на /party.",
     )
-    @app_commands.describe(user="Кого разблокировать")
+    @app_commands.describe(user="Кого разблокировать (выбор из списка заблокированных)")
     @app_commands.default_permissions(administrator=True)
     @app_commands.guild_only()
     @app_commands.checks.has_permissions(administrator=True)
-    async def party_unblock(self, interaction: discord.Interaction, user: discord.User) -> None:
-        """Снимает блокировку пользователя."""
-        ok = await self.data_manager.remove_block(user_id=user.id)
-        if ok:
-            await interaction.response.send_message(
-                f"Пользователь {user.mention} разблокирован.", ephemeral=True
-            )
-        else:
-            await interaction.response.send_message(
-                f"Пользователь {user.mention} не был в blacklist.", ephemeral=True
-            )
+    async def party_unblock(self, interaction: discord.Interaction, user: str) -> None:
+        """Снимает блокировку пользователя.
+
+        ``user`` — строковый Discord ID из автокомплита: нативный пикер
+        ``discord.User`` не поддерживает автокомплит, поэтому берём id строкой и
+        подсказываем только реально заблокированных (см. ``party_unblock_autocomplete``).
+        """
+        try:
+            user_id = int(user)
+        except ValueError:
+            await safe_send_error(interaction, "Некорректный пользователь.")
+            return
+
+        ok = await self.data_manager.remove_block(user_id=user_id)
+        message = (
+            f"Пользователь <@{user_id}> разблокирован."
+            if ok
+            else f"Пользователь <@{user_id}> не был в blacklist."
+        )
+        await interaction.response.send_message(
+            message,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    @party_unblock.autocomplete("user")
+    async def party_unblock_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Подсказывает при разблокировке только реально заблокированных юзеров."""
+        try:
+            rows = await self.data_manager.list_blocks()
+        except Exception as e:
+            logger.debug(f"Автокомплит party_unblock не смог получить blacklist: {e}")
+            return []
+
+        cur = current.lower().strip()
+        choices: list[app_commands.Choice[str]] = []
+        for row in rows:
+            user_id = int(row["user_id"])  # type: ignore[call-overload]
+            member = interaction.guild.get_member(user_id) if interaction.guild else None
+            label = member.display_name if member else str(user_id)
+            reason = row["reason"]
+            name = f"{label} — {reason}" if reason else label
+            if cur and cur not in name.lower() and cur not in str(user_id):
+                continue
+            choices.append(app_commands.Choice(name=name[:100], value=str(user_id)))
+        return choices[:25]
 
     @app_commands.command(
         name="party_blocklist",

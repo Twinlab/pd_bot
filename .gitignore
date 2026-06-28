@@ -45,6 +45,7 @@ Thumbs.db
 docs/UNIFICATION_PLAN_DETAILED.md
 docs/TEST_COVERAGE_PLAN.md
 docs/MIGRATION_GUIDE.md
+plan-modernize.md
 # Coverage reports
 .coverage
 coverage/

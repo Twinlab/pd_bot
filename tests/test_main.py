@@ -125,6 +125,74 @@ class TestMainWithNewConfig:
                     assert hasattr(main_module.bot, 'settings')
 
     @pytest.mark.asyncio
+    async def test_setup_hook_calls_sync(self):
+        """setup_hook делегирует синк команд в _sync_commands."""
+        import main as main_module
+
+        bot = main_module.bot
+        with patch.object(bot, "_sync_commands", new_callable=AsyncMock) as mock_sync:
+            await bot.setup_hook()
+
+        mock_sync.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_global_sync_when_no_guild_id(self):
+        """Без guild_id — один глобальный синк, без copy_global_to/очистки."""
+        import main as main_module
+
+        bot = main_module.bot
+        fake_settings = MagicMock()
+        fake_settings.guild_id = None
+        with (
+            patch.object(bot.tree, "sync", new=AsyncMock(return_value=[MagicMock(name="c")])),
+            patch.object(bot.tree, "copy_global_to") as mock_copy,
+            patch("main.get_settings", return_value=fake_settings),
+        ):
+            await bot._sync_commands()
+
+            bot.tree.sync.assert_awaited_once_with()
+            mock_copy.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_guild_scoped_sync_when_guild_id_set(self):
+        """С guild_id команды копируются в гильдию, глобальные дубликаты сносятся."""
+        import main as main_module
+
+        bot = main_module.bot
+        fake_settings = MagicMock()
+        fake_settings.guild_id = 123456789
+        with (
+            patch.object(bot.tree, "sync", new=AsyncMock(return_value=[MagicMock(name="c")])),
+            patch.object(bot.tree, "copy_global_to") as mock_copy,
+            patch.object(bot.tree, "clear_commands") as mock_clear,
+            patch("main.get_settings", return_value=fake_settings),
+        ):
+            await bot._sync_commands()
+
+            mock_copy.assert_called_once()
+            assert mock_copy.call_args.kwargs["guild"].id == 123456789
+            mock_clear.assert_called_once_with(guild=None)
+            assert bot.tree.sync.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_sync_handles_error(self):
+        """Ошибка синка логируется, но не пробрасывается наружу."""
+        import main as main_module
+
+        bot = main_module.bot
+        fake_settings = MagicMock()
+        fake_settings.guild_id = None
+        with (
+            patch.object(bot.tree, "sync", new=AsyncMock(side_effect=Exception("boom"))),
+            patch("main.get_settings", return_value=fake_settings),
+            patch("main.logger") as mock_logger,
+        ):
+            await bot._sync_commands()
+
+            mock_logger.error.assert_called_once()
+            assert "Не удалось синхронизировать" in mock_logger.error.call_args[0][0]
+
+    @pytest.mark.asyncio
     async def test_error_handling_in_main(self):
         """Тест обработки ошибок в функции main."""
         # Патчим переменные окружения

@@ -13,11 +13,11 @@ from typing import Any
 
 import discord
 from discord.ext import commands
-from discord.ui import Button
 
 from utils.cs_api import faceit_get_with_retry
 from utils.cs_links_data_manager import CsLink
 from utils.match_card import CsCardData, fetch_image_bytes, load_map_image, render_cs_card
+from utils.ui import image_card
 
 logger = logging.getLogger("bot.utils.cs_match_utils")
 
@@ -476,25 +476,17 @@ async def handle_cs_lastmatch(
     file = discord.File(BytesIO(png), filename="cs_match.png")
 
     faceit_url = str(item.get("faceit_url", "")).replace("{lang}", "en")
-    buttons: list[Button] = []
+    match_links: list[tuple[str, str]] = []
     if faceit_url:
-        buttons.append(Button(style=discord.ButtonStyle.link, label="FACEIT матч", url=faceit_url))
-    buttons.append(
-        Button(
-            style=discord.ButtonStyle.link,
-            label="Профиль",
-            url=f"https://www.faceit.com/en/players/{nickname}",
-        )
-    )
+        match_links.append(("FACEIT матч", faceit_url))
+    match_links.append(("Профиль", f"https://www.faceit.com/en/players/{nickname}"))
 
     # PNG вставляем в Components V2 через attachment:// — контейнер сохраняет
     # accent-полосу (зелёная/красная) и кнопки-ссылки в одном сообщении.
-    container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
-    container.add_item(
-        discord.ui.MediaGallery(discord.MediaGalleryItem(media="attachment://cs_match.png"))
+    view = image_card(
+        media="attachment://cs_match.png",
+        accent=accent,
+        links=match_links,
+        timeout=settings.cs.match_view_timeout,
     )
-    container.add_item(discord.ui.ActionRow(*buttons))
-
-    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=settings.cs.match_view_timeout)
-    view.add_item(container)
     await ctx.send(view=view, file=file)

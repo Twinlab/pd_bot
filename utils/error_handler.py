@@ -9,6 +9,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.ui import colors
+
 logger = logging.getLogger("bot.utils.error_handler")
 
 # Словарь с пользовательскими сообщениями для разных типов ошибок
@@ -163,7 +165,11 @@ async def safe_send(
                 response_msg = cast(discord.Message, await ctx.original_response())
                 return response_msg
         else:
-            return await ctx.send(content=content, embed=embed, delete_after=delete_after)
+            # ``ephemeral`` для prefix-команд discord.py молча игнорирует, а для
+            # hybrid-слэша делает ответ эфемерным — поэтому пробрасываем всегда.
+            return await ctx.send(
+                content=content, embed=embed, delete_after=delete_after, ephemeral=ephemeral
+            )
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
         return None
@@ -198,7 +204,7 @@ async def handle_app_command_error(
     embed = discord.Embed(
         title="❌ Ошибка",
         description=get_error_message(error),
-        color=discord.Color.red(),
+        color=colors.ERROR,
     )
     try:
         if interaction.response.is_done():
@@ -225,6 +231,6 @@ async def safe_send_error(
     embed = discord.Embed(
         title="❌ Ошибка",
         description=error_message,
-        color=discord.Color.red(),
+        color=colors.ERROR,
     )
     return await safe_send(ctx, embed=embed, ephemeral=True)

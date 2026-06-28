@@ -13,6 +13,7 @@
 7. [Обработка ошибок](#7-обработка-ошибок)
 8. [Тестирование](#8-тестирование)
 9. [Примеры лучших практик](#9-примеры-лучших-практик)
+10. [UI и Components V2](#10-ui-и-components-v2)
 
 ## 1. Форматирование кода
 
@@ -830,4 +831,79 @@ async def setup(bot: commands.Bot) -> None:
     """
     await bot.add_cog(MusicCog(bot))
     logger.info("Музыкальный ког добавлен к боту")
+```
+
+## 10. UI и Components V2
+
+Бот переходит на **Components V2** (CV2) — `discord.ui.LayoutView` + `Container` /
+`Section` / `TextDisplay` / `MediaGallery` / `Thumbnail` / `Separator` / `ActionRow`.
+Этот раздел — источник истины по визуальным конвенциям.
+
+### 10.1. Когда CV2, а когда классический Embed
+
+- **CV2** — для «витрин» и интерактива: карточки матчей, уведомления, посты,
+  лидерборды, плеер, мастера. Преимущество — единая вёрстка, картинка целиком,
+  кнопки и контент в одном сообщении.
+- **Классический `Embed`** — там, где ценен авто-unfurl ссылки или это одна
+  короткая строка (например, `snipe`/`avatar`).
+- **CV2 и `content`/`embed` несовместимы в одном сообщении.** Миграция атомарна
+  на каждое сообщение: либо весь месседж на CV2, либо классический эмбед.
+- Помни про лимиты CV2: суммарно ~4000 символов по всем `TextDisplay`, до 40
+  компонентов на сообщение, до 10 элементов в `MediaGallery`.
+
+### 10.2. Сборка карточек — только через `utils/ui`
+
+Не собирай `Container` + `MediaGallery` + `ActionRow` руками по месту. Используй
+фабрику `image_card` из `utils.ui` — она единообразно раскладывает
+«текст-сверху → картинка → текст-снизу → ссылки»:
+
+```python
+from utils.ui import image_card
+
+view = image_card(
+    media="attachment://card.png",   # URL или attachment:// для приложенного файла
+    accent=colors.result_accent(is_victory),
+    text_above=[f"### [{title}]({url})"],
+    text_below=["-# мета-строка"],
+    links=[("FACEIT", faceit_url)],
+    timeout=settings.cs.match_view_timeout,
+)
+await ctx.send(view=view, file=file)
+```
+
+### 10.3. Палитра цветов
+
+Единый источник для CV2 и системных сообщений — `utils.ui.colors`
+(нейтраль из тем Discord 2.6 `Colour.onyx_embed`, статусные `SUCCESS`/`ERROR`/
+`INFO`/`WARNING`/`BRAND`). Не хардкодь `discord.Color.red()` и т.п. в новом коде.
+Классические эмбеды отдельных фич пока берут цвета из `config.colors` и сходятся
+к палитре по мере перевода на CV2.
+
+### 10.4. Конвенция `custom_id`
+
+Все интерактивные компоненты используют неймспейс-префикс `<feature>:<action>`:
+`music:pause_resume`, `rr:role:<id>`, `party:ready` и т.п. Префикс обязателен —
+он нужен для логов и для `DynamicItem`/persistent-вьюх (иначе коллизии
+`custom_id` после рестарта).
+
+### 10.5. `ephemeral`
+
+- **Личное/служебное** (привязки, ошибки, подтверждения, `mystats`, очередь по
+  кнопке) → `ephemeral=True`.
+- **Общий контент** (now-playing, карточки матчей, посты, уведомления) →
+  публично.
+- Пользовательские ошибки всегда уходят через `safe_send_error` (эфемерно).
+
+### 10.6. Тестирование CV2
+
+Для проверки `LayoutView` используй ассерт-хелперы из `utils.ui.testing`
+(`text_blocks`, `joined_text`, `media_sources`, `link_buttons`, `accent_colours`),
+а не ручной обход `walk_children()`:
+
+```python
+from utils.ui import testing as ui_testing
+
+assert ui_testing.media_sources(view) == ["attachment://card.png"]
+assert ("FACEIT", faceit_url) in ui_testing.link_buttons(view)
+assert ui_testing.accent_colours(view) == [colors.SUCCESS]
 ```

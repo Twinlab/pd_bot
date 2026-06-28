@@ -260,3 +260,40 @@ class TestQuoteCommandIntegration:
         mock_scan.assert_called_once()
         mock_choice.assert_called_once_with(["user1", "user2"])
         mock_send.assert_called_once_with(mock_ctx, "user1", embed=False)
+
+
+class TestAddQuoteContextMenu:
+    """Тесты контекст-меню «В цитаты»."""
+
+    @pytest.mark.asyncio
+    @patch("cogs.fun.add_quote_from_message")
+    async def test_success(self, mock_add, fun_cog):
+        """Успешное добавление шлёт эфемерное подтверждение с именем папки."""
+        mock_add.return_value = "Coolguy"
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+        message = MagicMock(spec=discord.Message)
+
+        await fun_cog.add_quote_context_menu(interaction, message)
+
+        mock_add.assert_awaited_once_with(message)
+        content = interaction.response.send_message.await_args.args[0]
+        assert "Coolguy" in content
+        assert interaction.response.send_message.await_args.kwargs["ephemeral"] is True
+
+    @pytest.mark.asyncio
+    @patch("cogs.fun.safe_send_error", new_callable=AsyncMock)
+    @patch("cogs.fun.add_quote_from_message")
+    async def test_no_image_reports_error(self, mock_add, mock_err, fun_cog):
+        """Если картинки нет — уходит safe_send_error, без падения."""
+        from utils.quotes_utils import NoImagesFoundError
+
+        mock_add.side_effect = NoImagesFoundError("В сообщении нет картинки для цитаты.")
+        interaction = MagicMock(spec=discord.Interaction)
+        message = MagicMock(spec=discord.Message)
+
+        await fun_cog.add_quote_context_menu(interaction, message)
+
+        mock_err.assert_awaited_once()
+        assert "картинк" in mock_err.await_args.args[1]
