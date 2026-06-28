@@ -52,17 +52,20 @@ class FunCog(commands.Cog):
             bot: Экземпляр бота discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
-        self.add_quote_menu = app_commands.ContextMenu(
-            name="В цитаты",
-            callback=self.add_quote_context_menu,
-        )
-        self.bot.tree.add_command(self.add_quote_menu)
+        # Контекст-меню «В цитаты» заморожено: текущая реализация лишь копирует
+        # картинку-вложение, а хочется полноценную «скриншот-цитату» (рендер
+        # текста сообщения в карточку). Колбэк и хелпер сохранены, но в дерево
+        # не регистрируются — вернёмся отдельной задачей.
 
     @app_commands.guild_only()
     async def add_quote_context_menu(
         self, interaction: discord.Interaction, message: discord.Message
     ) -> None:
-        """Контекст-меню (ПКМ по сообщению) «В цитаты»: сохраняет картинку в цитаты автора."""
+        """Контекст-меню (ПКМ по сообщению) «В цитаты»: сохраняет картинку в цитаты автора.
+
+        Заморожено — не регистрируется в ``bot.tree`` (см. ``__init__``). Логика и
+        тесты сохранены для будущего расширения до «скриншот-цитаты».
+        """
         try:
             folder = await add_quote_from_message(message)
         except (NoImagesFoundError, QuotesError) as e:
@@ -218,7 +221,6 @@ class FunCog(commands.Cog):
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""
-        self.bot.tree.remove_command(self.add_quote_menu.name, type=self.add_quote_menu.type)
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
 
 
