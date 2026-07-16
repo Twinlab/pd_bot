@@ -49,8 +49,10 @@ colors:
 
 # Фича-флаги UI (Components V2). Тумблер без revert+rebuild; после стабилизации
 # флаг и старую V1-ветку кода удалить.
+# cv2_music временно выключен: проверяем, что сбой воспроизведения — от Lavalink,
+# а не от CV2-плеера. Вернуть в true после диагностики.
 ui:
-  cv2_music: true
+  cv2_music: false
 
 # Modules
 anime:
