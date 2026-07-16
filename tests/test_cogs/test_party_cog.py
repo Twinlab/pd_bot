@@ -751,7 +751,7 @@ class TestPartySetupModal:
         modal = self._make_modal(cog)
         modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
         modal._duration_input = MagicMock(value=" 30 ")  # type: ignore[assignment]
-        modal._size_radio = MagicMock(value="5")  # type: ignore[assignment]
+        modal._size_select = MagicMock(values=["5"])  # type: ignore[assignment]
         modal._comment_input = MagicMock(value="  го  ")  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
@@ -775,7 +775,7 @@ class TestPartySetupModal:
         modal = self._make_modal(cog)
         modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
         modal._duration_input = MagicMock(value="скоро")  # type: ignore[assignment]
-        modal._size_radio = MagicMock(value="5")  # type: ignore[assignment]
+        modal._size_select = MagicMock(values=["5"])  # type: ignore[assignment]
         modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
@@ -798,7 +798,7 @@ class TestPartySetupModal:
         modal._duration_input = MagicMock(  # type: ignore[assignment]
             value=str(patched_settings.party.max_duration_minutes + 1)
         )
-        modal._size_radio = MagicMock(value="5")  # type: ignore[assignment]
+        modal._size_select = MagicMock(values=["5"])  # type: ignore[assignment]
         modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
@@ -813,9 +813,9 @@ class TestPartySetupModal:
     async def test_count_options_span_config_range(
         self, cog: PartyCog, patched_settings: BotSettings
     ) -> None:
-        """RadioGroup перечисляет все валидные размеры состава по построению."""
+        """Select перечисляет все валидные размеры состава по построению."""
         modal = self._make_modal(cog)
-        values = [opt.value for opt in modal._size_radio.options]
+        values = [opt.value for opt in modal._size_select.options]
         expected = [
             str(n)
             for n in range(patched_settings.party.min_count, patched_settings.party.max_count + 1)

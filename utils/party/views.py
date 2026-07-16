@@ -175,22 +175,26 @@ class _PartyDraft:
     comment: str
 
 
-def _count_options(default_count: int | None = None) -> list[discord.RadioGroupOption]:
-    """Размер состава от ``min_count`` до ``max_count`` включительно."""
+def _count_options(default_count: int | None = None) -> list[discord.SelectOption]:
+    """Опции размера состава от ``min_count`` до ``max_count`` включительно.
+
+    Срез до 25 — жёсткий лимит опций у Discord-``Select`` (как и у списка ролей).
+    """
     s = get_settings().party
     chosen = default_count if default_count is not None else s.max_count
     return [
-        discord.RadioGroupOption(label=f"{n} чел.", value=str(n), default=(n == chosen))
+        discord.SelectOption(label=f"{n} чел.", value=str(n), default=(n == chosen))
         for n in range(s.min_count, s.max_count + 1)
-    ]
+    ][:25]
 
 
 class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
     """Единая модалка сбора (Modal v2): роль + время + состав + коммент.
 
-    Заменяет трёхшаговый мастер: роль — ``Select``, состав — ``RadioGroup``
-    (валиден по построению), время — ``TextInput`` (нужны произвольные минуты),
-    комментарий — ``TextInput``.
+    Заменяет трёхшаговый мастер: роль и состав — ``Select`` (валидны по
+    построению), время — ``TextInput`` (нужны произвольные минуты),
+    комментарий — ``TextInput``. Состав именно ``Select``, а не ``RadioGroup``:
+    у радиогруппы жёсткий лимит 2–10 опций, а состав бывает шире (min..max_count).
     """
 
     def __init__(
@@ -227,8 +231,10 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             placeholder="например, 30",
             default=str(defaults.minutes) if defaults else None,
         )
-        self._size_radio: discord.ui.RadioGroup[PartySetupModal] = discord.ui.RadioGroup(
-            options=_count_options(defaults.count if defaults else None)
+        self._size_select: discord.ui.Select[PartySetupModal] = discord.ui.Select(
+            placeholder="Сколько человек",
+            required=True,
+            options=_count_options(defaults.count if defaults else None),
         )
         self._comment_input: discord.ui.TextInput[PartySetupModal] = discord.ui.TextInput(
             style=discord.TextStyle.paragraph,
@@ -250,7 +256,9 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
                 component=self._duration_input,
             )
         )
-        self.add_item(discord.ui.Label(text="Размер состава (с тобой)", component=self._size_radio))
+        self.add_item(
+            discord.ui.Label(text="Размер состава (с тобой)", component=self._size_select)
+        )
         self.add_item(
             discord.ui.Label(
                 text="Комментарий",
@@ -274,10 +282,11 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             )
             return
 
+        size_values = self._size_select.values
         draft = _PartyDraft(
             role_id=int(self._role_select.values[0]),
             minutes=minutes,
-            count=int(self._size_radio.value),  # валиден по построению RadioGroup
+            count=int(size_values[0]) if size_values else s.max_count,
             comment=(self._comment_input.value or "").strip(),
         )
         if self._roles.get(draft.role_id) is None:
