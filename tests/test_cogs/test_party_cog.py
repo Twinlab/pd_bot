@@ -751,7 +751,7 @@ class TestPartySetupModal:
         modal = self._make_modal(cog)
         modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
         modal._duration_input = MagicMock(value=" 30 ")  # type: ignore[assignment]
-        modal._size_select = MagicMock(values=["5"])  # type: ignore[assignment]
+        modal._size_input = MagicMock(value="5")  # type: ignore[assignment]
         modal._comment_input = MagicMock(value="  го  ")  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
@@ -775,7 +775,7 @@ class TestPartySetupModal:
         modal = self._make_modal(cog)
         modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
         modal._duration_input = MagicMock(value="скоро")  # type: ignore[assignment]
-        modal._size_select = MagicMock(values=["5"])  # type: ignore[assignment]
+        modal._size_input = MagicMock(value="5")  # type: ignore[assignment]
         modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
@@ -798,7 +798,7 @@ class TestPartySetupModal:
         modal._duration_input = MagicMock(  # type: ignore[assignment]
             value=str(patched_settings.party.max_duration_minutes + 1)
         )
-        modal._size_select = MagicMock(values=["5"])  # type: ignore[assignment]
+        modal._size_input = MagicMock(value="5")  # type: ignore[assignment]
         modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
@@ -810,17 +810,46 @@ class TestPartySetupModal:
         assert "Время" in interaction.response.send_message.await_args.args[0]
 
     @pytest.mark.asyncio
-    async def test_count_options_span_config_range(
+    async def test_non_numeric_count_rejected(
         self, cog: PartyCog, patched_settings: BotSettings
     ) -> None:
-        """Select перечисляет все валидные размеры состава по построению."""
+        """Нечисловой состав — ephemeral-подсказка, превью не показывается."""
         modal = self._make_modal(cog)
-        values = [opt.value for opt in modal._size_select.options]
-        expected = [
-            str(n)
-            for n in range(patched_settings.party.min_count, patched_settings.party.max_count + 1)
-        ]
-        assert values == expected
+        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
+        modal._duration_input = MagicMock(value="30")  # type: ignore[assignment]
+        modal._size_input = MagicMock(value="пятеро")  # type: ignore[assignment]
+        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await modal.on_submit(interaction)
+
+        interaction.response.send_message.assert_awaited_once()
+        assert "Состав" in interaction.response.send_message.await_args.args[0]
+        assert interaction.response.send_message.await_args.kwargs.get("ephemeral") is True
+
+    @pytest.mark.asyncio
+    async def test_count_out_of_range_rejected(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Состав за пределами лимитов отбраковывается без превью."""
+        modal = self._make_modal(cog)
+        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
+        modal._duration_input = MagicMock(value="30")  # type: ignore[assignment]
+        modal._size_input = MagicMock(  # type: ignore[assignment]
+            value=str(patched_settings.party.max_count + 1)
+        )
+        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await modal.on_submit(interaction)
+
+        assert "Состав" in interaction.response.send_message.await_args.args[0]
 
 
 class TestPartyPublishView:

@@ -175,26 +175,11 @@ class _PartyDraft:
     comment: str
 
 
-def _count_options(default_count: int | None = None) -> list[discord.SelectOption]:
-    """Опции размера состава от ``min_count`` до ``max_count`` включительно.
-
-    Срез до 25 — жёсткий лимит опций у Discord-``Select`` (как и у списка ролей).
-    """
-    s = get_settings().party
-    chosen = default_count if default_count is not None else s.max_count
-    return [
-        discord.SelectOption(label=f"{n} чел.", value=str(n), default=(n == chosen))
-        for n in range(s.min_count, s.max_count + 1)
-    ][:25]
-
-
 class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
     """Единая модалка сбора (Modal v2): роль + время + состав + коммент.
 
-    Заменяет трёхшаговый мастер: роль и состав — ``Select`` (валидны по
-    построению), время — ``TextInput`` (нужны произвольные минуты),
-    комментарий — ``TextInput``. Состав именно ``Select``, а не ``RadioGroup``:
-    у радиогруппы жёсткий лимит 2–10 опций, а состав бывает шире (min..max_count).
+    Заменяет трёхшаговый мастер: роль — ``Select``, время и состав — ``TextInput``
+    (ручной ввод числа, валидируется по лимитам), комментарий — ``TextInput``.
     """
 
     def __init__(
@@ -231,10 +216,11 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             placeholder="например, 30",
             default=str(defaults.minutes) if defaults else None,
         )
-        self._size_select: discord.ui.Select[PartySetupModal] = discord.ui.Select(
-            placeholder="Сколько человек",
+        self._size_input: discord.ui.TextInput[PartySetupModal] = discord.ui.TextInput(
             required=True,
-            options=_count_options(defaults.count if defaults else None),
+            max_length=3,
+            placeholder="например, 5",
+            default=str(defaults.count) if defaults else None,
         )
         self._comment_input: discord.ui.TextInput[PartySetupModal] = discord.ui.TextInput(
             style=discord.TextStyle.paragraph,
@@ -257,7 +243,11 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             )
         )
         self.add_item(
-            discord.ui.Label(text="Размер состава (с тобой)", component=self._size_select)
+            discord.ui.Label(
+                text="Размер состава (с тобой)",
+                description=f"От {s.min_count} до {s.max_count}",
+                component=self._size_input,
+            )
         )
         self.add_item(
             discord.ui.Label(
@@ -268,7 +258,7 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
         )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        """Валидирует минуты, собирает черновик и показывает превью с публикацией."""
+        """Валидирует минуты и состав, собирает черновик и показывает превью."""
         s = get_settings().party
         try:
             minutes = int((self._duration_input.value or "").strip())
@@ -282,11 +272,22 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             )
             return
 
-        size_values = self._size_select.values
+        try:
+            count = int((self._size_input.value or "").strip())
+        except ValueError:
+            await interaction.response.send_message("Состав — это число человек.", ephemeral=True)
+            return
+        if not (s.min_count <= count <= s.max_count):
+            await interaction.response.send_message(
+                f"Состав — от {s.min_count} до {s.max_count} человек.",
+                ephemeral=True,
+            )
+            return
+
         draft = _PartyDraft(
             role_id=int(self._role_select.values[0]),
             minutes=minutes,
-            count=int(size_values[0]) if size_values else s.max_count,
+            count=count,
             comment=(self._comment_input.value or "").strip(),
         )
         if self._roles.get(draft.role_id) is None:

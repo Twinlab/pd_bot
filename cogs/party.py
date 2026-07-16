@@ -498,7 +498,7 @@ class PartyCog(commands.Cog):
 
     @app_commands.command(
         name="party",
-        description="Собрать пати: одна модалка (роль, время, состав, коммент).",
+        description="Собрать пати: позвать людей с нужной ролью в стак.",
     )
     @app_commands.describe(image="Картинка к сбору (опционально)")
     async def party(
