@@ -10,7 +10,13 @@ from discord.ext import commands
 from cogs.party import PartyCog
 from config.settings import BotSettings
 from utils.party.manager import PartyPhase
-from utils.party.views import PartyBuilderView, PartyConfirmView, PartyView
+from utils.party.views import (
+    PartyConfirmView,
+    PartyPublishView,
+    PartySetupModal,
+    PartyView,
+    _PartyDraft,
+)
 
 
 @pytest.fixture
@@ -179,7 +185,7 @@ class TestSendDMs:
     async def test_sends_with_view(
         self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
     ) -> None:
-        """В send() передаётся View с кнопками."""
+        """В send() передаётся CV2-LayoutView с кнопками (без отдельного embed)."""
         initiator = make_member(100)
         member = make_member(200)
         role.members = [member]
@@ -194,7 +200,8 @@ class TestSendDMs:
 
         member.send.assert_awaited_once()
         kwargs = member.send.await_args.kwargs
-        assert "embed" in kwargs
+        # CV2: контент и кнопки в одном LayoutView, отдельного embed нет.
+        assert "embed" not in kwargs
         assert isinstance(kwargs["view"], PartyView)
 
     @pytest.mark.asyncio
@@ -277,8 +284,7 @@ class TestPartyView:
         interaction.response.defer = AsyncMock()
         interaction.response.send_message = AsyncMock()
 
-        # discord.py: callback кнопки уже знает свой view (через дескриптор).
-        await view.ready_button.callback(interaction)
+        await view.handle_ready(interaction)
 
         assert 200 in party.joined_order
         interaction.response.defer.assert_awaited_once()
@@ -299,7 +305,7 @@ class TestPartyView:
         interaction.response.defer = AsyncMock()
         interaction.response.send_message = AsyncMock()
 
-        await view.decline_button.callback(interaction)
+        await view.handle_decline(interaction)
 
         assert 200 in party.declined_order
         interaction.response.defer.assert_awaited_once()
@@ -320,7 +326,7 @@ class TestPartyView:
         interaction1.response.defer = AsyncMock()
         interaction1.response.send_message = AsyncMock()
 
-        await view.ready_button.callback(interaction1)
+        await view.handle_ready(interaction1)
         assert cog._refresh_all_embeds.await_count == 1
 
         # Второе нажатие сразу же — должно быть отвергнуто.
@@ -330,7 +336,7 @@ class TestPartyView:
         interaction2.response.defer = AsyncMock()
         interaction2.response.send_message = AsyncMock()
 
-        await view.decline_button.callback(interaction2)
+        await view.handle_decline(interaction2)
 
         # Defer не вызывался, ephemeral отправлен, embed не обновлялся.
         interaction2.response.defer.assert_not_called()
@@ -354,7 +360,7 @@ class TestPartyView:
         interaction.response.defer = AsyncMock()
         interaction.response.send_message = AsyncMock()
 
-        await view.ready_button.callback(interaction)
+        await view.handle_ready(interaction)
 
         interaction.response.defer.assert_not_called()
         interaction.response.send_message.assert_awaited_once()
@@ -433,7 +439,7 @@ class TestFinalize:
     async def test_finalize_disables_dm_buttons(
         self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
     ) -> None:
-        """Финализация снимает кнопки во всех DM (edit с view=None)."""
+        """Финализация заменяет DM на карточку-финал без кнопок управления."""
         bot.get_guild.return_value = None  # без публикации в канал — не важно
         party = _make_party(cog, count=3)
         msg_a = MagicMock(spec=discord.Message)
@@ -443,8 +449,10 @@ class TestFinalize:
         await cog._finalize(party)
 
         msg_a.edit.assert_awaited_once()
-        kwargs = msg_a.edit.await_args.kwargs
-        assert kwargs.get("view") is None
+        view = msg_a.edit.await_args.kwargs["view"]
+        assert isinstance(view, discord.ui.LayoutView)
+        # Карточка-финал: без интерактивных кнопок «Готов»/«Подтверждаю».
+        assert not [c for c in view.walk_children() if isinstance(c, discord.ui.Button)]
 
     @pytest.mark.asyncio
     async def test_finalize_idempotent(
@@ -483,8 +491,10 @@ class TestReadyCheck:
 
         assert party.phase is PartyPhase.READY_CHECK
         cog._start_check_loop.assert_called_once()
-        # Подтверждённый инициатор — без кнопок, кандидат — с confirm-view.
-        assert msg_init.edit.await_args.kwargs["view"] is None
+        # Подтверждённый инициатор — карточка без кнопок, кандидат — с confirm-view.
+        init_view = msg_init.edit.await_args.kwargs["view"]
+        assert isinstance(init_view, discord.ui.LayoutView)
+        assert not isinstance(init_view, (PartyConfirmView, PartyView))
         assert isinstance(msg_member.edit.await_args.kwargs["view"], PartyConfirmView)
         # Кандидата (но не авто-подтверждённого инициатора) пингуем отдельным сообщением.
         msg_member.channel.send.assert_awaited_once()
@@ -550,7 +560,7 @@ class TestReadyCheck:
         interaction.response.defer = AsyncMock()
         interaction.response.send_message = AsyncMock()
 
-        await view.confirm_button.callback(interaction)
+        await view.handle_confirm(interaction)
 
         assert 200 in party.confirmed
         interaction.response.defer.assert_awaited_once()
@@ -572,7 +582,7 @@ class TestReadyCheck:
         interaction.response.defer = AsyncMock()
         interaction.response.send_message = AsyncMock()
 
-        await view.confirm_button.callback(interaction)
+        await view.handle_confirm(interaction)
 
         interaction.response.defer.assert_not_called()
         interaction.response.send_message.assert_awaited_once()
@@ -641,6 +651,7 @@ def _slash_interaction(user_id: int = 100, guild_id: int | None = 1) -> MagicMoc
     interaction.user = MagicMock(spec=discord.Member, id=user_id)
     interaction.response = MagicMock()
     interaction.response.send_message = AsyncMock()
+    interaction.response.send_modal = AsyncMock()
     interaction.response.is_done = MagicMock(return_value=False)
     return interaction
 
@@ -707,132 +718,189 @@ class TestPartySlashCommand:
         )
 
     @pytest.mark.asyncio
-    async def test_opens_wizard_on_role_step(
+    async def test_opens_modal_with_roles(
         self, cog: PartyCog, patched_settings: BotSettings
     ) -> None:
-        """С доступными ролями открывается мастер на шаге выбора роли."""
+        """С доступными ролями ``/party`` открывает модалку сбора (Modal v2)."""
         cog.data_manager.is_blocked = AsyncMock(return_value=False)
         interaction = _slash_interaction()
 
         await cog.party.callback(cog, interaction, image=None)
 
-        kwargs = interaction.response.send_message.await_args.kwargs
-        assert kwargs["ephemeral"] is True
-        view = kwargs["view"]
-        assert isinstance(view, PartyBuilderView)
-        assert view.step == "role"
+        interaction.response.send_modal.assert_awaited_once()
+        modal = interaction.response.send_modal.await_args.args[0]
+        assert isinstance(modal, PartySetupModal)
+        # send_message (с ошибкой) при успехе не дёргается.
+        interaction.response.send_message.assert_not_called()
+
+
+class TestPartySetupModal:
+    """Единая модалка сбора (Modal v2): валидация и переход к превью."""
+
+    def _make_modal(self, cog: PartyCog) -> PartySetupModal:
+        initiator = MagicMock(spec=discord.Member, id=100)
+        initiator.guild = MagicMock(spec=discord.Guild, id=1)
+        role = MagicMock(spec=discord.Role, id=42, name="Гремлины", mention="<@&42>")
+        return PartySetupModal(cog=cog, initiator=initiator, roles=[role], image_url=None)
 
     @pytest.mark.asyncio
-    async def test_publish_without_params_guard(
+    async def test_valid_submit_shows_publish_view(
         self, cog: PartyCog, patched_settings: BotSettings
     ) -> None:
-        """publish() без выбранных полей шлёт ephemeral-подсказку, не публикует."""
-        initiator = make_member(100)
-        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
-        view = PartyBuilderView(
-            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
-        )
+        """Корректный ввод показывает превью с :class:`PartyPublishView`."""
+        modal = self._make_modal(cog)
+        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
+        modal._duration_input = MagicMock(value=" 30 ")  # type: ignore[assignment]
+        modal._size_radio = MagicMock(value="5")  # type: ignore[assignment]
+        modal._comment_input = MagicMock(value="  го  ")  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
         interaction.response = MagicMock()
         interaction.response.send_message = AsyncMock()
-        interaction.response.edit_message = AsyncMock()
 
-        await view.publish(interaction)
+        await modal.on_submit(interaction)
 
         interaction.response.send_message.assert_awaited_once()
-        interaction.response.edit_message.assert_not_called()
+        kwargs = interaction.response.send_message.await_args.kwargs
+        assert kwargs["ephemeral"] is True
+        view = kwargs["view"]
+        assert isinstance(view, PartyPublishView)
+        assert view._draft == _PartyDraft(role_id=42, minutes=30, count=5, comment="го")
 
     @pytest.mark.asyncio
-    async def test_role_step_advances_to_params(
+    async def test_non_numeric_minutes_rejected(
         self, cog: PartyCog, patched_settings: BotSettings
     ) -> None:
-        """go_to_params переключает шаг и перерисовывает сообщение."""
-        initiator = make_member(100)
-        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
-        view = PartyBuilderView(
-            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
+        """Нечисловое время — ephemeral-подсказка, превью не показывается."""
+        modal = self._make_modal(cog)
+        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
+        modal._duration_input = MagicMock(value="скоро")  # type: ignore[assignment]
+        modal._size_radio = MagicMock(value="5")  # type: ignore[assignment]
+        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await modal.on_submit(interaction)
+
+        interaction.response.send_message.assert_awaited_once()
+        assert "число" in interaction.response.send_message.await_args.args[0]
+        assert interaction.response.send_message.await_args.kwargs.get("ephemeral") is True
+
+    @pytest.mark.asyncio
+    async def test_minutes_out_of_range_rejected(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Время за пределами лимитов отбраковывается без превью."""
+        modal = self._make_modal(cog)
+        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
+        modal._duration_input = MagicMock(  # type: ignore[assignment]
+            value=str(patched_settings.party.max_duration_minutes + 1)
         )
-        view.role_id = 42
+        modal._size_radio = MagicMock(value="5")  # type: ignore[assignment]
+        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response = MagicMock()
+        interaction.response.send_message = AsyncMock()
+
+        await modal.on_submit(interaction)
+
+        assert "Время" in interaction.response.send_message.await_args.args[0]
+
+    @pytest.mark.asyncio
+    async def test_count_options_span_config_range(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """RadioGroup перечисляет все валидные размеры состава по построению."""
+        modal = self._make_modal(cog)
+        values = [opt.value for opt in modal._size_radio.options]
+        expected = [
+            str(n)
+            for n in range(patched_settings.party.min_count, patched_settings.party.max_count + 1)
+        ]
+        assert values == expected
+
+
+class TestPartyPublishView:
+    """Превью сбора: публикация / переоткрытие модалки / отмена."""
+
+    def _make_view(self, cog: PartyCog) -> PartyPublishView:
+        initiator = MagicMock(spec=discord.Member, id=100)
+        initiator.guild = MagicMock(spec=discord.Guild, id=1)
+        role = MagicMock(spec=discord.Role, id=42, name="Гремлины", mention="<@&42>")
+        draft = _PartyDraft(role_id=42, minutes=30, count=3, comment="го")
+        return PartyPublishView(
+            cog=cog, initiator=initiator, roles=[role], image_url=None, draft=draft
+        )
+
+    @pytest.mark.asyncio
+    async def test_publish_calls_create_and_broadcast(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """«Опубликовать» зовёт _create_and_broadcast и закрывает превью."""
+        cog._create_and_broadcast = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        view = self._make_view(cog)
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.guild = MagicMock(spec=discord.Guild, id=1)
+        interaction.channel = MagicMock(spec=discord.TextChannel)
+        interaction.response = MagicMock()
+        interaction.response.edit_message = AsyncMock()
+
+        await view.handle_publish(interaction)
+
+        interaction.response.edit_message.assert_awaited_once()
+        cog._create_and_broadcast.assert_awaited_once()
+        ca = cog._create_and_broadcast.await_args.kwargs
+        assert ca["count"] == 3
+        assert ca["duration"] == timedelta(minutes=30)
+
+    @pytest.mark.asyncio
+    async def test_edit_reopens_modal(self, cog: PartyCog, patched_settings: BotSettings) -> None:
+        """«Изменить» переоткрывает модалку с уже заполненными значениями."""
+        view = self._make_view(cog)
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response = MagicMock()
+        interaction.response.send_modal = AsyncMock()
+
+        await view.handle_edit(interaction)
+
+        interaction.response.send_modal.assert_awaited_once()
+        modal = interaction.response.send_modal.await_args.args[0]
+        assert isinstance(modal, PartySetupModal)
+
+    @pytest.mark.asyncio
+    async def test_cancel_closes_preview(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """«Отмена» редактирует превью в служебное сообщение."""
+        view = self._make_view(cog)
 
         interaction = MagicMock(spec=discord.Interaction)
         interaction.response = MagicMock()
         interaction.response.edit_message = AsyncMock()
 
-        await view.go_to_params(interaction)
+        await view.handle_cancel(interaction)
 
-        assert view.step == "params"
         interaction.response.edit_message.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_preview_step_uses_party_preview_embed(
+    async def test_only_author_passes_interaction_check(
         self, cog: PartyCog, patched_settings: BotSettings
     ) -> None:
-        """На шаге превью embed строится через build_party_preview_embed."""
-        cog.build_party_preview_embed = MagicMock(  # type: ignore[method-assign]
-            return_value=discord.Embed(title="превью")
-        )
-        initiator = make_member(100)
-        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
-        view = PartyBuilderView(
-            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
-        )
-        view.role_id = 42
-        view.apply_params(minutes_raw="30", count_raw="5", comment="go")
+        """Чужой пользователь не проходит interaction_check превью."""
+        view = self._make_view(cog)
 
         interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=999)
         interaction.response = MagicMock()
-        interaction.response.edit_message = AsyncMock()
+        interaction.response.send_message = AsyncMock()
 
-        await view.go_to_preview(interaction)
-
-        assert view.step == "preview"
-        cog.build_party_preview_embed.assert_called_once()
-        interaction.response.edit_message.assert_awaited_once()
-
-    def test_apply_params_valid(self, cog: PartyCog, patched_settings: BotSettings) -> None:
-        """Корректный ввод модалки заполняет минуты/состав/комментарий."""
-        initiator = make_member(100)
-        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
-        view = PartyBuilderView(
-            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
-        )
-
-        error = view.apply_params(minutes_raw=" 30 ", count_raw="5", comment="  го  ")
-
-        assert error is None
-        assert view.minutes == 30
-        assert view.count == 5
-        assert view.comment == "го"
-
-    def test_apply_params_non_numeric(self, cog: PartyCog, patched_settings: BotSettings) -> None:
-        """Нечисловое время отбраковывается с подсказкой, состояние не меняется."""
-        initiator = make_member(100)
-        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
-        view = PartyBuilderView(
-            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
-        )
-
-        error = view.apply_params(minutes_raw="скоро", count_raw="5", comment="")
-
-        assert error is not None
-        assert view.minutes is None
-        assert view.count is None
-
-    def test_apply_params_count_out_of_range(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Состав за пределами лимитов отбраковывается."""
-        initiator = make_member(100)
-        role = MagicMock(spec=discord.Role, id=42, name="x", mention="<@&42>")
-        view = PartyBuilderView(
-            cog=cog, author_id=100, initiator=initiator, roles=[role], image_url=None
-        )
-
-        error = view.apply_params(minutes_raw="30", count_raw="999", comment="")
-
-        assert error is not None
-        assert view.count is None
+        assert await view.interaction_check(interaction) is False
+        interaction.response.send_message.assert_awaited_once()
 
 
 class TestCreateAndBroadcast:

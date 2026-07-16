@@ -1,9 +1,9 @@
-"""Builder embed-а для модуля сбора пати.
+"""Builder CV2-контейнера для модуля сбора пати.
 
 Чистая функция — никакого I/O, чтобы её можно было тестировать и просто
-вызывать из кога при каждом обновлении состояния. Один и тот же embed
-вешается в публичном сообщении и в DM каждому участнику — так что
-обновления видны везде синхронно.
+вызывать из кога при каждом обновлении состояния. Один и тот же контейнер
+вешается в публичном сообщении и в DM каждому участнику (в DM к нему ещё
+добавляется ряд кнопок) — так что обновления видны везде синхронно.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from collections.abc import Callable
 import discord
 
 from utils.party.manager import Party, PartyPhase
+from utils.ui import colors
 
 MemberResolver = Callable[[int], discord.Member | discord.User | None]
 
@@ -44,71 +45,106 @@ def _format_section(
     return "\n".join(lines)
 
 
-def _add_collecting_fields(
-    embed: discord.Embed,
+def _section_block(
+    title: str,
+    user_ids: list[int],
     party: Party,
     resolver: MemberResolver,
     initiator_emoji: str,
-) -> None:
-    """Секции фазы сбора: готовы / начинка / отказались."""
-    embed.add_field(
-        name=f"✅ Готовы ({len(party.ready)}/{party.count})",
-        value=_format_section(party.ready, party, resolver, initiator_emoji),
-        inline=False,
-    )
+) -> str:
+    """Один текстовый блок секции: жирный заголовок + список участников."""
+    return f"**{title}**\n{_format_section(user_ids, party, resolver, initiator_emoji)}"
+
+
+def _collecting_blocks(
+    party: Party,
+    resolver: MemberResolver,
+    initiator_emoji: str,
+) -> list[str]:
+    """Блоки фазы сбора: готовы / начинка / отказались."""
+    blocks = [
+        _section_block(
+            f"✅ Готовы ({len(party.ready)}/{party.count})",
+            party.ready,
+            party,
+            resolver,
+            initiator_emoji,
+        )
+    ]
     if party.bench:
-        embed.add_field(
-            name=f"🪑 Начинка ({len(party.bench)})",
-            value=_format_section(party.bench, party, resolver, initiator_emoji),
-            inline=False,
+        blocks.append(
+            _section_block(
+                f"🪑 Начинка ({len(party.bench)})", party.bench, party, resolver, initiator_emoji
+            )
         )
     if party.declined:
-        embed.add_field(
-            name=f"❌ Не пойдут ({len(party.declined)})",
-            value=_format_section(party.declined, party, resolver, initiator_emoji),
-            inline=False,
+        blocks.append(
+            _section_block(
+                f"❌ Не пойдут ({len(party.declined)})",
+                party.declined,
+                party,
+                resolver,
+                initiator_emoji,
+            )
         )
+    return blocks
 
 
-def _add_ready_check_fields(
-    embed: discord.Embed,
+def _ready_check_blocks(
     party: Party,
     resolver: MemberResolver,
     initiator_emoji: str,
-) -> None:
-    """Секции фазы чека: подтвердили / ждём / резерв / слетели / отказались."""
-    embed.add_field(
-        name=f"✅ Подтвердили ({len(party.confirmed)}/{party.count})",
-        value=_format_section(party.confirmed, party, resolver, initiator_emoji),
-        inline=False,
-    )
+) -> list[str]:
+    """Блоки фазы чека: подтвердили / ждём / резерв / слетели / отказались."""
+    blocks = [
+        _section_block(
+            f"✅ Подтвердили ({len(party.confirmed)}/{party.count})",
+            party.confirmed,
+            party,
+            resolver,
+            initiator_emoji,
+        )
+    ]
     if party.pending_confirm:
-        embed.add_field(
-            name=f"⏳ Ждём подтверждения ({len(party.pending_confirm)})",
-            value=_format_section(party.pending_confirm, party, resolver, initiator_emoji),
-            inline=False,
+        blocks.append(
+            _section_block(
+                f"⏳ Ждём подтверждения ({len(party.pending_confirm)})",
+                party.pending_confirm,
+                party,
+                resolver,
+                initiator_emoji,
+            )
         )
     if party.bench:
-        embed.add_field(
-            name=f"🪑 Резерв ({len(party.bench)})",
-            value=_format_section(party.bench, party, resolver, initiator_emoji),
-            inline=False,
+        blocks.append(
+            _section_block(
+                f"🪑 Резерв ({len(party.bench)})", party.bench, party, resolver, initiator_emoji
+            )
         )
     if party.not_confirmed:
-        embed.add_field(
-            name=f"🛑 Не подтвердили ({len(party.not_confirmed)})",
-            value=_format_section(party.not_confirmed, party, resolver, initiator_emoji),
-            inline=False,
+        blocks.append(
+            _section_block(
+                f"🛑 Не подтвердили ({len(party.not_confirmed)})",
+                party.not_confirmed,
+                party,
+                resolver,
+                initiator_emoji,
+            )
         )
     if party.declined:
-        embed.add_field(
-            name=f"❌ Не пойдут ({len(party.declined)})",
-            value=_format_section(party.declined, party, resolver, initiator_emoji),
-            inline=False,
+        blocks.append(
+            _section_block(
+                f"❌ Не пойдут ({len(party.declined)})",
+                party.declined,
+                party,
+                resolver,
+                initiator_emoji,
+            )
         )
+    return blocks
 
 
-def build_party_embed(
+def build_party_container(
     party: Party,
     *,
     role_name: str,
@@ -117,64 +153,76 @@ def build_party_embed(
     initiator_emoji: str,
     finalized: bool = False,
     jump_url: str | None = None,
-) -> discord.Embed:
-    """Универсальный embed для публичного сообщения и DM.
+) -> discord.ui.Container:
+    """Универсальный CV2-контейнер для публичного сообщения и DM.
 
     Args:
         party: Текущее состояние пати.
-        role_name: Имя роли plain text — Discord не парсит mention в title.
-        initiator: Инициатор (для footer).
+        role_name: Имя роли plain text — заголовок не парсит mention.
+        initiator: Инициатор (для аватара-заголовка и подписи).
         member_resolver: ``user_id -> Member | User | None`` для упоминаний.
         initiator_emoji: Эмодзи рядом с инициатором (по умолчанию корона).
-        finalized: Если True — embed серый, в title пометка «Сбор закрыт».
-        jump_url: Ссылка на публичное сообщение пати; делает title кликабельным
+        finalized: Если True — нейтральный акцент и пометка «Сбор закрыт».
+        jump_url: Ссылка на публичное сообщение пати; делает заголовок кликабельным
             (нужно прежде всего в DM, чтобы можно было прыгнуть в общий канал).
+
+    Returns:
+        ``Container`` без кнопок. В DM к нему ещё добавляется ряд управления.
     """
     in_check = party.phase is PartyPhase.READY_CHECK and not finalized
 
     if finalized:
         title_prefix = "Сбор закрыт"
-        color = discord.Color.dark_grey()
+        accent: discord.Colour = colors.NEUTRAL
     elif in_check:
         title_prefix = "Чек готовности"
-        color = discord.Color.gold()
+        accent = colors.WARNING
     else:
         title_prefix = "Сбор пати"
-        color = discord.Color.green()
-    title = f"{title_prefix}: {role_name}"
+        accent = colors.SUCCESS
+    title_text = f"{title_prefix}: {role_name}"
+    heading = f"## [{title_text}]({jump_url})" if jump_url else f"## {title_text}"
 
-    # Размер состава (party.count) намеренно НЕ дублируем в description —
-    # он уже виден в заголовке секции с готовыми/подтвердившими.
+    container: discord.ui.Container = discord.ui.Container(accent_colour=accent)
+
+    avatar = getattr(initiator, "display_avatar", None) if initiator is not None else None
+    if avatar is not None:
+        container.add_item(discord.ui.Section(heading, accessory=discord.ui.Thumbnail(avatar.url)))
+    else:
+        container.add_item(discord.ui.TextDisplay(heading))
+
     description_parts: list[str] = []
     if party.comment:
         description_parts.append(f"**Комментарий:** {party.comment}")
     if in_check:
         description_parts.append("Все из основы — жмите **«Подтверждаю»**!")
     deadline_unix = int(party.deadline.timestamp())
-    if finalized:
-        description_parts.append(f"Закрыт <t:{deadline_unix}:R>")
-    else:
-        description_parts.append(f"Закрытие <t:{deadline_unix}:R>")
-
-    embed = discord.Embed(
-        title=title,
-        description="\n".join(description_parts),
-        color=color,
-        url=jump_url,
+    description_parts.append(
+        f"Закрыт <t:{deadline_unix}:R>" if finalized else f"Закрытие <t:{deadline_unix}:R>"
     )
+    container.add_item(discord.ui.TextDisplay("\n".join(description_parts)))
+
+    container.add_item(discord.ui.Separator())
+
+    blocks = (
+        _ready_check_blocks(party, member_resolver, initiator_emoji)
+        if in_check
+        else _collecting_blocks(party, member_resolver, initiator_emoji)
+    )
+    for block in blocks:
+        container.add_item(discord.ui.TextDisplay(block))
 
     if party.image_url:
-        embed.set_image(url=party.image_url)
-
-    if in_check:
-        _add_ready_check_fields(embed, party, member_resolver, initiator_emoji)
-    else:
-        _add_collecting_fields(embed, party, member_resolver, initiator_emoji)
+        container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(media=party.image_url)))
 
     if initiator is not None:
-        embed.set_footer(
-            text=f"Собирает: {initiator.display_name}",
-            icon_url=initiator.display_avatar.url if hasattr(initiator, "display_avatar") else None,
-        )
+        container.add_item(discord.ui.TextDisplay(f"-# Собирает: {initiator.display_name}"))
 
-    return embed
+    return container
+
+
+def party_card_view(container: discord.ui.Container) -> discord.ui.LayoutView:
+    """Оборачивает контейнер в неинтерактивный ``LayoutView`` (публичное сообщение, финал)."""
+    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
+    view.add_item(container)
+    return view

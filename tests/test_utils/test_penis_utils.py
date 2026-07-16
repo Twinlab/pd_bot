@@ -6,7 +6,14 @@ import discord
 import pytest
 
 from config.settings import PenisLengthBucket
-from utils.penis_utils import _build_description, _color_for_length, _pick_length, measure_penis
+from utils.penis_utils import (
+    _build_description,
+    _color_for_length,
+    _pick_length,
+    build_penis_card,
+    measure_penis,
+)
+from utils.ui.testing import accent_colours, joined_text
 
 
 def _settings_mock(
@@ -153,42 +160,63 @@ class TestMeasurePenisNotFound:
         ctx.send.assert_awaited_once_with("кастомное сообщение")
 
 
+class TestBuildPenisCard:
+    """CV2-карточка измерителя: акцент по длине и состав текста."""
+
+    def test_accent_follows_length(self):
+        assert accent_colours(build_penis_card(description="x", length=20)) == [
+            discord.Color.green()
+        ]
+        assert accent_colours(build_penis_card(description="x", length=12)) == [
+            discord.Color.gold()
+        ]
+        assert accent_colours(build_penis_card(description="x", length=3)) == [discord.Color.red()]
+
+    def test_card_contains_title_and_length(self):
+        view = build_penis_card(description="<@1>, твой пенис\n8=D", length=7)
+        text = joined_text(view)
+        assert "Измеритель пениса" in text
+        assert "твой пенис" in text
+        assert "Длина: 7 см" in text
+
+
 class TestMeasurePenisNormal:
-    """Обычное поведение измерения с эмбедом."""
+    """Обычное поведение измерения с CV2-карточкой."""
 
     @pytest.mark.asyncio
-    async def test_self_measurement_sends_embed(self):
+    async def test_self_measurement_sends_card(self):
         ctx = _make_ctx(author_id=1)
         settings = _settings_mock()
         with patch("config.settings.get_settings", return_value=settings):
             await measure_penis(ctx, None)
 
         ctx.send.assert_awaited_once()
-        embed = ctx.send.await_args.kwargs["embed"]
-        assert isinstance(embed, discord.Embed)
-        assert embed.title == "Измеритель пениса"
-        assert "твой пенис" in embed.description
-        assert "8=====D" in embed.description  # min=max=5
+        view = ctx.send.await_args.kwargs["view"]
+        assert isinstance(view, discord.ui.LayoutView)
+        text = joined_text(view)
+        assert "Измеритель пениса" in text
+        assert "твой пенис" in text
+        assert "8=====D" in text  # min=max=5
 
     @pytest.mark.asyncio
-    async def test_other_measurement_sends_embed_with_target(self):
+    async def test_other_measurement_sends_card_with_target(self):
         ctx = _make_ctx(author_id=1)
         target = _make_user(user_id=2)
         settings = _settings_mock()
         with patch("config.settings.get_settings", return_value=settings):
             await measure_penis(ctx, target)
 
-        embed = ctx.send.await_args.kwargs["embed"]
-        assert "Пенис <@2>" in embed.description
+        view = ctx.send.await_args.kwargs["view"]
+        assert "Пенис <@2>" in joined_text(view)
 
     @pytest.mark.asyncio
-    async def test_length_field_present(self):
+    async def test_length_present_in_card(self):
         ctx = _make_ctx(author_id=1)
         settings = _settings_mock(length=7)
         with patch("config.settings.get_settings", return_value=settings):
             await measure_penis(ctx, None)
-        embed = ctx.send.await_args.kwargs["embed"]
-        assert any(f.name == "Длина" and f.value == "7 см" for f in embed.fields)
+        view = ctx.send.await_args.kwargs["view"]
+        assert "Длина: 7 см" in joined_text(view)
 
 
 class TestMeasurePenisNuance:
@@ -203,8 +231,8 @@ class TestMeasurePenisNuance:
             patch("utils.penis_utils.random.random", return_value=0.5),  # > 0.10
         ):
             await measure_penis(ctx, None)
-        embed = ctx.send.await_args.kwargs["embed"]
-        assert "нюанс" not in embed.description
+        view = ctx.send.await_args.kwargs["view"]
+        assert "нюанс" not in joined_text(view)
 
     @pytest.mark.asyncio
     async def test_nuance_appended_when_random_below_chance(self):
@@ -215,8 +243,8 @@ class TestMeasurePenisNuance:
             patch("utils.penis_utils.random.random", return_value=0.05),  # < 0.10
         ):
             await measure_penis(ctx, None)
-        embed = ctx.send.await_args.kwargs["embed"]
-        assert embed.description.endswith("\nэто у тебя в жопе")
+        view = ctx.send.await_args.kwargs["view"]
+        assert "это у тебя в жопе" in joined_text(view)
 
     @pytest.mark.asyncio
     async def test_nuance_chance_zero_never_triggers(self):
@@ -227,8 +255,8 @@ class TestMeasurePenisNuance:
             patch("utils.penis_utils.random.random", return_value=0.0),  # >= 0.0 → не сработает
         ):
             await measure_penis(ctx, None)
-        embed = ctx.send.await_args.kwargs["embed"]
-        assert "нюанс" not in embed.description
+        view = ctx.send.await_args.kwargs["view"]
+        assert "нюанс" not in joined_text(view)
 
     @pytest.mark.asyncio
     async def test_not_found_takes_priority_over_nuance(self):

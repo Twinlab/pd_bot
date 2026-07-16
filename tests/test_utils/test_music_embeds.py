@@ -11,12 +11,17 @@ import wavelink
 
 from utils.music.embeds import (
     _track_source_label,
+    added_playlist_card,
+    added_to_queue_card,
     added_to_queue_embed,
     create_embed,
     format_duration,
     now_playing_embed,
     queue_embed,
+    status_card,
 )
+from utils.ui import colors
+from utils.ui.testing import accent_colours, joined_text
 
 
 class TestFormatDuration:
@@ -197,3 +202,77 @@ class TestQueueEmbed:
         player = _make_player(current=current, queue_tracks=tracks)
         embed = queue_embed(player, page=1, page_size=10)
         assert "Now" in (embed.description or "")
+
+
+def _thumbnail_count(view: discord.ui.LayoutView) -> int:
+    """Сколько ``Thumbnail`` (внутри ``Section``) содержит CV2-карточка."""
+    return sum(1 for c in view.walk_children() if isinstance(c, discord.ui.Thumbnail))
+
+
+class TestStatusCard:
+    """``status_card`` — CV2-карточка короткого статуса."""
+
+    def test_minimal_uses_neutral_accent(self) -> None:
+        view = status_card("⏸️ Пауза")
+        assert "⏸️ Пауза" in joined_text(view)
+        assert accent_colours(view) == [colors.NEUTRAL]
+
+    def test_description_and_custom_accent(self) -> None:
+        view = status_card("✅ Готово", "Подробности", colors.SUCCESS)
+        text = joined_text(view)
+        assert "✅ Готово" in text
+        assert "Подробности" in text
+        assert accent_colours(view) == [colors.SUCCESS]
+
+    def test_no_description_block_when_empty(self) -> None:
+        view = status_card("⏩ Перемотано")
+        assert joined_text(view).count("\n") == 0
+
+
+class TestAddedToQueueCard:
+    def test_contains_metadata_and_success_accent(self) -> None:
+        track = _make_track(title="My Song")
+        player = _make_player(current=None)
+        view = added_to_queue_card(track, position=3, player=player)
+        text = joined_text(view)
+        assert "My Song" in text
+        assert "Позиция:** 3" in text
+        assert accent_colours(view) == [colors.SUCCESS]
+
+    def test_artwork_renders_thumbnail(self) -> None:
+        track = _make_track(artwork="https://example.com/a.png")
+        player = _make_player(current=None)
+        view = added_to_queue_card(track, position=1, player=player)
+        assert _thumbnail_count(view) == 1
+
+    def test_without_artwork_no_thumbnail(self) -> None:
+        track = _make_track(artwork=None)
+        player = _make_player(current=None)
+        view = added_to_queue_card(track, position=1, player=player)
+        assert _thumbnail_count(view) == 0
+
+
+class TestAddedPlaylistCard:
+    def _make_playlist(self, name: str, tracks: list[MagicMock]) -> MagicMock:
+        playlist = MagicMock(spec=wavelink.Playlist)
+        playlist.name = name
+        playlist.tracks = tracks
+        return playlist
+
+    def test_contains_name_and_count(self) -> None:
+        first = _make_track(title="First", artwork="https://example.com/p.png")
+        playlist = self._make_playlist("My Mix", [first, _make_track()])
+        player = _make_player(current=None, queue_tracks=[first])
+        view = added_playlist_card(playlist, added=2, player=player)
+        text = joined_text(view)
+        assert "My Mix" in text
+        assert "2 трек" in text
+        assert accent_colours(view) == [colors.SUCCESS]
+        assert _thumbnail_count(view) == 1
+
+    def test_empty_playlist_no_thumbnail(self) -> None:
+        playlist = self._make_playlist("Empty", [])
+        player = _make_player(current=None)
+        view = added_playlist_card(playlist, added=0, player=player)
+        assert _thumbnail_count(view) == 0
+        assert "Empty" in joined_text(view)

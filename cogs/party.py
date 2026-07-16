@@ -30,14 +30,15 @@ from discord.ext import commands
 from config import get_settings
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.party.data_manager import PartyDataManager
-from utils.party.embeds import build_party_embed
+from utils.party.embeds import build_party_container, party_card_view
 from utils.party.manager import Party, PartyManager, PartyPhase
 from utils.party.views import (
-    PartyBuilderView,
     PartyConfirmView,
+    PartySetupModal,
     PartyView,
 )
 from utils.role_reaction_data_manager import RoleReactionDataManager
+from utils.ui import colors
 
 logger = logging.getLogger("bot.cogs.party")
 
@@ -93,8 +94,10 @@ class PartyCog(commands.Cog):
 
         return resolve
 
-    def _build_embed(self, party: Party, *, finalized: bool | None = None) -> discord.Embed:
-        """Готовит embed для конкретного состояния пати."""
+    def _build_container(
+        self, party: Party, *, finalized: bool | None = None
+    ) -> discord.ui.Container:
+        """Готовит CV2-контейнер для конкретного состояния пати."""
         settings = get_settings()
         guild = self.bot.get_guild(party.guild_id)
         role = guild.get_role(party.role_id) if guild else None
@@ -103,7 +106,7 @@ class PartyCog(commands.Cog):
             f"https://discord.com/channels/{party.guild_id}/{party.channel_id}"
             f"/{party.public_message_id}"
         )
-        return build_party_embed(
+        return build_party_container(
             party,
             role_name=role.name if role else f"роль #{party.role_id}",
             initiator=initiator,
@@ -113,8 +116,12 @@ class PartyCog(commands.Cog):
             jump_url=jump_url,
         )
 
+    def _card_view(self, party: Party, *, finalized: bool | None = None) -> discord.ui.LayoutView:
+        """Неинтерактивная карточка сбора (публичное сообщение, финал в DM)."""
+        return party_card_view(self._build_container(party, finalized=finalized))
+
     async def _refresh_public_embed(self, party: Party) -> None:
-        """Перерисовывает публичный embed; поглощает Discord-ошибки."""
+        """Перерисовывает публичную карточку; поглощает Discord-ошибки."""
         guild = self.bot.get_guild(party.guild_id)
         channel = self.bot.get_channel(party.channel_id) if guild else None
         if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
@@ -127,23 +134,21 @@ class PartyCog(commands.Cog):
             logger.warning(f"fetch_message {party.public_message_id} упал: {e}")
             return
 
-        embed = self._build_embed(party)
         try:
-            await message.edit(embed=embed)
+            await message.edit(view=self._card_view(party))
         except (discord.NotFound, discord.Forbidden):
             pass
         except discord.HTTPException as e:
-            logger.warning(f"Не удалось обновить публичный embed пати {party.id}: {e}")
+            logger.warning(f"Не удалось обновить публичную карточку пати {party.id}: {e}")
 
     async def _refresh_dm_embeds(self, party: Party) -> None:
-        """Перерисовывает embed во всех DM-сообщениях пати параллельно."""
+        """Перерисовывает карточку во всех DM с корректным для фазы/юзера view."""
         if not party.dm_messages:
             return
-        embed = self._build_embed(party)
 
         async def edit_one(uid: int, msg: discord.Message) -> None:
             try:
-                await msg.edit(embed=embed)
+                await msg.edit(view=self._dm_view_for(party, uid))
             except (discord.NotFound, discord.Forbidden):
                 pass
             except discord.HTTPException as e:
@@ -155,7 +160,7 @@ class PartyCog(commands.Cog):
         )
 
     async def _refresh_all_embeds(self, party: Party) -> None:
-        """Обновляет публичный embed + все DM-embed синхронно."""
+        """Обновляет публичную карточку + все DM синхронно."""
         await asyncio.gather(
             self._refresh_public_embed(party),
             self._refresh_dm_embeds(party),
@@ -171,7 +176,6 @@ class PartyCog(commands.Cog):
         """Рассылает DM с embed + кнопками. Возвращает число доставленных писем."""
         settings = get_settings()
         delivered = 0
-        embed = self._build_embed(party)
         for member in role.members:
             if member.bot or member.id == initiator.id:
                 continue
@@ -179,7 +183,7 @@ class PartyCog(commands.Cog):
                 continue
             try:
                 view = PartyView(cog=self, party=party)
-                msg = await member.send(embed=embed, view=view)
+                msg = await member.send(view=view)
                 party.dm_messages[member.id] = msg
                 delivered += 1
             except discord.Forbidden:
@@ -190,14 +194,13 @@ class PartyCog(commands.Cog):
         return delivered
 
     async def _disable_dm_buttons(self, party: Party) -> None:
-        """Снимает кнопки во всех DM (заменяет view на пустую)."""
+        """Снимает кнопки во всех DM, заменяя на серую карточку-финал."""
         if not party.dm_messages:
             return
-        embed = self._build_embed(party, finalized=True)
 
         async def disable_one(uid: int, msg: discord.Message) -> None:
             try:
-                await msg.edit(embed=embed, view=None)
+                await msg.edit(view=self._card_view(party, finalized=True))
             except (discord.NotFound, discord.Forbidden):
                 pass
             except discord.HTTPException as e:
@@ -208,37 +211,22 @@ class PartyCog(commands.Cog):
             return_exceptions=True,
         )
 
-    def _dm_view_for(self, party: Party, user_id: int) -> discord.ui.View | None:
+    def _dm_view_for(self, party: Party, user_id: int) -> discord.ui.LayoutView:
         """Подбирает DM-view под фазу/роль юзера.
 
-        В чеке: подтвердившим — без кнопок, ожидающим подтверждения —
+        В чеке: подтвердившим — карточка без кнопок, ожидающим подтверждения —
         «Подтверждаю», остальным (резерв) — обычные «Готов» / «Не готов».
         """
         if party.phase is PartyPhase.READY_CHECK:
             if user_id in party.confirmed:
-                return None
+                return self._card_view(party)
             if party.is_candidate(user_id):
                 return PartyConfirmView(cog=self, party=party)
         return PartyView(cog=self, party=party)
 
     async def _sync_check_views(self, party: Party) -> None:
-        """Перерисовывает все DM с embed и корректным для каждого юзера view."""
-        if not party.dm_messages:
-            return
-        embed = self._build_embed(party)
-
-        async def edit_one(uid: int, msg: discord.Message) -> None:
-            try:
-                await msg.edit(embed=embed, view=self._dm_view_for(party, uid))
-            except (discord.NotFound, discord.Forbidden):
-                pass
-            except discord.HTTPException as e:
-                logger.warning(f"Не удалось обновить DM юзера {uid} в чеке: {e}")
-
-        await asyncio.gather(
-            *(edit_one(uid, msg) for uid, msg in party.dm_messages.items()),
-            return_exceptions=True,
-        )
+        """Перерисовывает все DM с корректным для каждого юзера view (фаза чека)."""
+        await self._refresh_dm_embeds(party)
 
     async def _nudge_user(self, party: Party, user_id: int, text: str) -> None:
         """Шлёт в DM отдельным сообщением пинг юзеру с просьбой подтвердиться."""
@@ -403,24 +391,24 @@ class PartyCog(commands.Cog):
         remaining = get_settings().party.command_cooldown_seconds - elapsed
         return max(0, int(remaining))
 
-    def build_party_preview_embed(
+    def build_party_preview_container(
         self,
         *,
-        role: discord.Role,
+        role: discord.Role | None,
         initiator: discord.Member,
         duration: timedelta,
         count: int,
         comment: str,
         image_url: str | None,
-    ) -> discord.Embed:
-        """Строит embed-превью сбора (как он будет выглядеть после публикации)."""
+    ) -> discord.ui.Container:
+        """Строит CV2-контейнер-превью сбора (как он будет выглядеть после публикации)."""
         now = datetime.now(UTC)
         preview_party = Party(
             id="preview",
             guild_id=initiator.guild.id,
             channel_id=0,
             public_message_id=0,
-            role_id=role.id,
+            role_id=role.id if role else 0,
             initiator_id=initiator.id,
             count=count,
             comment=comment,
@@ -430,15 +418,17 @@ class PartyCog(commands.Cog):
             joined_order=[initiator.id],
         )
         settings = get_settings()
-        return build_party_embed(
+        container = build_party_container(
             preview_party,
-            role_name=role.name,
+            role_name=role.name if role else "роль",
             initiator=initiator,
             member_resolver=self._member_resolver(initiator.guild),
             initiator_emoji=settings.party.initiator_emoji,
             finalized=False,
             jump_url=None,
         )
+        container.add_item(discord.ui.TextDisplay("-# Так будет выглядеть сбор"))
+        return container
 
     async def _create_and_broadcast(
         self,
@@ -461,15 +451,17 @@ class PartyCog(commands.Cog):
         now = datetime.now(UTC)
         deadline = now + duration
 
-        placeholder_embed = discord.Embed(
-            title=f"Сбор пати: {role.name}",
-            description="Готовлю сбор…",
-            color=discord.Color.green(),
+        placeholder_view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
+        placeholder_container: discord.ui.Container = discord.ui.Container(
+            accent_colour=colors.SUCCESS
         )
+        placeholder_container.add_item(discord.ui.TextDisplay(f"## Сбор пати: {role.name}"))
+        placeholder_container.add_item(discord.ui.TextDisplay("Готовлю сбор…"))
+        placeholder_view.add_item(placeholder_container)
         try:
-            public_message = await channel.send(embed=placeholder_embed)
+            public_message = await channel.send(view=placeholder_view)
         except discord.HTTPException as e:
-            logger.error(f"Не удалось опубликовать embed пати: {e}")
+            logger.error(f"Не удалось опубликовать карточку пати: {e}")
             return None
 
         party = self.manager.create(
@@ -506,7 +498,7 @@ class PartyCog(commands.Cog):
 
     @app_commands.command(
         name="party",
-        description="Собрать пати: пошаговый мастер (роль → параметры → публикация).",
+        description="Собрать пати: одна модалка (роль, время, состав, коммент).",
     )
     @app_commands.describe(image="Картинка к сбору (опционально)")
     async def party(
@@ -514,7 +506,7 @@ class PartyCog(commands.Cog):
         interaction: discord.Interaction,
         image: discord.Attachment | None = None,
     ) -> None:
-        """Открывает пошаговый эфемерный мастер сбора пати."""
+        """Открывает модалку сбора пати (Modal v2)."""
         guild = interaction.guild
         if guild is None:
             await safe_send_error(interaction, "Только в конфе, чел.")
@@ -548,14 +540,14 @@ class PartyCog(commands.Cog):
             await safe_send_error(interaction, "Вложение должно быть картинкой.")
             return
 
-        view = PartyBuilderView(
-            cog=self,
-            author_id=initiator.id,
-            initiator=initiator,
-            roles=roles,
-            image_url=image.url if image is not None else None,
+        await interaction.response.send_modal(
+            PartySetupModal(
+                cog=self,
+                initiator=initiator,
+                roles=roles,
+                image_url=image.url if image is not None else None,
+            )
         )
-        await interaction.response.send_message(embed=view.build_embed(), view=view, ephemeral=True)
 
     @commands.hybrid_command(
         name="party_cancel",

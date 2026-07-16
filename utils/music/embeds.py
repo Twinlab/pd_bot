@@ -1,7 +1,13 @@
-"""Утилиты для создания Discord-эмбедов музыкального модуля.
+"""Утилиты отрисовки музыкального модуля.
 
-Все эмбеды описывают текущее состояние плеера и используют единый стиль:
-обложка справа, длительности в формате ``MM:SS`` или ``HH:MM:SS``.
+Здесь живут две ветки представления плеера:
+
+* классические :class:`discord.Embed` (``*_embed``) — используются, пока флаг
+  ``settings.ui.cv2_music`` выключен;
+* карточки Components V2 (``*_card``, :class:`discord.ui.LayoutView`) — новый
+  стек за тем же флагом (Фаза 3 модернизации).
+
+Длительности форматируются в ``MM:SS`` / ``HH:MM:SS`` в обеих ветках.
 """
 
 from __future__ import annotations
@@ -9,6 +15,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import discord
+
+from utils.ui import colors
 
 from .config import COLORS
 
@@ -276,3 +284,90 @@ def _footer_for_player(player: wavelink.Player) -> str:
     }
     mode_text = mode_labels.get(player.queue.mode, "повтор: ?")
     return f"{mode_text} · громкость: {player.volume}% · в очереди: {len(player.queue)}"
+
+
+# ---------------------------------------------------------------------------
+# Components V2 — карточки (за флагом settings.ui.cv2_music)
+# ---------------------------------------------------------------------------
+
+# Тонкий разделитель между метаданными в одну строку (узкий пробел вокруг точки).
+_DOT = "\u2002·\u2002"
+
+
+def _card_view(container: discord.ui.Container) -> discord.ui.LayoutView:
+    """Оборачивает контейнер в неинтерактивный ``LayoutView`` без таймаута."""
+    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
+    view.add_item(container)
+    return view
+
+
+def _heading_block(
+    container: discord.ui.Container,
+    text: str,
+    thumbnail: str | None,
+) -> None:
+    """Добавляет заголовок: ``Section`` с обложкой справа либо обычный ``TextDisplay``."""
+    if thumbnail:
+        container.add_item(discord.ui.Section(text, accessory=discord.ui.Thumbnail(thumbnail)))
+    else:
+        container.add_item(discord.ui.TextDisplay(text))
+
+
+def status_card(
+    title: str,
+    description: str = "",
+    accent: discord.Colour | int | None = None,
+) -> discord.ui.LayoutView:
+    """CV2-карточка короткого статуса (пауза/скип/громкость и т.п.).
+
+    Args:
+        title: Заголовок статуса (с эмодзи).
+        description: Необязательная вторая строка.
+        accent: Цвет акцентной полосы. ``None`` — нейтральный тон.
+
+    Returns:
+        Неинтерактивный ``LayoutView`` с единственным контейнером.
+    """
+    container: discord.ui.Container = discord.ui.Container(
+        accent_colour=accent if accent is not None else colors.NEUTRAL
+    )
+    container.add_item(discord.ui.TextDisplay(f"### {title}"))
+    if description:
+        container.add_item(discord.ui.TextDisplay(description))
+    return _card_view(container)
+
+
+def added_to_queue_card(
+    track: wavelink.Playable,
+    position: int,
+    player: wavelink.Player,
+) -> discord.ui.LayoutView:
+    """CV2-карточка подтверждения добавления трека в очередь."""
+    text = (
+        "### ✅ Добавлено в очередь\n"
+        f"**[{track.title}]({track.uri or 'https://discord.com'})**\n"
+        f"**Длительность:** {format_duration(track.length)}{_DOT}"
+        f"**Позиция:** {position}{_DOT}"
+        f"**Заказал:** {_requester_mention(track, player.guild)}"
+    )
+    container: discord.ui.Container = discord.ui.Container(accent_colour=colors.SUCCESS)
+    _heading_block(container, text, track.artwork)
+    return _card_view(container)
+
+
+def added_playlist_card(
+    playlist: wavelink.Playlist,
+    added: int,
+    player: wavelink.Player,
+) -> discord.ui.LayoutView:
+    """CV2-карточка подтверждения добавления плейлиста."""
+    first = playlist.tracks[0] if playlist.tracks else None
+    text = (
+        "### 🎶 Плейлист добавлен\n"
+        f"**{playlist.name}** — {added} трек(ов)\n"
+        f"**Заказал:** {_requester_mention(first, player.guild) if first else '—'}{_DOT}"
+        f"**В очереди всего:** {len(player.queue)}"
+    )
+    container: discord.ui.Container = discord.ui.Container(accent_colour=colors.SUCCESS)
+    _heading_block(container, text, first.artwork if first else None)
+    return _card_view(container)

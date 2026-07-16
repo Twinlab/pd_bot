@@ -179,3 +179,40 @@ class TestCommandsGuardErrors:
             mock_err.assert_called_once()
             args, _ = mock_err.call_args
             assert "позицию" in args[1].lower() or "разобрать" in args[1].lower()
+
+
+class TestPresentationFlag:
+    """Хелперы отрисовки выбирают CV2 или классику по ``settings.ui.cv2_music``."""
+
+    async def test_send_status_cv2_uses_view(self, cog: MusicCog) -> None:
+        ctx = MagicMock(spec=commands.Context)
+        ctx.send = AsyncMock()
+        with patch.object(MusicCog, "_cv2_enabled", return_value=True):
+            await cog._send_status(ctx, "⏸️ Пауза", kind="info")
+        ctx.send.assert_awaited_once()
+        assert isinstance(ctx.send.await_args.kwargs["view"], discord.ui.LayoutView)
+
+    async def test_send_status_v1_uses_embed(self, cog: MusicCog) -> None:
+        ctx = MagicMock(spec=commands.Context)
+        with (
+            patch.object(MusicCog, "_cv2_enabled", return_value=False),
+            patch("cogs.music.safe_send", new=AsyncMock()) as mock_send,
+        ):
+            await cog._send_status(ctx, "⏸️ Пауза", kind="info")
+        mock_send.assert_awaited_once()
+        assert mock_send.await_args.kwargs.get("embed") is not None
+
+    async def test_send_added_cv2_uses_card(self, cog: MusicCog, mock_player: MusicPlayer) -> None:
+        ctx = MagicMock(spec=commands.Context)
+        ctx.send = AsyncMock()
+        track = MagicMock(spec=wavelink.Playable)
+        track.title = "Song"
+        track.uri = "https://example.com/v/1"
+        track.length = 60_000
+        track.artwork = None
+        track.extras = SimpleNamespace(requester_id=None)
+        mock_player._guild = None  # _requester_mention отдаёт "—" при guild=None
+        with patch.object(MusicCog, "_cv2_enabled", return_value=True):
+            await cog._send_added(ctx, track, position=1, player=mock_player)
+        ctx.send.assert_awaited_once()
+        assert isinstance(ctx.send.await_args.kwargs["view"], discord.ui.LayoutView)

@@ -47,6 +47,11 @@ colors:
   warning: "#ff8800"
   twitch: "#6441a4"
 
+# Фича-флаги UI (Components V2). Тумблер без revert+rebuild; после стабилизации
+# флаг и старую V1-ветку кода удалить.
+ui:
+  cv2_music: true
+
 # Modules
 anime:
   # Источник — Danbooru (лимит Member: 2 «обычных» тега; rating:/score: бесплатны, order: считается).

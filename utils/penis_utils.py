@@ -2,9 +2,9 @@
 Утилиты для команды измерения пениса.
 
 Этот модуль предоставляет функциональность для генерации случайного размера пениса
-и отображения результата в виде эмбеда Discord с соответствующим форматированием
-и цветовой индикацией в зависимости от размера. Поддерживает шуточный режим:
-случайный «нюанс» с настраиваемым шансом и список user_id, для которых пенис
+и отображения результата в виде CV2-карточки Discord с соответствующим форматированием
+и цветовой индикацией (акцент-полоса) в зависимости от размера. Поддерживает шуточный
+режим: случайный «нюанс» с настраиваемым шансом и список user_id, для которых пенис
 «не найден».
 """
 
@@ -20,7 +20,7 @@ logger = logging.getLogger("bot.utils.penis_utils")
 
 
 def _color_for_length(length: int) -> discord.Color:
-    """Возвращает цвет эмбеда в зависимости от длины."""
+    """Возвращает акцент карточки в зависимости от длины."""
     if length >= 15:
         return discord.Color.green()
     if length >= 10:
@@ -41,7 +41,7 @@ def _build_description(
     representation: str,
     nuance_text: str | None,
 ) -> str:
-    """Собирает текст описания эмбеда, опционально дописывая «нюанс» с новой строки."""
+    """Собирает текст карточки, опционально дописывая «нюанс» с новой строки."""
     if is_self:
         base = f"{user.mention}, твой пенис\n{representation}"
     else:
@@ -51,9 +51,31 @@ def _build_description(
     return base
 
 
+def build_penis_card(*, description: str, length: int) -> discord.ui.LayoutView:
+    """Собирает CV2-карточку измерителя: заголовок, описание, длина.
+
+    Акцент-полоса окрашивается по длине (зелёный/золотой/красный) через
+    :func:`_color_for_length`.
+
+    Args:
+        description: Готовый текст с упоминанием и ASCII-представлением.
+        length: Длина в сантиметрах (для акцента и подписи).
+
+    Returns:
+        Неинтерактивный ``LayoutView`` с единственным контейнером.
+    """
+    container: discord.ui.Container = discord.ui.Container(accent_colour=_color_for_length(length))
+    container.add_item(discord.ui.TextDisplay("## Измеритель пениса"))
+    container.add_item(discord.ui.TextDisplay(description))
+    container.add_item(discord.ui.TextDisplay(f"-# Длина: {length} см"))
+    view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
+    view.add_item(container)
+    return view
+
+
 async def measure_penis(ctx: commands.Context, target_user: discord.Member | None = None) -> None:
     """
-    Генерирует случайный размер пениса и отправляет его в виде эмбеда.
+    Генерирует случайный размер пениса и отправляет его в виде CV2-карточки.
 
     Поведение:
         - Если ``user.id`` есть в ``settings.fun.penis.not_found_user_ids`` — вместо
@@ -88,11 +110,4 @@ async def measure_penis(ctx: commands.Context, target_user: discord.Member | Non
         nuance_text=nuance,
     )
 
-    embed = discord.Embed(
-        title="Измеритель пениса",
-        description=description,
-        color=_color_for_length(penis_length),
-    )
-    embed.add_field(name="Длина", value=f"{penis_length} см", inline=True)
-
-    await ctx.send(embed=embed)
+    await ctx.send(view=build_penis_card(description=description, length=penis_length))
