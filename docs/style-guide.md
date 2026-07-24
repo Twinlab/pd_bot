@@ -67,16 +67,26 @@ def process_user_data(user_id: int, data: dict[str, Any]) -> User | None:
 #### Неправильно:
 
 ```python
-def calculate_total(items,tax_rate = 0.2):
+def calculate_total(items, tax_rate=0.2):
     subtotal = sum(items)
-    tax = subtotal*tax_rate
-    total = subtotal+tax
+    tax = subtotal * tax_rate
+    total = subtotal + tax
     return total
 
-def process_user_data(user_id,data):
-    if not data: return None
+
+def process_user_data(user_id, data):
+    if not data:
+        return None
     # Обработка данных
-    processed_data = {'id':user_id,'name':data.get('name','Неизвестно'),'email':data.get('email',''),'settings':{'theme':data.get('theme','default'),'notifications':data.get('notifications',True)}}
+    processed_data = {
+        "id": user_id,
+        "name": data.get("name", "Неизвестно"),
+        "email": data.get("email", ""),
+        "settings": {
+            "theme": data.get("theme", "default"),
+            "notifications": data.get("notifications", True),
+        },
+    }
     return User(**processed_data)
 ```
 
@@ -116,12 +126,15 @@ user_name = "John"
 item_count = 42
 is_active = True
 
+
 # Функции
 def get_user_by_id(user_id: int) -> User | None:
     pass
 
+
 def calculate_total_price(items: list[Item], discount: float = 0.0) -> float:
     pass
+
 
 # Классы
 class UserManager:
@@ -130,6 +143,7 @@ class UserManager:
 
     def get_user(self, user_id: int) -> User | None:
         pass
+
 
 # Исключения
 class DatabaseConnectionError(Exception):
@@ -149,12 +163,15 @@ UserName = "John"
 ItemCount = 42
 isactive = True
 
+
 # Функции
 def GetUserById(userId):
     pass
 
-def calc_price(i, d = 0.0):
+
+def calc_price(i, d=0.0):
     pass
+
 
 # Классы
 class user_manager:
@@ -163,6 +180,7 @@ class user_manager:
 
     def getUser(self, user_id):
         pass
+
 
 # Исключения
 class databaseError(Exception):
@@ -259,21 +277,26 @@ from typing import Dict, List, Optional, Union
 ```python
 from typing import Any, TypedDict, Callable
 
+
 # Простые функции
 def get_user_name(user_id: int) -> str:
     pass
+
 
 # Функции с опциональными параметрами
 def get_user(user_id: int, include_details: bool = False) -> dict[str, Any] | None:
     pass
 
+
 # Функции с Union типами
 def process_input(data: str | dict[str, Any] | list[int]) -> dict[str, Any]:
     pass
 
+
 # Асинхронные функции
 async def fetch_data(url: str, timeout: float = 10.0) -> dict[str, Any] | None:
     pass
+
 
 # TypedDict для словарей с известной структурой
 class UserData(TypedDict):
@@ -282,8 +305,10 @@ class UserData(TypedDict):
     email: str | None
     is_active: bool
 
+
 def create_user(data: UserData) -> User:
     pass
+
 
 # Callable для функций обратного вызова
 def register_callback(callback: Callable[[int, str], None]) -> None:
@@ -297,16 +322,19 @@ def register_callback(callback: Callable[[int, str], None]) -> None:
 def get_user_name(user_id):
     pass
 
+
 # Неполная типизация
-def get_user(user_id: int, include_details = False):
+def get_user(user_id: int, include_details=False):
     pass
+
 
 # Использование Any без необходимости
 def process_input(data: Any) -> Any:
     pass
 
+
 # Отсутствие типизации для асинхронных функций
-async def fetch_data(url, timeout = 10.0):
+async def fetch_data(url, timeout=10.0):
     pass
 ```
 
@@ -386,6 +414,7 @@ def calculate_statistics(data: list[float], exclude_outliers: bool = False) -> d
     """
     pass
 
+
 class DatabaseConnection:
     """
     Управляет подключением к базе данных.
@@ -407,7 +436,9 @@ class DatabaseConnection:
         """
         pass
 
-    async def execute_query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    async def execute_query(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Выполняет SQL-запрос к базе данных.
 
@@ -431,6 +462,7 @@ class DatabaseConnection:
 def calculate_statistics(data, exclude_outliers=False):
     # Вычисляет статистику
     pass
+
 
 class DatabaseConnection:
     def __init__(self, connection_string, max_connections=10):
@@ -467,6 +499,7 @@ import logging
 
 logger = logging.getLogger("bot.music")
 
+
 def play_track(track_url: str) -> bool:
     """Воспроизводит трек по URL."""
     logger.debug(f"Попытка воспроизведения трека: {track_url}")
@@ -480,6 +513,7 @@ def play_track(track_url: str) -> bool:
     except Exception as e:
         logger.error(f"Ошибка при воспроизведении трека {track_url}: {e}", exc_info=True)
         return False
+
 
 class MusicPlayer:
     def __init__(self, bot) -> None:
@@ -503,6 +537,7 @@ def play_track(track_url):
         print(f"Ошибка: {e}")
         return False
 
+
 class MusicPlayer:
     def __init__(self, bot):
         self.bot = bot
@@ -525,12 +560,14 @@ class MusicPlayer:
 ```python
 from utils.error_handler import command_error_handler
 
+
 @commands.hybrid_command(name="play", description="Воспроизвести музыку")
 @command_error_handler
 async def play(self, ctx: commands.Context, query: str) -> None:
     """Воспроизводит музыку по запросу."""
     # Реализация команды
     pass
+
 
 def get_user_data(user_id: int) -> dict[str, Any]:
     """Получает данные пользователя из базы данных."""
@@ -541,7 +578,9 @@ def get_user_data(user_id: int) -> dict[str, Any]:
         logger.error(f"Ошибка подключения к БД при получении данных пользователя {user_id}: {e}")
         raise DatabaseConnectionError(f"Не удалось подключиться к базе данных: {e}") from e
     except Exception as e:
-        logger.error(f"Неизвестная ошибка при получении данных пользователя {user_id}: {e}", exc_info=True)
+        logger.error(
+            f"Неизвестная ошибка при получении данных пользователя {user_id}: {e}", exc_info=True
+        )
         raise
 ```
 
@@ -555,6 +594,7 @@ async def play(self, ctx, query):
         pass
     except Exception as e:
         await ctx.send(f"Произошла ошибка: {e}")
+
 
 def get_user_data(user_id):
     try:
@@ -591,6 +631,7 @@ from unittest.mock import MagicMock, AsyncMock, patch
 
 from utils.database import Database, DatabaseError
 
+
 # Фикстуры
 @pytest.fixture
 def mock_connection():
@@ -599,33 +640,41 @@ def mock_connection():
     connection.execute = MagicMock(return_value={"id": 1, "name": "Test"})
     return connection
 
+
 # Тесты функций
 def test_calculate_total():
     """Тестирует функцию расчета общей суммы."""
     result = calculate_total([10, 20, 30])
     assert result == 60
 
+
 def test_calculate_total_empty():
     """Тестирует функцию расчета общей суммы с пустым списком."""
     result = calculate_total([])
     assert result == 0
 
+
 # Параметризованные тесты
-@pytest.mark.parametrize("items,expected", [
-    ([10, 20, 30], 60),
-    ([], 0),
-    ([5], 5),
-])
+@pytest.mark.parametrize(
+    "items,expected",
+    [
+        ([10, 20, 30], 60),
+        ([], 0),
+        ([5], 5),
+    ],
+)
 def test_calculate_total_parametrized(items, expected):
     """Тестирует функцию расчета общей суммы с разными входными данными."""
     result = calculate_total(items)
     assert result == expected
+
 
 # Тесты исключений
 def test_calculate_total_invalid():
     """Тестирует, что функция выбрасывает исключение при неверных входных данных."""
     with pytest.raises(ValueError):
         calculate_total(["a", "b", "c"])
+
 
 # Тесты классов
 class TestDatabase:
@@ -651,12 +700,14 @@ class TestDatabase:
         with pytest.raises(DatabaseError):
             db.get_user(1)
 
+
 # Асинхронные тесты
 @pytest.mark.asyncio
 async def test_async_function():
     """Тестирует асинхронную функцию."""
     result = await async_function()
     assert result == "expected"
+
 
 # Моки и патчи
 def test_function_with_external_dependency():
@@ -680,17 +731,24 @@ from typing import Any
 
 logger = logging.getLogger("bot.database")
 
+
 class DatabaseError(Exception):
     """Базовое исключение для ошибок базы данных."""
+
     pass
+
 
 class ConnectionError(DatabaseError):
     """Исключение для ошибок подключения к базе данных."""
+
     pass
+
 
 class QueryError(DatabaseError):
     """Исключение для ошибок выполнения запросов."""
+
     pass
+
 
 class Database:
     """
@@ -733,7 +791,9 @@ class Database:
         # Реализация подключения
         pass
 
-    def execute_query(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def execute_query(
+        self, query: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """
         Выполняет SQL-запрос к базе данных.
 
@@ -790,6 +850,7 @@ from utils.music.player import MusicPlayer
 
 logger = logging.getLogger("bot.cogs.music")
 
+
 class MusicCog(commands.Cog, name="Музыка"):
     """
     Управляет воспроизведением музыки в голосовых каналах.
@@ -821,6 +882,7 @@ class MusicCog(commands.Cog, name="Музыка"):
         """
         # Реализация команды
         pass
+
 
 async def setup(bot: commands.Bot) -> None:
     """
@@ -861,7 +923,7 @@ async def setup(bot: commands.Bot) -> None:
 from utils.ui import image_card
 
 view = image_card(
-    media="attachment://card.png",   # URL или attachment:// для приложенного файла
+    media="attachment://card.png",  # URL или attachment:// для приложенного файла
     accent=colors.result_accent(is_victory),
     text_above=[f"### [{title}]({url})"],
     text_below=["-# мета-строка"],
