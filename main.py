@@ -208,31 +208,50 @@ async def main() -> None:
     Raises:
         Exception: При ошибке запуска бота, ошибка логируется и программа завершается.
     """
-    logger.info(f"Используется файл базы данных: {DB_PATH}")
-    await initialize_database()
-
-    # Инициализация кэша Dota API теперь происходит внутри модуля при первом запросе
-    # или мы можем явно вызвать init, если он нужен.
-
-    await load_cogs()
+    database_initialized = False
     try:
+        logger.info(f"Используется файл базы данных: {DB_PATH}")
+        await initialize_database()
+        database_initialized = True
+        await load_cogs()
         await bot.start(settings.bot_token)
-    except Exception as e:
-        logger.critical(f"Не удалось запустить бота: {e}")
+    except Exception:
+        logger.exception("Не удалось запустить бота")
+        raise
     finally:
-        if not bot.is_closed():
-            await bot.close()
+        try:
+            if not bot.is_closed():
+                await bot.close()
+        except Exception:
+            logger.exception("Ошибка при закрытии Discord-клиента")
 
-        # Закрываем шаренные aiohttp-сессии модулей, чтобы не светить
-        # «Unclosed client session» в логи при shutdown.
         from utils.cs_api import close_session as close_cs_session
         from utils.deathbattle_utils import close_session as close_deathbattle_session
         from utils.dota_api import close_session as close_dota_session
+        from utils.match_card import close_session as close_match_card_session
+        from utils.music import close_nodes
 
-        await close_dota_session()
-        await close_cs_session()
-        await close_deathbattle_session()
-        await close_database()
+        cleanup_steps = [
+            ("Dota API", close_dota_session()),
+            ("CS API", close_cs_session()),
+            ("deathbattle API", close_deathbattle_session()),
+            ("match-card HTTP", close_match_card_session()),
+            ("Lavalink", close_nodes()),
+        ]
+        if database_initialized:
+            cleanup_steps.append(("база данных", close_database()))
+
+        results = await asyncio.gather(
+            *(cleanup for _, cleanup in cleanup_steps),
+            return_exceptions=True,
+        )
+        for (resource_name, _), result in zip(cleanup_steps, results, strict=True):
+            if isinstance(result, BaseException):
+                logger.error(
+                    "Ошибка при закрытии ресурса %s",
+                    resource_name,
+                    exc_info=(type(result), result, result.__traceback__),
+                )
 
 
 if __name__ == "__main__":

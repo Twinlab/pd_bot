@@ -24,7 +24,14 @@ class ActivityDataManager:
         """
         logger.info("Инициализация ActivityDataManager (Tortoise ORM)")
 
-    async def update_activity(self, user_id: int, game_name: str, elapsed_seconds: int) -> None:
+    async def update_activity(
+        self,
+        user_id: int,
+        game_name: str,
+        elapsed_seconds: int,
+        *,
+        target_date: date | None = None,
+    ) -> None:
         """Обновляет дневную статистику активности в БД.
 
         Добавляет время к записи за текущий день или создает новую.
@@ -37,16 +44,17 @@ class ActivityDataManager:
             user_id: ID пользователя Discord.
             game_name: Название игры.
             elapsed_seconds: Количество секунд, проведенных в игре.
+            target_date: Дата, к которой относится интервал. По умолчанию текущая.
         """
         if elapsed_seconds <= 0:
             return
 
-        today_str = date.today().isoformat()  # Формат YYYY-MM-DD
+        target_date_str = (target_date or date.today()).isoformat()
 
         try:
             # Шаг 1: пытаемся обновить существующую запись атомарно через F-выражение.
             updated_count = await DailyActivity.filter(
-                discord_user_id=user_id, game_name=game_name, date=today_str
+                discord_user_id=user_id, game_name=game_name, date=target_date_str
             ).update(seconds_played_today=F("seconds_played_today") + elapsed_seconds)
 
             # Шаг 2: если строки не было — создаём, защищаясь от race condition.
@@ -55,7 +63,7 @@ class ActivityDataManager:
                     await DailyActivity.create(
                         discord_user_id=user_id,
                         game_name=game_name,
-                        date=today_str,
+                        date=target_date_str,
                         seconds_played_today=elapsed_seconds,
                     )
                 except IntegrityError:
@@ -65,15 +73,15 @@ class ActivityDataManager:
                         "Race condition в update_activity для %s/%s/%s — повторяем update",
                         user_id,
                         game_name,
-                        today_str,
+                        target_date_str,
                     )
                     await DailyActivity.filter(
-                        discord_user_id=user_id, game_name=game_name, date=today_str
+                        discord_user_id=user_id, game_name=game_name, date=target_date_str
                     ).update(seconds_played_today=F("seconds_played_today") + elapsed_seconds)
 
             logger.debug(
                 f"Обновлена дневная активность в БД для {user_id} - {game_name} "
-                f"({today_str}): +{elapsed_seconds} сек."
+                f"({target_date_str}): +{elapsed_seconds} сек."
             )
         except Exception as e:
             logger.error(f"Ошибка при обновлении daily_activity в БД: {e}", exc_info=True)
@@ -110,6 +118,34 @@ class ActivityDataManager:
                 f"Ошибка при получении daily_stats из БД за {target_date_str}: {e}", exc_info=True
             )
             return {}
+
+    async def get_pending_daily_dates(self, before_date: date) -> list[date]:
+        """Возвращает даты дневной статистики, которые пора перенести в месяц.
+
+        Args:
+            before_date: Верхняя граница без включения. Текущий день не возвращается.
+
+        Returns:
+            Отсортированный список дат старше ``before_date``.
+        """
+        try:
+            raw_dates = (
+                await DailyActivity.filter(date__lt=before_date.isoformat())
+                .distinct()
+                .values_list("date", flat=True)
+            )
+        except Exception as e:
+            logger.error("Ошибка при получении дат для архивации: %s", e, exc_info=True)
+            return []
+
+        pending_dates: list[date] = []
+        for raw_date in raw_dates:
+            try:
+                pending_dates.append(date.fromisoformat(str(raw_date)))
+            except ValueError:
+                logger.error("Некорректная дата в daily_activity: %r", raw_date)
+
+        return sorted(set(pending_dates))
 
     async def transfer_daily_to_monthly(self, target_date: date) -> bool:
         """Переносит агрегированные данные из daily_activity за указанную дату в monthly_activity.

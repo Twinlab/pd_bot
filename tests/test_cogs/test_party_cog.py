@@ -104,6 +104,24 @@ def _make_party(cog: PartyCog, *, count: int = 2, comment: str = "x", initiator_
     )
 
 
+class TestLifecycle:
+    """Тесты безопасной выгрузки активных сборов."""
+
+    @pytest.mark.asyncio
+    async def test_cog_unload_finalizes_active_party(self, cog: PartyCog) -> None:
+        """После рестарта старые публичные и DM-кнопки не остаются активными."""
+        party = _make_party(cog)
+        cog._disable_dm_buttons = AsyncMock()
+        cog._refresh_public_embed = AsyncMock()
+
+        await cog.cog_unload()
+
+        assert party.finalized is True
+        assert cog.manager.get(party.id) is None
+        cog._disable_dm_buttons.assert_awaited_once_with(party)
+        cog._refresh_public_embed.assert_awaited_once_with(party)
+
+
 class TestSendDMs:
     """Тесты _send_dms."""
 

@@ -1,5 +1,5 @@
 # Stage 1: Builder
-FROM python:3.13-slim-bookworm as builder
+FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -51,7 +51,7 @@ COPY config/ config/
 RUN pip install .
 
 # Stage 2: Runtime
-FROM python:3.13-slim-bookworm
+FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -60,20 +60,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install runtime system dependencies
-# git is required for self-update functionality
-# openssh-client is required for git pull via ssh
-# (ffmpeg больше не нужен — транскодированием занимается Lavalink-сервис)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    openssh-client \
-    && rm -rf /var/lib/apt/lists/*
-
 # Copy virtual environment from builder
 COPY --from=builder /opt/venv /opt/venv
 
-# Copy application code
-COPY . .
+# Copy only runtime application files. Список намеренно явный: новый локальный
+# артефакт не должен случайно оказаться в production-образе.
+COPY cogs/ cogs/
+COPY handlers/ handlers/
+COPY utils/ utils/
+COPY config/ config/
+COPY assets/ assets/
+COPY main.py .
 
 # Create necessary directories for data persistence
 RUN mkdir -p data logs assets

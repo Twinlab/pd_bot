@@ -17,58 +17,53 @@ class TestMainWithNewConfig:
     async def test_main_imports_successfully(self):
         """Тест успешного импорта main.py с новой конфигурацией."""
         # Патчим переменные окружения
-        with patch.dict(os.environ, {
-            'BOT_TOKEN': 'test_token',
-            'STRATZ_API_KEY': 'test_key'
-        }):
+        with patch.dict(os.environ, {"BOT_TOKEN": "test_token", "STRATZ_API_KEY": "test_key"}):
             # Патчим YAML файл
             with patch("pathlib.Path.exists", return_value=False):
                 # Патчим другие зависимости
-                with patch("main.setup_logging"), \
-                     patch("main.initialize_database"):
-                    
+                with patch("main.setup_logging"), patch("main.initialize_database"):
                     # Импортируем main после патчинга
                     import importlib
-                    if 'main' in sys.modules:
-                        main_module = importlib.reload(sys.modules['main'])
+
+                    if "main" in sys.modules:
+                        main_module = importlib.reload(sys.modules["main"])
                     else:
                         import main as main_module
-                    
+
                     # Проверяем, что основные объекты созданы
-                    assert hasattr(main_module, 'settings')
-                    assert hasattr(main_module, 'bot')
-                    assert main_module.settings.bot_token == 'test_token'
+                    assert hasattr(main_module, "settings")
+                    assert hasattr(main_module, "bot")
+                    assert main_module.settings.bot_token == "test_token"
 
     @pytest.mark.asyncio
     async def test_load_cogs_with_new_config(self):
         """Тест загрузки когов с новой системой конфигурации."""
         # Патчим переменные окружения
-        with patch.dict(os.environ, {
-            'BOT_TOKEN': 'test_token',
-            'STRATZ_API_KEY': 'test_key'
-        }):
+        with patch.dict(os.environ, {"BOT_TOKEN": "test_token", "STRATZ_API_KEY": "test_key"}):
             with patch("pathlib.Path.exists", return_value=False):
                 # Создаем мок бота
                 mock_bot = MagicMock()
                 mock_bot.load_extension = AsyncMock()
-                
+
                 # Патчим зависимости
-                with patch("main.setup_logging"), \
-                     patch("main.initialize_database"), \
-                     patch("main.bot", mock_bot), \
-                     patch("pathlib.Path.glob") as mock_glob:
-                    
+                with (
+                    patch("main.setup_logging"),
+                    patch("main.initialize_database"),
+                    patch("main.bot", mock_bot),
+                    patch("pathlib.Path.glob") as mock_glob,
+                ):
                     # Настраиваем мок для Path.glob
                     mock_glob.return_value = [
                         Path("cogs/admin.py"),
                         Path("cogs/activity.py"),
-                        Path("cogs/__init__.py")
+                        Path("cogs/__init__.py"),
                     ]
-                    
+
                     # Импортируем и вызываем функцию
                     import main as main_module
+
                     await main_module.load_cogs()
-                    
+
                     # Проверяем, что load_extension был вызван
                     assert mock_bot.load_extension.call_count >= 2
 
@@ -76,53 +71,49 @@ class TestMainWithNewConfig:
     async def test_main_function_with_new_config(self):
         """Тест основной функции main с новой конфигурацией."""
         # Патчим переменные окружения
-        with patch.dict(os.environ, {
-            'BOT_TOKEN': 'test_token',
-            'STRATZ_API_KEY': 'test_key'
-        }):
+        with patch.dict(os.environ, {"BOT_TOKEN": "test_token", "STRATZ_API_KEY": "test_key"}):
             with patch("pathlib.Path.exists", return_value=False):
                 # Создаем мок бота
                 mock_bot = MagicMock()
                 mock_bot.start = AsyncMock()
-                
+
                 # Патчим зависимости
-                with patch("main.setup_logging"), \
-                     patch("main.initialize_database", AsyncMock()) as mock_init_db, \
-                     patch("main.close_database", AsyncMock()) as mock_close_db, \
-                     patch("main.load_cogs", AsyncMock()) as mock_load_cogs, \
-                     patch("main.bot", mock_bot):
-    
+                with (
+                    patch("main.setup_logging"),
+                    patch("main.initialize_database", AsyncMock()) as mock_init_db,
+                    patch("main.close_database", AsyncMock()) as mock_close_db,
+                    patch("main.load_cogs", AsyncMock()) as mock_load_cogs,
+                    patch("main.bot", mock_bot),
+                ):
                     # Импортируем и вызываем функцию
                     import main as main_module
+
                     await main_module.main()
-                    
+
                     # Проверяем, что все функции были вызваны
                     mock_init_db.assert_called_once()
                     mock_load_cogs.assert_called_once()
-                    mock_bot.start.assert_called_once_with('test_token')
+                    mock_bot.start.assert_called_once_with("test_token")
 
     def test_bot_creation_with_new_config(self):
         """Тест создания бота с новой системой конфигурации."""
         # Патчим переменные окружения
-        with patch.dict(os.environ, {
-            'BOT_TOKEN': 'test_token',
-            'STRATZ_API_KEY': 'test_key',
-            'BOT_PREFIX': '?'
-        }):
+        with patch.dict(
+            os.environ, {"BOT_TOKEN": "test_token", "STRATZ_API_KEY": "test_key", "BOT_PREFIX": "?"}
+        ):
             with patch("pathlib.Path.exists", return_value=False):
-                with patch("main.setup_logging"), \
-                     patch("main.initialize_database"):
-                    
+                with patch("main.setup_logging"), patch("main.initialize_database"):
                     # Импортируем main
                     import importlib
-                    if 'main' in sys.modules:
-                        main_module = importlib.reload(sys.modules['main'])
+
+                    if "main" in sys.modules:
+                        main_module = importlib.reload(sys.modules["main"])
                     else:
                         import main as main_module
-                    
+
                     # Проверяем, что бот создан с правильным префиксом
-                    assert main_module.bot.command_prefix == '?'
-                    assert hasattr(main_module.bot, 'settings')
+                    assert main_module.bot.command_prefix == "?"
+                    assert hasattr(main_module.bot, "settings")
 
     @pytest.mark.asyncio
     async def test_setup_hook_calls_sync(self):
@@ -196,27 +187,26 @@ class TestMainWithNewConfig:
     async def test_error_handling_in_main(self):
         """Тест обработки ошибок в функции main."""
         # Патчим переменные окружения
-        with patch.dict(os.environ, {
-            'BOT_TOKEN': 'test_token',
-            'STRATZ_API_KEY': 'test_key'
-        }):
+        with patch.dict(os.environ, {"BOT_TOKEN": "test_token", "STRATZ_API_KEY": "test_key"}):
             with patch("pathlib.Path.exists", return_value=False):
                 # Создаем мок бота с ошибкой
                 mock_bot = MagicMock()
                 mock_bot.start = AsyncMock(side_effect=Exception("Test error"))
-                
+
                 # Патчим зависимости
-                with patch("main.setup_logging"), \
-                     patch("main.initialize_database", AsyncMock()), \
-                     patch("main.close_database", AsyncMock()), \
-                     patch("main.load_cogs", AsyncMock()), \
-                     patch("main.bot", mock_bot), \
-                     patch("main.logger") as mock_logger:
-    
+                with (
+                    patch("main.setup_logging"),
+                    patch("main.initialize_database", AsyncMock()),
+                    patch("main.close_database", AsyncMock()),
+                    patch("main.load_cogs", AsyncMock()),
+                    patch("main.bot", mock_bot),
+                    patch("main.logger") as mock_logger,
+                ):
                     # Импортируем и вызываем функцию
                     import main as main_module
-                    await main_module.main()
-                    
+
+                    with pytest.raises(Exception, match="Test error"):
+                        await main_module.main()
+
                     # Проверяем, что ошибка была залогирована
-                    mock_logger.critical.assert_called_once()
-                    assert "Не удалось запустить бота" in str(mock_logger.critical.call_args)
+                    mock_logger.exception.assert_called_once_with("Не удалось запустить бота")

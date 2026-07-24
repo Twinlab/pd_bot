@@ -369,8 +369,8 @@ async def run_automatic_daily_report(cog_instance: "ActivityTracker") -> None:
     """Выполняет полную логику автоматического ежедневного отчета.
 
     1. Обновляет текущие сессии.
-    2. Отправляет отчет за вчерашний день.
-    3. Переносит данные daily -> monthly.
+    2. Находит все неархивированные даты до сегодняшней.
+    3. Для каждой даты отправляет отчет и независимо от доставки переносит данные в месяц.
 
     Args:
         cog_instance: Экземпляр кога ActivityTracker (для доступа к bot, data_manager, config,
@@ -394,25 +394,43 @@ async def run_automatic_daily_report(cog_instance: "ActivityTracker") -> None:
         await cog_instance.update_current_activities()
         logger.debug("run_automatic_daily_report: Обновление текущих активностей завершено.")
 
-        # 2. Отправляем отчет
-        await send_daily_report(yesterday, bot, data_manager)
+        pending_dates = await data_manager.get_pending_daily_dates(today)
+        dates_to_process = sorted({yesterday, *pending_dates})
 
-        # 3. Переносим данные daily -> monthly и очищаем daily
-        logger.info(
-            f"run_automatic_daily_report: Запуск переноса данных за {yesterday.isoformat()}..."
-        )
-        transfer_success = await data_manager.transfer_daily_to_monthly(yesterday)
-        if not transfer_success:
-            # Ошибка уже должна быть залогирована в data_manager
-            logger.error(
-                f"run_automatic_daily_report: Не удалось перенести дневные данные "
-                f"за {yesterday.isoformat()} в месячную статистику!"
-            )
-        else:
+        for target_date in dates_to_process:
+            try:
+                report_sent = await send_daily_report(target_date, bot, data_manager)
+            except Exception:
+                report_sent = False
+                logger.exception(
+                    "run_automatic_daily_report: Необработанная ошибка отправки отчёта за %s.",
+                    target_date.isoformat(),
+                )
+
+            if not report_sent:
+                logger.error(
+                    "run_automatic_daily_report: Отчёт за %s не отправлен; "
+                    "архивирование статистики всё равно будет выполнено.",
+                    target_date.isoformat(),
+                )
+
             logger.info(
-                f"run_automatic_daily_report: Дневные данные за {yesterday.isoformat()} "
-                "успешно перенесены и удалены."
+                "run_automatic_daily_report: Запуск переноса данных за %s...",
+                target_date.isoformat(),
             )
+            transfer_success = await data_manager.transfer_daily_to_monthly(target_date)
+            if not transfer_success:
+                logger.error(
+                    "run_automatic_daily_report: Не удалось перенести дневные данные "
+                    "за %s в месячную статистику!",
+                    target_date.isoformat(),
+                )
+            else:
+                logger.info(
+                    "run_automatic_daily_report: Дневные данные за %s "
+                    "успешно перенесены и удалены.",
+                    target_date.isoformat(),
+                )
 
     except Exception as e:
         # Логируем общую ошибку выполнения задачи

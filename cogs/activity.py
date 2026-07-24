@@ -32,7 +32,7 @@ from utils.activity.reports import (
 from utils.activity.views import ActivityView, StatsView
 from utils.activity_data_manager import ActivityDataManager
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
-from utils.time_utils import MOSCOW_TZ
+from utils.time_utils import MOSCOW_TZ, split_interval_by_local_date
 from utils.user_stats_data_manager import UserStatsDataManager
 
 logger: logging.Logger = logging.getLogger("bot.cogs.activity")
@@ -264,9 +264,7 @@ class ActivityTracker(commands.Cog):
                 f"Пользователь {member.name} ({user_id}) покинул сервер. "
                 f"Сохраняем сессию {game_name} ({elapsed_seconds} сек) в БД."
             )
-            asyncio.create_task(
-                self.data_manager.update_activity(user_id, game_name, elapsed_seconds)
-            )
+            await self._save_activity_interval(user_id, game_name, start_time, now_utc)
         else:
             logger.info(
                 f"Пользователь {member.name} ({user_id}) покинул сервер. "
@@ -274,8 +272,22 @@ class ActivityTracker(commands.Cog):
                 f"(вне допустимого диапазона)."
             )
 
-    # --- Логика обновления активности (остается в коге,
-    # т.к. работает с self.current_activities) ---
+    async def _save_activity_interval(
+        self,
+        user_id: int,
+        game_name: str,
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> None:
+        """Сохраняет игровой интервал в правильные московские даты."""
+        for target_date, seconds in split_interval_by_local_date(started_at, ended_at):
+            await self.data_manager.update_activity(
+                user_id,
+                game_name,
+                seconds,
+                target_date=target_date,
+            )
+
     async def update_current_activities(self, final_save: bool = False) -> None:
         """Обновляет статистику для текущих активных сессий, записывая данные в БД.
 
@@ -331,7 +343,12 @@ class ActivityTracker(commands.Cog):
             if elapsed_seconds >= min_record_threshold and elapsed_seconds < max_record_threshold:
                 # Добавляем задачу обновления в БД в список
                 tasks_to_run.append(
-                    self.data_manager.update_activity(user_id, game_name, elapsed_seconds)
+                    self._save_activity_interval(
+                        user_id,
+                        game_name,
+                        start_time,
+                        now_utc,
+                    )
                 )
                 # Если это не финальное сохранение, запоминаем, что нужно обновить время старта
                 if not final_save:
@@ -450,9 +467,11 @@ class ActivityTracker(commands.Cog):
                             f"Завершилась сессия {user_id} - {before_game} "
                             f"({elapsed_seconds} сек). Запись в БД..."
                         )
-                        # Запускаем запись асинхронно, чтобы не блокировать обработчик событий
-                        asyncio.create_task(
-                            self.data_manager.update_activity(user_id, before_game, elapsed_seconds)
+                        await self._save_activity_interval(
+                            user_id,
+                            before_game,
+                            start_time,
+                            now_utc,
                         )
                     else:
                         logger.debug(

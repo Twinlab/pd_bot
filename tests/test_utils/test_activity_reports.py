@@ -61,6 +61,7 @@ def mock_data_manager():
     manager = AsyncMock()
     manager.get_daily_stats = AsyncMock(return_value={})  # По умолчанию пустые данные
     manager.get_aggregated_monthly_stats = AsyncMock(return_value={})  # По умолчанию пустые данные
+    manager.get_pending_daily_dates = AsyncMock(return_value=[])
     manager.transfer_daily_to_monthly = AsyncMock(
         return_value=True
     )  # По умолчанию успешный перенос
@@ -122,9 +123,7 @@ async def test_get_report_channel_not_found(mock_bot):
     mock_bot.get_channel.return_value = None
     channel = await _get_report_channel(mock_bot)
     assert channel is None
-    mock_bot.get_channel.assert_called_once_with(
-        mock_bot.settings.channels.activity_reports
-    )
+    mock_bot.get_channel.assert_called_once_with(mock_bot.settings.channels.activity_reports)
 
 
 @pytest.mark.asyncio
@@ -386,7 +385,6 @@ async def test_run_automatic_daily_report(mock_cog, mock_channel):
         with patch("utils.activity.reports._get_report_channel", return_value=mock_channel):
             # Настраиваем мок для send_daily_report
             with patch("utils.activity.reports.send_daily_report") as mock_send_report:
-
                 await run_automatic_daily_report(mock_cog)
 
                 # Проверяем, что был вызван update_current_activities
@@ -403,6 +401,7 @@ async def test_run_automatic_daily_report(mock_cog, mock_channel):
 
                 # Проверяем, что был вызван transfer_daily_to_monthly
                 mock_cog.data_manager.transfer_daily_to_monthly.assert_called_once_with(yesterday)
+                mock_cog.data_manager.get_pending_daily_dates.assert_awaited_once_with(today)
 
 
 @pytest.mark.asyncio
@@ -430,6 +429,76 @@ async def test_run_automatic_daily_report_transfer_failure(mock_cog, mock_channe
 
                 # Проверяем, что был вызван transfer_daily_to_monthly
                 mock_cog.data_manager.transfer_daily_to_monthly.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_run_automatic_daily_report_archives_data_when_send_fails(mock_cog, mock_channel):
+    """Архивирует дневные данные независимо от результата отправки в Discord."""
+    with patch("utils.activity.reports.datetime") as mock_datetime:
+        mock_now = MagicMock()
+        mock_now.date.return_value = date(2025, 5, 2)
+        mock_datetime.now.return_value = mock_now
+
+        with (
+            patch("utils.activity.reports._get_report_channel", return_value=mock_channel),
+            patch(
+                "utils.activity.reports.send_daily_report",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            await run_automatic_daily_report(mock_cog)
+
+    mock_cog.data_manager.transfer_daily_to_monthly.assert_awaited_once_with(date(2025, 5, 1))
+
+
+@pytest.mark.asyncio
+async def test_run_automatic_daily_report_archives_data_when_send_raises(mock_cog, mock_channel):
+    """Необработанная ошибка доставки не блокирует перенос дневной статистики."""
+    with patch("utils.activity.reports.datetime") as mock_datetime:
+        mock_now = MagicMock()
+        mock_now.date.return_value = date(2025, 5, 2)
+        mock_datetime.now.return_value = mock_now
+
+        with patch(
+            "utils.activity.reports.send_daily_report",
+            new=AsyncMock(side_effect=RuntimeError("Discord unavailable")),
+        ):
+            await run_automatic_daily_report(mock_cog)
+
+    mock_cog.data_manager.transfer_daily_to_monthly.assert_awaited_once_with(date(2025, 5, 1))
+
+
+@pytest.mark.asyncio
+async def test_run_automatic_daily_report_processes_stale_dates_oldest_first(
+    mock_cog, mock_channel
+):
+    """После простоя архивирует все старые даты, а не только вчерашнюю."""
+    mock_cog.data_manager.get_pending_daily_dates.return_value = [
+        date(2025, 4, 29),
+        date(2025, 4, 30),
+    ]
+
+    with patch("utils.activity.reports.datetime") as mock_datetime:
+        mock_now = MagicMock()
+        mock_now.date.return_value = date(2025, 5, 2)
+        mock_datetime.now.return_value = mock_now
+
+        with patch(
+            "utils.activity.reports.send_daily_report",
+            new=AsyncMock(return_value=True),
+        ) as mock_send_report:
+            await run_automatic_daily_report(mock_cog)
+
+    processed_dates = [
+        call.args[0] for call in mock_cog.data_manager.transfer_daily_to_monthly.await_args_list
+    ]
+    reported_dates = [call.args[0] for call in mock_send_report.await_args_list]
+    assert processed_dates == [
+        date(2025, 4, 29),
+        date(2025, 4, 30),
+        date(2025, 5, 1),
+    ]
+    assert reported_dates == processed_dates
 
 
 # --- Тесты для run_automatic_monthly_report ---
@@ -481,7 +550,6 @@ async def test_run_automatic_monthly_report_first_day(mock_cog, mock_channel):
         with patch("utils.activity.reports._get_report_channel", return_value=mock_channel):
             # Настраиваем мок для send_monthly_report
             with patch("utils.activity.reports.send_monthly_report") as mock_send_report:
-
                 await run_automatic_monthly_report(mock_cog)
 
                 # Проверяем, что был вызван send_monthly_report с правильными параметрами

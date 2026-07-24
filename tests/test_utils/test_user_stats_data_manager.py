@@ -1,5 +1,6 @@
 """Тесты менеджера статистики сообщений/голоса."""
 
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -82,6 +83,20 @@ class TestIncrement:
                 _, kwargs = mock_create.call_args
                 assert kwargs["voice_seconds"] == 300
                 assert kwargs["messages"] == 0
+
+    @pytest.mark.asyncio
+    async def test_add_voice_uses_explicit_date(self, manager):
+        """Голосовые секунды записываются в переданную календарную дату."""
+        with patch("utils.user_stats_data_manager.DailyUserStats.filter") as mock_filter:
+            mock_filter.return_value.update = AsyncMock(return_value=1)
+
+            await manager.add_voice_seconds(
+                123,
+                300,
+                target_date=date(2026, 7, 23),
+            )
+
+        assert mock_filter.call_args.kwargs["date"] == "2026-07-23"
 
     @pytest.mark.asyncio
     async def test_zero_delta_noop(self, manager):

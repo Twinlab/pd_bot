@@ -16,6 +16,7 @@ Wavelink хранит очередь, текущий трек, громкост�
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 import discord
@@ -25,6 +26,8 @@ from .config import logger
 
 if TYPE_CHECKING:
     from discord.ext import commands
+
+_connect_task: asyncio.Task[None] | None = None
 
 
 class MusicPlayer(wavelink.Player):
@@ -153,11 +156,25 @@ async def setup_node(bot: commands.Bot) -> None:
                 exc_info=True,
             )
 
-    asyncio.create_task(_connect_in_background(), name="wavelink-pool-connect")
+    global _connect_task
+    if _connect_task is not None and not _connect_task.done():
+        logger.info("Подключение к Lavalink уже выполняется.")
+        return
+    _connect_task = asyncio.create_task(
+        _connect_in_background(),
+        name="wavelink-pool-connect",
+    )
 
 
 async def close_nodes() -> None:
     """Закрывает все Lavalink-ноды (используется при выгрузке кога)."""
+    global _connect_task
+    if _connect_task is not None and not _connect_task.done():
+        _connect_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _connect_task
+    _connect_task = None
+
     try:
         await wavelink.Pool.close()
         logger.info("Lavalink-ноды закрыты.")

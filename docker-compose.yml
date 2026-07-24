@@ -28,7 +28,7 @@ services:
   lavalink:
     # Официальный образ Lavalink v4 (alpine, Java 21).
     # Документация: https://lavalink.dev/getting-started/docker.html
-    image: ghcr.io/lavalink-devs/lavalink:4-alpine
+    image: ghcr.io/lavalink-devs/lavalink:4.2.2-alpine@sha256:96be2be7ee50d35a9bd42c8c7b99e2a4b741f09123066c1ebb9e014dd7db204d
     container_name: pd_bot_lavalink
     restart: unless-stopped
     depends_on:
@@ -42,7 +42,7 @@ services:
       - _JAVA_OPTIONS=-Xmx512m -Xms128m
       - TZ=Europe/Moscow
       # Lavalink Spring Boot подхватывает эти ENV из .env через env_file.
-      - LAVALINK_SERVER_PASSWORD=${LAVALINK_SERVER_PASSWORD:-youshallnotpass}
+      - LAVALINK_SERVER_PASSWORD=${LAVALINK_SERVER_PASSWORD:?LAVALINK_SERVER_PASSWORD is required}
       - YOUTUBE_REFRESH_TOKEN=${YOUTUBE_REFRESH_TOKEN:-}
       - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
       - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
@@ -71,10 +71,6 @@ services:
           memory: 768M
     networks:
       - pd_bot_net
-    # Watchtower тоже обновляет Lavalink, чтобы получать свежие версии плагинов
-    # при апгрейде образа. Минор-версии плагинов цепляются по координатам Maven.
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
 
   bot:
     image: ghcr.io/twinlab/pd_bot:latest
@@ -98,7 +94,7 @@ services:
       # Передаём боту координаты Lavalink-ноды.
       - LAVALINK_HOST=${LAVALINK_HOST:-lavalink}
       - LAVALINK_PORT=${LAVALINK_PORT:-2333}
-      - LAVALINK_SERVER_PASSWORD=${LAVALINK_SERVER_PASSWORD:-youshallnotpass}
+      - LAVALINK_SERVER_PASSWORD=${LAVALINK_SERVER_PASSWORD:?LAVALINK_SERVER_PASSWORD is required}
     deploy:
       resources:
         limits:
@@ -110,7 +106,7 @@ services:
       - "com.centurylinklabs.watchtower.enable=true"
 
   watchtower:
-    image: nickfedor/watchtower
+    image: nickfedor/watchtower:1.20.1@sha256:7ddf47fa9e6fff4e971fd8f3fe24ab84dd31c0a48770a0a380e97b9a2ed475b0
     container_name: watchtower
     restart: unless-stopped
     volumes:

@@ -179,10 +179,9 @@ class TwitchDataManager:
         try:
             twitch_username = twitch_username.lower()
 
-            update_data = {"is_live": is_live}
-            # Примечание: last_stream_id обновляется в update_notification_time,
-            # но если нужно сохранять ID стрима сразу при обнаружении онлайна, можно добавить и сюда.
-            # В оригинале last_stream_id здесь НЕ обновлялся.
+            update_data: dict[str, Any] = {"is_live": is_live}
+            if is_live and stream_id is not None:
+                update_data["last_stream_id"] = stream_id
 
             await TwitchStreamer.filter(twitch_username=twitch_username).update(**update_data)
 

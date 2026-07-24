@@ -22,7 +22,7 @@ from utils.activity.helpers import is_application
 from utils.activity_data_manager import ActivityDataManager
 from utils.error_handler import command_error_handler, safe_send
 from utils.models import WrappedOptOut
-from utils.time_utils import MOSCOW_TZ
+from utils.time_utils import MOSCOW_TZ, split_interval_by_local_date
 from utils.top_reactions_data_manager import TopReactionsDataManager
 from utils.user_stats_data_manager import UserStatsDataManager
 from utils.wrapped.builder import (
@@ -135,9 +135,9 @@ class UserStatsTracker(commands.Cog):
                     affected[m.id] = m
 
         for m in affected.values():
-            self._reevaluate(m, now)
+            await self._reevaluate(m, now)
 
-    def _reevaluate(self, member: discord.Member, now: datetime) -> None:
+    async def _reevaluate(self, member: discord.Member, now: datetime) -> None:
         """Открывает/закрывает сессию пользователя в зависимости от его активности."""
         cfg = get_settings().user_stats
         active = member_is_active(
@@ -148,19 +148,34 @@ class UserStatsTracker(commands.Cog):
         if active and member.id not in self.voice_sessions:
             self.voice_sessions[member.id] = now
         elif not active and member.id in self.voice_sessions:
-            self._close_session(member.id, now)
+            await self._close_session(member.id, now)
 
-    def _close_session(self, user_id: int, now: datetime) -> None:
+    async def _save_voice_interval(
+        self,
+        user_id: int,
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> None:
+        """Сохраняет голосовой интервал в правильные московские даты."""
+        for target_date, seconds in split_interval_by_local_date(started_at, ended_at):
+            await self.stats_manager.add_voice_seconds(
+                user_id,
+                seconds,
+                target_date=target_date,
+            )
+
+    async def _close_session(self, user_id: int, now: datetime) -> None:
         """Закрывает сессию и пишет накопленные секунды в БД (если в допустимом диапазоне)."""
-        start = self.voice_sessions.pop(user_id, None)
+        start = self.voice_sessions.get(user_id)
         if start is None:
             return
         cfg = get_settings().user_stats
         elapsed = int((now - start).total_seconds())
         if cfg.voice_min_record <= elapsed < cfg.voice_max_record:
-            asyncio.create_task(self.stats_manager.add_voice_seconds(user_id, elapsed))
+            await self._save_voice_interval(user_id, start, now)
         elif elapsed >= cfg.voice_max_record:
             logger.warning(f"Аномально длинная голосовая сессия {user_id} ({elapsed}s) — пропуск.")
+        self.voice_sessions.pop(user_id, None)
 
     async def _flush_active(self, *, restart: bool) -> None:
         """Сбрасывает накопленное время активных сессий в БД.
@@ -178,7 +193,7 @@ class UserStatsTracker(commands.Cog):
         for user_id, start in list(self.voice_sessions.items()):
             elapsed = int((now - start).total_seconds())
             if cfg.voice_min_record <= elapsed < cfg.voice_max_record:
-                await self.stats_manager.add_voice_seconds(user_id, elapsed)
+                await self._save_voice_interval(user_id, start, now)
             elif elapsed >= cfg.voice_max_record:
                 logger.warning(f"Аномальная сессия {user_id} ({elapsed}s) при флаше — сброс.")
                 self.voice_sessions.pop(user_id, None)

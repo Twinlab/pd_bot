@@ -6,13 +6,10 @@
 
 Что произойдёт автоматически:
 
-1. CI прогонит ruff/mypy/pytest, соберёт новый `ghcr.io/twinlab/pd_bot:latest` и запушит в GHCR.
+1. CI прогонит Ruff и pytest, соберёт новый `ghcr.io/twinlab/pd_bot:latest` и запушит в GHCR.
 2. Watchtower на VM через ≤60 секунд увидит новый image, остановит старый контейнер `pd_bot`, поднимет новый из того же `image`, с теми же volume/env/network что были на VM **до** этого момента.
-3. Новый бот загрузится. Музыкальный ког попытается **фоном** подключиться к `lavalink:2333` — ничего не найдёт (Lavalink-сервис на VM ещё не добавлен), залогирует ошибку и будет периодически переподключаться.
-4. Все **не-музыкальные** команды (Dota, активность, аниме, twitch, реакции, фан) продолжат работать как обычно.
-5. Любая музыкальная команда вернёт ошибку «Не удалось подключиться к голосовому каналу» или «Lavalink-нода не зарегистрирована».
-
-То есть бот **не упадёт** и продолжит обслуживать всё кроме музыки. Чтобы оживить музыку — нужны шаги ниже.
+3. Новый бот загрузится и фоном подключится к существующему сервису `lavalink:2333`.
+4. При временной недоступности Lavalink остальные подсистемы продолжат работать, а музыкальные команды будут возвращать контролируемую ошибку до восстановления ноды.
 
 ---
 
@@ -20,7 +17,7 @@
 
 ```mermaid
 graph LR
-    A[Push в main] --> B[GitHub Actions: ruff/mypy/pytest]
+    A[Push в main] --> B[GitHub Actions: Ruff и pytest]
     B --> C[Сборка Docker-образа pd_bot]
     C --> D[Push в ghcr.io/twinlab/pd_bot:latest]
     D --> E[Watchtower на VM polls каждые 60s]
@@ -40,7 +37,7 @@ graph LR
     H -.-> I
 ```
 
-GitHub Actions конфигурация: `.github/workflows/deploy.yml`. На VM достаточно одного `docker compose up -d`, чтобы запустить связку `bot + lavalink + watchtower`, дальше Watchtower обновляет image-ы.
+GitHub Actions конфигурация: `.github/workflows/deploy.yml`. На VM достаточно одного `docker compose up -d`, чтобы запустить связку `bot + lavalink + yt-cipher + watchtower`. Watchtower автоматически обновляет бот с тегом `:latest` и `yt-cipher:master`; остальные инфраструктурные образы закреплены по версии и digest.
 
 ### Что Watchtower умеет и **не** умеет
 
@@ -54,6 +51,26 @@ GitHub Actions конфигурация: `.github/workflows/deploy.yml`. На VM
 Поэтому любое **структурное** изменение docker-compose (новый сервис, новые env, новые volume) требует ручного шага на VM.
 
 Отдельная gotcha: `lavalink/application.yml` — это volume-mount, поэтому после правок нужен `docker compose restart lavalink` руками (Watchtower не среагирует — образ не меняется).
+
+### Обновление инфраструктуры и музыкальных плагинов
+
+Python, Lavalink и Watchtower закреплены по версии и OCI digest. Плагины `youtube-source`
+и LavaSrc закреплены Maven-координатами в `lavalink/application.yml`. Они тоже требуют
+регулярного обновления, но обновляются отдельным PR вместе с проверкой совместимости
+конфига, версии Lavalink и воспроизведения.
+
+`yt-cipher` — исключение: сервис отслеживает частые изменения `player.js`, поэтому
+использует `master` и автоматически обновляется Watchtower.
+
+Для закреплённых компонентов:
+
+1. Выбрать совместимую версию и прочитать release notes.
+2. Проверить manifest командой `docker buildx imagetools inspect <image>`.
+3. Обновить тег и digest в `Dockerfile` или `docker-compose.yml`.
+4. Прогнать тесты и Docker build.
+5. После мерджа выполнить на VM `git pull && docker compose up -d`.
+
+`LAVALINK_SERVER_PASSWORD` обязателен. Compose завершит проверку конфигурации ошибкой, если переменная отсутствует; известного fallback-пароля нет.
 
 ---
 

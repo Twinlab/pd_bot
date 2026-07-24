@@ -26,8 +26,9 @@ lavalink:
 
   server:
     # Пароль для WebSocket / REST подключения бота к ноде.
-    # Берём из env-переменной LAVALINK_SERVER_PASSWORD; дефолт — "youshallnotpass" (поменяй в проде!).
-    password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
+    # Без пароля сервис не должен стартовать: известный fallback превращает внутреннюю
+    # ноду в уязвимость при ошибочной публикации порта.
+    password: "${LAVALINK_SERVER_PASSWORD}"
 
     sources:
       # ВАЖНО: встроенный YouTube источник Lavalink устарел и не работает с современным YouTube.

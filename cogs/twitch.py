@@ -232,20 +232,23 @@ class TwitchCog(commands.Cog):
                 user_id = user_ids_by_username[username]
                 is_live = user_id in streams_by_user_id
                 stream_data = streams_by_user_id.get(user_id)
+                stream_id = stream_data["id"] if stream_data else None
 
-                # Обновляем кеш
                 if username not in self.streamers_cache:
+                    persisted = user_streamers[0]
                     self.streamers_cache[username] = {
                         "user_id": user_id,
-                        "is_live": False,
+                        "is_live": bool(persisted["is_live"]),
+                        "last_stream_id": persisted["last_stream_id"],
                         "stream_data": None,
                     }
 
-                # Проверяем, изменился ли статус стрима
-                status_changed = self.streamers_cache[username]["is_live"] != is_live
+                cached = self.streamers_cache[username]
+                was_live = bool(cached["is_live"])
+                previous_stream_id = cached.get("last_stream_id")
+                is_new_stream = is_live and stream_id != previous_stream_id
 
-                # Если стример только что начал стрим
-                if is_live and status_changed:
+                if is_new_stream:
                     logger.info(
                         f"ОБНАРУЖЕН НОВЫЙ СТРИМ: Стример {username} начал стрим: "
                         f"{stream_data['title']}"
@@ -253,38 +256,48 @@ class TwitchCog(commands.Cog):
                         else f"ОБНАРУЖЕН НОВЫЙ СТРИМ: Стример {username} — нет данных о стриме"
                     )
 
-                    # Обновляем статус в БД
-                    await self.data_manager.update_streamer_status(
-                        username, True, stream_data["id"] if stream_data else None
-                    )
-
-                    # Берем первую запись стримера (так как бот работает только на одном сервере)
                     if user_streamers:
                         streamer_info = user_streamers[0]
                         guild_id = streamer_info["guild_id"]
                         channel_id = streamer_info["channel_id"]
 
-                        # Всегда отправляем уведомление при обнаружении нового стрима
                         logger.info(
                             f"Отправка уведомления о стриме {username} в канал {channel_id}"
                         )
-                        await self.send_stream_notification(
+                        notification_sent = await self.send_stream_notification(
                             guild_id, channel_id, username, stream_data if stream_data else {}
                         )
+                        if not notification_sent:
+                            logger.warning(
+                                "Уведомление о стриме %s не отправлено; повторим на следующей "
+                                "проверке",
+                                username,
+                            )
+                            continue
 
-                        # Обновляем время последнего уведомления и ID стрима
+                        await self.data_manager.update_streamer_status(username, True, stream_id)
                         await self.data_manager.update_notification_time(
-                            username, guild_id, stream_data["id"] if stream_data else None
+                            username, guild_id, stream_id
                         )
+                        cached["is_live"] = True
+                        cached["last_stream_id"] = stream_id
 
-                # Если стример закончил стрим
-                elif not is_live and status_changed:
+                elif is_live:
+                    if not was_live:
+                        await self.data_manager.update_streamer_status(
+                            username,
+                            True,
+                            stream_id,
+                        )
+                    cached["is_live"] = True
+
+                elif not is_live and was_live:
                     logger.info(f"Стример {username} закончил стрим")
                     await self.data_manager.update_streamer_status(username, False)
+                    cached["is_live"] = False
 
-                # Обновляем кеш
-                self.streamers_cache[username]["is_live"] = is_live
-                self.streamers_cache[username]["stream_data"] = stream_data
+                cached["user_id"] = user_id
+                cached["stream_data"] = stream_data
 
             logger.debug("Проверка статуса стримов завершена")
 
@@ -303,7 +316,7 @@ class TwitchCog(commands.Cog):
 
     async def send_stream_notification(
         self, guild_id: int, channel_id: int, username: str, stream_data: dict[str, Any]
-    ) -> None:
+    ) -> bool:
         """Отправляет уведомление о начале стрима в указанный канал.
 
         Args:
@@ -311,6 +324,9 @@ class TwitchCog(commands.Cog):
             channel_id: ID канала для отправки уведомления
             username: Имя пользователя Twitch
             stream_data: Данные о стриме
+
+        Returns:
+            ``True``, если сообщение подтверждённо отправлено.
         """
         try:
             logger.info(f"НАЧАЛО: Отправка уведомления о стриме {username} в канал {channel_id}")
@@ -322,19 +338,19 @@ class TwitchCog(commands.Cog):
                     f"Неполные данные стрима для {username}: "
                     f"отсутствуют ключи {set(required_keys) - set(stream_data or {})}"
                 )
-                return
+                return False
 
             # Проверяем, что бот готов
             if not self.bot.is_ready():
                 logger.error(f"Бот не готов при попытке отправить уведомление о стриме {username}")
-                return
+                return False
 
             # Сначала по переданному guild_id, иначе fallback на единственную (single-guild).
             guild = self.bot.get_guild(guild_id) if guild_id else None
             if guild is None:
                 if not self.bot.guilds:
                     logger.error("Бот не подключен ни к одному серверу")
-                    return
+                    return False
                 guild = self.bot.guilds[0]
                 logger.warning(
                     "Гильдия с ID %s не найдена, используем fallback %s", guild_id, guild.id
@@ -360,7 +376,7 @@ class TwitchCog(commands.Cog):
                     logger.error(
                         f"Канал по умолчанию {default_channel_id} не найден или не TextChannel"
                     )
-                    return
+                    return False
 
             settings = get_settings()
             accent = int(settings.twitch.embed_color.replace("#", ""), 16)
@@ -371,7 +387,7 @@ class TwitchCog(commands.Cog):
                     f"У бота нет прав на отправку сообщений в канал {channel.name} "
                     f"({channel.id}) на сервере {guild.name}"
                 )
-                return
+                return False
 
             try:
                 if permissions.embed_links:
@@ -395,19 +411,22 @@ class TwitchCog(commands.Cog):
                     f"УСПЕХ: Отправлено уведомление о стриме {username} на сервер {guild.name} "
                     f"в канал {channel.name}"
                 )
+                return True
             except Exception as e:
                 logger.error(
                     f"Ошибка при отправке сообщения в канал {channel.name}: {e}", exc_info=True
                 )
-                return
+                return False
 
         except discord.Forbidden:
             logger.error(
                 f"Недостаточно прав для отправки уведомления в канал {channel_id} "
                 f"на сервере {guild_id}"
             )
+            return False
         except Exception as e:
             logger.error(f"Ошибка при отправке уведомления о стриме {username}: {e}", exc_info=True)
+            return False
 
     @app_commands.command(
         name="twitch_add", description="Добавляет Twitch-стримера для отслеживания"

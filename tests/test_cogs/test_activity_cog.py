@@ -66,6 +66,25 @@ class TestActivityTracking:
     """Тесты для отслеживания активности."""
 
     @pytest.mark.asyncio
+    async def test_save_activity_interval_splits_moscow_midnight(self):
+        """Игровой интервал по обе стороны полуночи получает две даты."""
+        tracker = ActivityTracker.__new__(ActivityTracker)
+        tracker.data_manager = MagicMock()
+        tracker.data_manager.update_activity = AsyncMock()
+
+        await tracker._save_activity_interval(
+            123,
+            "Dota 2",
+            datetime(2026, 7, 23, 20, 59, 58, tzinfo=UTC),
+            datetime(2026, 7, 23, 21, 0, 3, tzinfo=UTC),
+        )
+
+        assert tracker.data_manager.update_activity.await_args_list == [
+            ((123, "Dota 2", 2), {"target_date": date(2026, 7, 23)}),
+            ((123, "Dota 2", 3), {"target_date": date(2026, 7, 24)}),
+        ]
+
+    @pytest.mark.asyncio
     async def test_scan_all_users_activity(self, mock_bot, mock_guild, mock_member):
         """Тест метода scan_all_users_activity."""
         # Патчим tasks.loop, чтобы избежать проблем с циклом событий
@@ -1104,7 +1123,9 @@ class TestCommandsEdgeCases:
 
             # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "Неверный номер месяца" in mock_context.send.call_args.kwargs["embed"].description
+            assert (
+                "Неверный номер месяца" in mock_context.send.call_args.kwargs["embed"].description
+            )
 
     @pytest.mark.asyncio
     async def test_mystats_command_no_data(self, mock_bot, mock_context, mock_member):
@@ -1207,7 +1228,9 @@ class TestReportCommandsEdgeCases:
 
             # Ошибка уходит через safe_send_error → ctx.send(embed=...)
             mock_context.send.assert_called_once()
-            assert "Неверный номер месяца" in mock_context.send.call_args.kwargs["embed"].description
+            assert (
+                "Неверный номер месяца" in mock_context.send.call_args.kwargs["embed"].description
+            )
 
     @pytest.mark.asyncio
     async def test_report_monthly_command_invalid_year(self, mock_bot, mock_context):
@@ -1746,9 +1769,7 @@ class TestStatsContextMenu:
         """При наличии данных контекст-меню шлёт вью эфемерно."""
         tracker = ActivityTracker(mock_bot)
         fake_view = MagicMock()
-        with patch.object(
-            tracker, "_build_current_month_stats", new_callable=AsyncMock
-        ) as m_build:
+        with patch.object(tracker, "_build_current_month_stats", new_callable=AsyncMock) as m_build:
             m_build.return_value = (fake_view, None)
             interaction = MagicMock(spec=discord.Interaction)
             interaction.response = MagicMock()
@@ -1766,9 +1787,7 @@ class TestStatsContextMenu:
         """Без данных контекст-меню шлёт эмбед-заглушку эфемерно."""
         tracker = ActivityTracker(mock_bot)
         fake_embed = discord.Embed(description="Нет данных")
-        with patch.object(
-            tracker, "_build_current_month_stats", new_callable=AsyncMock
-        ) as m_build:
+        with patch.object(tracker, "_build_current_month_stats", new_callable=AsyncMock) as m_build:
             m_build.return_value = (None, fake_embed)
             interaction = MagicMock(spec=discord.Interaction)
             interaction.response = MagicMock()
@@ -1779,4 +1798,3 @@ class TestStatsContextMenu:
             kwargs = interaction.response.send_message.await_args.kwargs
             assert kwargs["embed"] is fake_embed
             assert kwargs["ephemeral"] is True
-

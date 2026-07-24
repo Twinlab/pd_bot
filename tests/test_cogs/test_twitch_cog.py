@@ -495,6 +495,158 @@ class TestCheckStreamsTask:
         assert twitch_cog.streamers_cache[twitch_username]["is_live"] is True
 
     @pytest.mark.asyncio
+    async def test_check_streams_restart_does_not_repeat_known_stream(
+        self,
+        twitch_cog: TwitchCog,
+        mock_data_manager: TwitchDataManager,
+    ):
+        """Состояние первого poll восстанавливается из БД после рестарта."""
+        username = "alreadylive"
+        user_id = "user123"
+        stream_id = "streamXYZ"
+        mock_data_manager.get_all_streamers = AsyncMock(
+            return_value=[
+                {
+                    "guild_id": 1,
+                    "channel_id": 777,
+                    "twitch_username": username,
+                    "twitch_id": user_id,
+                    "is_live": True,
+                    "last_stream_id": stream_id,
+                    "last_notification_time": 1000,
+                }
+            ]
+        )
+        assert twitch_cog.twitch_api is not None
+        twitch_cog.twitch_api.get_users = AsyncMock(
+            return_value=[{"login": username, "id": user_id}]
+        )
+        twitch_cog.twitch_api.get_streams = AsyncMock(
+            return_value=[
+                {
+                    "user_id": user_id,
+                    "id": stream_id,
+                    "title": "Still live",
+                    "user_name": "AlreadyLive",
+                    "game_name": "Game",
+                    "viewer_count": 10,
+                    "thumbnail_url": "url-{width}x{height}",
+                }
+            ]
+        )
+        twitch_cog.send_stream_notification = AsyncMock(return_value=True)
+        twitch_cog.first_run = False
+
+        await twitch_cog.check_streams()
+
+        twitch_cog.send_stream_notification.assert_not_awaited()
+        mock_data_manager.update_streamer_status.assert_not_awaited()
+        assert twitch_cog.streamers_cache[username]["is_live"] is True
+        assert twitch_cog.streamers_cache[username]["last_stream_id"] == stream_id
+
+    @pytest.mark.asyncio
+    async def test_check_streams_retries_when_notification_failed(
+        self,
+        twitch_cog: TwitchCog,
+        mock_data_manager: TwitchDataManager,
+    ):
+        """Не фиксирует live-переход, пока Discord не принял уведомление."""
+        username = "newlylive"
+        user_id = "user123"
+        stream_id = "streamXYZ"
+        mock_data_manager.get_all_streamers = AsyncMock(
+            return_value=[
+                {
+                    "guild_id": 1,
+                    "channel_id": 777,
+                    "twitch_username": username,
+                    "twitch_id": user_id,
+                    "is_live": False,
+                    "last_stream_id": None,
+                    "last_notification_time": 0,
+                }
+            ]
+        )
+        assert twitch_cog.twitch_api is not None
+        twitch_cog.twitch_api.get_users = AsyncMock(
+            return_value=[{"login": username, "id": user_id}]
+        )
+        twitch_cog.twitch_api.get_streams = AsyncMock(
+            return_value=[
+                {
+                    "user_id": user_id,
+                    "id": stream_id,
+                    "title": "New live",
+                    "user_name": "NewlyLive",
+                    "game_name": "Game",
+                    "viewer_count": 10,
+                    "thumbnail_url": "url-{width}x{height}",
+                }
+            ]
+        )
+        twitch_cog.send_stream_notification = AsyncMock(return_value=False)
+        twitch_cog.first_run = False
+
+        await twitch_cog.check_streams()
+
+        mock_data_manager.update_streamer_status.assert_not_awaited()
+        mock_data_manager.update_notification_time.assert_not_awaited()
+        assert twitch_cog.streamers_cache[username]["is_live"] is False
+
+    @pytest.mark.asyncio
+    async def test_check_streams_repairs_status_without_duplicate_notification(
+        self,
+        twitch_cog: TwitchCog,
+        mock_data_manager: TwitchDataManager,
+    ):
+        """Известный stream ID считается уже отправленным даже при stale is_live."""
+        username = "knownstream"
+        user_id = "user123"
+        stream_id = "streamXYZ"
+        mock_data_manager.get_all_streamers = AsyncMock(
+            return_value=[
+                {
+                    "guild_id": 1,
+                    "channel_id": 777,
+                    "twitch_username": username,
+                    "twitch_id": user_id,
+                    "is_live": False,
+                    "last_stream_id": stream_id,
+                    "last_notification_time": 1000,
+                }
+            ]
+        )
+        assert twitch_cog.twitch_api is not None
+        twitch_cog.twitch_api.get_users = AsyncMock(
+            return_value=[{"login": username, "id": user_id}]
+        )
+        twitch_cog.twitch_api.get_streams = AsyncMock(
+            return_value=[
+                {
+                    "user_id": user_id,
+                    "id": stream_id,
+                    "title": "Known live",
+                    "user_name": "KnownStream",
+                    "game_name": "Game",
+                    "viewer_count": 10,
+                    "thumbnail_url": "url-{width}x{height}",
+                }
+            ]
+        )
+        twitch_cog.send_stream_notification = AsyncMock(return_value=True)
+        twitch_cog.first_run = False
+
+        await twitch_cog.check_streams()
+
+        twitch_cog.send_stream_notification.assert_not_awaited()
+        mock_data_manager.update_streamer_status.assert_awaited_once_with(
+            username,
+            True,
+            stream_id,
+        )
+        assert twitch_cog.streamers_cache[username]["is_live"] is True
+
+    @pytest.mark.asyncio
     async def test_check_streams_stream_ends(
         self,
         twitch_cog: TwitchCog,
@@ -610,9 +762,10 @@ class TestSendStreamNotification:
         )  # bot.get_guild(guild_id) → mock_guild
         mock_guild.get_channel.return_value = mock_text_channel  # get_channel находит наш канал
 
-        await twitch_cog.send_stream_notification(
+        result = await twitch_cog.send_stream_notification(
             mock_guild.id, mock_text_channel.id, username, stream_data
         )
+        assert result is True
         mock_text_channel.send.assert_called_once()
         args, kwargs = mock_text_channel.send.call_args
         assert "embed" not in kwargs
@@ -628,7 +781,8 @@ class TestSendStreamNotification:
     ):
         """Проверяет, что пустой stream_data вызывает ранний возврат."""
         with patch("cogs.twitch.logger.error") as mock_logger_error:
-            await twitch_cog.send_stream_notification(1, 301, "test", {})
+            result = await twitch_cog.send_stream_notification(1, 301, "test", {})
+            assert result is False
             mock_logger_error.assert_called_once()
             assert "Неполные данные стрима" in mock_logger_error.call_args[0][0]
 

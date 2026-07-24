@@ -41,7 +41,14 @@ class UserStatsDataManager:
     def __init__(self) -> None:
         logger.info("Инициализация UserStatsDataManager (Tortoise ORM)")
 
-    async def _increment_daily(self, user_id: int, *, messages: int, voice_seconds: int) -> None:
+    async def _increment_daily(
+        self,
+        user_id: int,
+        *,
+        messages: int,
+        voice_seconds: int,
+        target_date: date | None = None,
+    ) -> None:
         """Атомарно прибавляет дельту к дневной строке, создавая её при отсутствии.
 
         Защищено от race condition тем же приёмом, что и
@@ -52,9 +59,11 @@ class UserStatsDataManager:
         if messages <= 0 and voice_seconds <= 0:
             return
 
-        today_str = date.today().isoformat()
+        target_date_str = (target_date or date.today()).isoformat()
         try:
-            updated = await DailyUserStats.filter(discord_user_id=user_id, date=today_str).update(
+            updated = await DailyUserStats.filter(
+                discord_user_id=user_id, date=target_date_str
+            ).update(
                 messages=F("messages") + messages,
                 voice_seconds=F("voice_seconds") + voice_seconds,
             )
@@ -62,12 +71,14 @@ class UserStatsDataManager:
                 try:
                     await DailyUserStats.create(
                         discord_user_id=user_id,
-                        date=today_str,
+                        date=target_date_str,
                         messages=messages,
                         voice_seconds=voice_seconds,
                     )
                 except IntegrityError:
-                    await DailyUserStats.filter(discord_user_id=user_id, date=today_str).update(
+                    await DailyUserStats.filter(
+                        discord_user_id=user_id, date=target_date_str
+                    ).update(
                         messages=F("messages") + messages,
                         voice_seconds=F("voice_seconds") + voice_seconds,
                     )
@@ -78,9 +89,20 @@ class UserStatsDataManager:
         """Прибавляет одно сообщение пользователю за сегодня."""
         await self._increment_daily(user_id, messages=1, voice_seconds=0)
 
-    async def add_voice_seconds(self, user_id: int, seconds: int) -> None:
-        """Прибавляет накопленные голосовые секунды пользователю за сегодня."""
-        await self._increment_daily(user_id, messages=0, voice_seconds=seconds)
+    async def add_voice_seconds(
+        self,
+        user_id: int,
+        seconds: int,
+        *,
+        target_date: date | None = None,
+    ) -> None:
+        """Прибавляет голосовые секунды пользователю за указанную дату."""
+        await self._increment_daily(
+            user_id,
+            messages=0,
+            voice_seconds=seconds,
+            target_date=target_date,
+        )
 
     async def get_daily_totals(self, target_date: date) -> dict[int, UserTotals]:
         """Возвращает статистику всех пользователей за указанную дату."""

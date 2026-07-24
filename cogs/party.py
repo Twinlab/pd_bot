@@ -73,11 +73,25 @@ class PartyCog(commands.Cog):
         return {row["role_id"] for row in rows if row["role_id"] != 0}
 
     async def cog_unload(self) -> None:
-        """Отменяет все запущенные таймеры финализации и чека готовности."""
-        for task in (*self._timers.values(), *self._check_timers.values()):
+        """Закрывает активные сборы и отменяет их таймеры."""
+        tasks = [*self._timers.values(), *self._check_timers.values()]
+        for task in tasks:
             task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         self._timers.clear()
         self._check_timers.clear()
+
+        active_parties = self.manager.all_active()
+        for party in active_parties:
+            cancelled = await self.manager.cancel(party.id)
+            if cancelled is None:
+                continue
+            await asyncio.gather(
+                self._disable_dm_buttons(cancelled),
+                self._refresh_public_embed(cancelled),
+                return_exceptions=True,
+            )
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
 
     def _member_resolver(
