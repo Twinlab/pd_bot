@@ -20,6 +20,9 @@ from discord.ext import commands, tasks
 
 logger = logging.getLogger("bot.cogs.logging_cog")  # Иерархическое имя логгера
 
+_CODE_BLOCK_PREFIX = "```\n"
+_CODE_BLOCK_SUFFIX = "\n```"
+
 
 class LoggingCog(commands.Cog):
     """Ког для отправки логов в Discord канал.
@@ -246,22 +249,45 @@ class LoggingCog(commands.Cog):
             logger.error(f"Ошибка при форматировании лога: {e}", exc_info=True)
             return log_line
 
+    @staticmethod
+    def _split_log_text(text: str, limit: int) -> list[str]:
+        """Делит текст на части, предпочитая границы строк."""
+        chunks: list[str] = []
+        remaining = text
+        while remaining:
+            if len(remaining) <= limit:
+                chunks.append(remaining)
+                break
+
+            split_at = remaining.rfind("\n", 0, limit + 1)
+            if split_at <= 0:
+                split_at = limit
+                chunks.append(remaining[:split_at])
+                remaining = remaining[split_at:]
+            else:
+                chunks.append(remaining[:split_at])
+                remaining = remaining[split_at + 1 :]
+        return chunks
+
     async def send_log_message(self, message: str) -> None:
         """Отправляет отформатированное сообщение лога в Discord канал."""
         if not self.log_channel:
             return
 
         try:
-            # Разбиваем сообщение на строки и форматируем каждую
             lines = message.strip().split("\n")
             formatted_lines = [self.format_json_log(line) for line in lines if line.strip()]
 
-            # Собираем отформатированные строки обратно
             formatted_message = "\n".join(formatted_lines)
 
-            # Отправляем сообщение
             if formatted_message:
-                await self.log_channel.send(f"```\n{formatted_message}\n```")
+                wrapper_length = len(_CODE_BLOCK_PREFIX) + len(_CODE_BLOCK_SUFFIX)
+                content_limit = max(
+                    1,
+                    self.bot.settings.limits.max_message_length - wrapper_length,
+                )
+                for chunk in self._split_log_text(formatted_message, content_limit):
+                    await self.log_channel.send(f"{_CODE_BLOCK_PREFIX}{chunk}{_CODE_BLOCK_SUFFIX}")
         except discord.HTTPException as e:
             logger.error(f"[LogCog] Ошибка Discord API при отправке лога: {e}")
         except Exception as e:

@@ -9,12 +9,12 @@ server:
     enabled: false
 
 lavalink:
-  # Подгружаемые при старте плагины. Версии актуальны на май 2026.
+  # Подгружаемые при старте плагины. Версии актуальны на июль 2026.
   # Lavalink скачивает jar-ы в /opt/Lavalink/plugins при первом запуске и кеширует на volume.
   plugins:
     # YouTube источник через несколько InnerTube-клиентов — обход bot-detection.
     # https://github.com/lavalink-devs/youtube-source
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
       repository: "https://maven.lavalink.dev/releases"
       snapshot: false
 
@@ -66,6 +66,12 @@ lavalink:
     soundcloudSearchEnabled: true
     gc-warnings: true
 
+    # yt-cipher иногда отвечает дольше стандартных 3 секунд при разборе нового player.js.
+    timeouts:
+      connectTimeoutMs: 10000
+      connectionRequestTimeoutMs: 10000
+      socketTimeoutMs: 10000
+
 # ============================================================================
 # Конфигурация плагинов
 # ============================================================================
@@ -80,7 +86,7 @@ plugins:
     allowDirectPlaylistIds: true
 
     # Клиенты YouTube InnerTube, опрашиваемые по порядку. Если первый отвечает 403/captcha,
-    # плагин автоматически переходит к следующему. Список оптимизирован под май 2026:
+    # плагин автоматически переходит к следующему. Список проверен в июле 2026:
     #   MUSIC          — для ytmsearch: (поиск в YT Music)
     #   TV             — ЕДИНСТВЕННЫЙ клиент с поддержкой OAuth (по таблице README youtube-source).
     #                    Используется для авторизованных playback-запросов, обходит bot-detection.
@@ -117,7 +123,7 @@ plugins:
     # Без этого блока на свежих player.js видео валятся с "Must find sig function from script".
     # Документация: https://github.com/kikkia/yt-cipher
     remoteCipher:
-      url: "http://yt-cipher:8001"
+      url: "${YOUTUBE_REMOTE_CIPHER_URL:http://yt-cipher:8001}"
       userAgent: "pd-bot"
 
     # poToken (Proof-of-Origin Token) — резервный механизм для клиентов WEB/WEBEMBEDDED,

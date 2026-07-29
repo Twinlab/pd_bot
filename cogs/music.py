@@ -46,6 +46,14 @@ _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 _TIMESTAMP_RE = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})$")
 
 
+def _shorten_error(value: object, limit: int) -> str:
+    """Готовит однострочный фрагмент ошибки для Discord и компактных логов."""
+    text = " ".join(str(value).split()) or "неизвестная ошибка"
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
 class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
     """Управляет воспроизведением музыки через Lavalink-ноду."""
 
@@ -228,16 +236,22 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
     ) -> None:
         """Логирует ошибку Lavalink при воспроизведении и сообщает в чат."""
         player = payload.player
+        exception = payload.exception
+        message = exception.get("message") or exception.get("cause") or "неизвестная ошибка"
+        severity = exception.get("severity", "?")
+        cause = exception.get("cause", "?")
         logger.error(
-            "Ошибка воспроизведения трека: %s (severity=%s, cause=%s)",
-            payload.exception,
-            getattr(payload.exception, "severity", "?"),
-            getattr(payload.exception, "cause", "?"),
+            "Ошибка воспроизведения «%s»: %s (severity=%s, cause=%s)",
+            payload.track.title,
+            _shorten_error(message, 1500),
+            severity,
+            cause,
         )
         if isinstance(player, MusicPlayer) and player.text_channel is not None:
             title = "❌ Ошибка воспроизведения"
             description = (
-                f"Lavalink не смог проиграть трек: `{payload.exception}`. Перехожу к следующему."
+                f"Lavalink не смог проиграть трек: `{_shorten_error(message, 700)}`. "
+                "Перехожу к следующему."
             )
             try:
                 if self._cv2_enabled():
