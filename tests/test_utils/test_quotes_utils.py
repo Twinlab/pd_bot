@@ -40,9 +40,9 @@ class TestQuotesUtilsBasic:
         mock_get_settings.return_value = mock_settings
         
         result = get_quotes_path()
-        
+
         assert isinstance(result, Path)
-        assert str(result) == "test/quotes"
+        assert result == Path("test/quotes")
 
     @patch("utils.quotes_utils.get_settings")
     def test_get_supported_extensions(self, mock_get_settings):

@@ -21,6 +21,7 @@ dependencies = [
     "pydantic[email]>=2.5.0",
     "pydantic-settings>=2.1.0",
     "PyYAML>=6.0.1",
+    "tzdata; sys_platform == 'win32'",
     "typing-extensions",
     "wavelink>=3.5.2",
     "tortoise-orm>=1.1,<2",
@@ -48,7 +49,8 @@ docs = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-exclude = [
+force-exclude = true
+extend-exclude = [
     ".git",
     ".venv",
     "venv",
