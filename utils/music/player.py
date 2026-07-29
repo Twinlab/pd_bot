@@ -26,6 +26,8 @@ from .config import logger
 
 if TYPE_CHECKING:
     from discord.ext import commands
+    from discord.types.voice import GuildVoiceState as GuildVoiceStatePayload
+    from discord.types.voice import VoiceServerUpdate as VoiceServerUpdatePayload
 
 _connect_task: asyncio.Task[None] | None = None
 
@@ -38,6 +40,45 @@ class MusicPlayer(wavelink.Player):
         super().__init__(*args, **kwargs)
         self.text_channel: discord.TextChannel | discord.Thread | None = None
         self.now_playing_message: discord.Message | None = None
+
+    async def on_voice_state_update(self, data: GuildVoiceStatePayload, /) -> None:
+        """Завершает voice handshake независимо от порядка Gateway-событий."""
+        await super().on_voice_state_update(data)
+
+        voice = self._voice_state["voice"]
+        logger.info(
+            "Получен VOICE_STATE_UPDATE (channel=%s, session=%s, server=%s).",
+            bool(data["channel_id"]),
+            bool(voice.get("session_id")),
+            bool(voice.get("token") and voice.get("endpoint")),
+        )
+        handshake_ready = bool(
+            data["channel_id"]
+            and voice.get("session_id")
+            and voice.get("token")
+            and voice.get("endpoint")
+        )
+        if not handshake_ready or self._connection_event.is_set():
+            return
+
+        # Discord не гарантирует порядок VOICE_STATE_UPDATE и VOICE_SERVER_UPDATE.
+        # Wavelink 3.5.2 повторяет dispatch только для server-события, поэтому при
+        # обратном порядке исходный connect ждёт до ChannelTimeoutException.
+        logger.info(
+            "Discord Voice handshake собран после VOICE_STATE_UPDATE; "
+            "повторно передаём credentials в Lavalink."
+        )
+        await self._dispatch_voice_update()
+
+    async def on_voice_server_update(self, data: VoiceServerUpdatePayload, /) -> None:
+        """Логирует безопасное состояние server-части voice handshake."""
+        logger.info(
+            "Получен VOICE_SERVER_UPDATE (endpoint=%s, token=%s, state=%s).",
+            bool(data.get("endpoint")),
+            bool(data.get("token")),
+            bool(self._voice_state["voice"].get("session_id")),
+        )
+        await super().on_voice_server_update(data)
 
     @staticmethod
     def assign_requester(track: wavelink.Playable, user: discord.Member) -> None:

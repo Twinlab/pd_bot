@@ -165,6 +165,9 @@ persistent volume и скачивает объявленную.
 ```bash
 docker compose logs --since=10m lavalink yt-cipher \
   | grep -E 'AllClientsFailed|RemoteCipher|read timeout|Sign in|403|429|youtube-plugin'
+
+docker compose logs --since=10m bot \
+  | grep -E 'VOICE_STATE_UPDATE|VOICE_SERVER_UPDATE|ChannelTimeout'
 ```
 
 Не публикуйте целиком OAuth device-flow лог: в нём может появиться refresh token.
@@ -177,6 +180,7 @@ docker compose logs --since=10m lavalink yt-cipher \
 | `RemoteCipher`, `resolve_url`, `read timeout` | Доступность `yt-cipher`, `YOUTUBE_REMOTE_CIPHER_URL`, таймауты |
 | `AllClientsFailedException` | Вложенные причины по каждому InnerTube-клиенту; это исходная ошибка YouTube |
 | В `/v4/info` нет `youtube` | Загрузку jar и версию `youtube-plugin` |
+| `ChannelTimeoutException`, без `PATCH /players` в Lavalink | Порядок событий Discord Voice Gateway; `MusicPlayer` повторно собирает handshake после получения обеих частей |
 | Трек стартует без YouTube-ошибок, но аудио нет | Discord Voice/DAVE и события voice gateway, а не источник YouTube |
 
 После изменения `docker-compose.yml`, `application.yml` или `.env`:

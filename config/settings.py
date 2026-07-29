@@ -231,22 +231,6 @@ class MusicConfig(BaseModel):
     voice: MusicVoiceConfig = MusicVoiceConfig()
 
 
-class UIConfig(BaseModel):
-    """Фича-флаги UI для безопасной поэтапной раскатки Components V2.
-
-    Прод обновляется автоматически (Watchtower тянет :latest), стейджинга нет —
-    поэтому рисковые CV2-миграции прячем за флагом, чтобы откат был тумблером в
-    ``config/bot_settings.yaml``, а не revert+rebuild. Временная мера: после
-    стабилизации фичи флаг и старую ветку кода нужно удалить.
-
-    Attributes:
-        cv2_music: Рисовать плеер/очередь/поиск музыки на Components V2 вместо
-            классических эмбедов + V1-вью (Фаза 3).
-    """
-
-    cv2_music: bool = False
-
-
 class GiveawayConfig(BaseModel):
     """Конфигурация модуля розыгрышей.
 
@@ -687,7 +671,6 @@ class BotSettings(BaseSettings):
     timeouts: TimeoutConfig = TimeoutConfig()
     limits: LimitConfig = LimitConfig()
     colors: ColorConfig = ColorConfig()
-    ui: UIConfig = UIConfig()
     messages: Messages = Messages()
     anime: AnimeConfig = AnimeConfig()
     music: MusicConfig = MusicConfig()
