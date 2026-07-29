@@ -48,7 +48,6 @@ class ProfileCog(commands.Cog):
     async def build_view(
         self,
         *,
-        requester_id: int,
         target: discord.Member,
         period: ProfilePeriod,
     ) -> ProfileView:
@@ -61,7 +60,6 @@ class ProfileCog(commands.Cog):
             current_game=self._current_game(target),
         )
         return ProfileView(
-            requester_id=requester_id,
             target=target,
             builder=self.builder,
             stats=stats,
@@ -77,7 +75,6 @@ class ProfileCog(commands.Cog):
         """Отправляет публичный профиль из hybrid-команды."""
         await ctx.defer()
         view = await self.build_view(
-            requester_id=ctx.author.id,
             target=target,
             period=period,
         )
@@ -95,7 +92,6 @@ class ProfileCog(commands.Cog):
         """Отправляет профиль из контекстного меню."""
         await interaction.response.defer(ephemeral=ephemeral)
         view = await self.build_view(
-            requester_id=interaction.user.id,
             target=target,
             period=period,
         )

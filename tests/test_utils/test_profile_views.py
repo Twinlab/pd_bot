@@ -1,7 +1,7 @@
 """Тесты Components V2-представления профиля."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import discord
 import pytest
@@ -41,7 +41,6 @@ def _view() -> ProfileView:
         current_game="@here Test Game",
     )
     return ProfileView(
-        requester_id=1,
         target=_member(),
         builder=MagicMock(spec=ProfileStatsBuilder),
         stats=stats,
@@ -92,18 +91,12 @@ def test_each_tab_stays_in_component_limit_without_duplicate_summary() -> None:
 
 
 @pytest.mark.asyncio
-async def test_only_requester_can_switch_profile_tabs() -> None:
+async def test_any_member_can_switch_profile_tabs() -> None:
     view = _view()
     interaction = MagicMock(spec=discord.Interaction)
     interaction.user = MagicMock()
     interaction.user.id = 2
-    interaction.response = MagicMock()
-    interaction.response.send_message = AsyncMock()
 
     allowed = await view.interaction_check(interaction)
 
-    assert allowed is False
-    interaction.response.send_message.assert_awaited_once_with(
-        "Это профиль, открытый другим пользователем. Используйте `/profile`.",
-        ephemeral=True,
-    )
+    assert allowed is True

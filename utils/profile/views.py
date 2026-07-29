@@ -202,14 +202,12 @@ class ProfileView(ui.LayoutView):
     def __init__(
         self,
         *,
-        requester_id: int,
         target: discord.Member,
         builder: ProfileStatsBuilder,
         stats: ProfileStats,
         eligible_user_ids: set[int],
     ) -> None:
         super().__init__(timeout=PROFILE_TIMEOUT_SECONDS)
-        self.requester_id = requester_id
         self.target = target
         self.builder = builder
         self.eligible_user_ids = eligible_user_ids
@@ -461,16 +459,6 @@ class ProfileView(ui.LayoutView):
             self.games_page = max(0, min(self.games_page + delta, pages - 1))
             self._render()
             await interaction.edit_original_response(view=self)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Не позволяет посетителям менять открытую кем-то карточку."""
-        if interaction.user.id == self.requester_id:
-            return True
-        await interaction.response.send_message(
-            "Это профиль, открытый другим пользователем. Используйте `/profile`.",
-            ephemeral=True,
-        )
-        return False
 
     async def on_timeout(self) -> None:
         """Отключает интерактивные кнопки, сохраняя внешние ссылки."""
