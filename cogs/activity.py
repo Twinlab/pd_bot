@@ -15,13 +15,14 @@
 import asyncio
 import logging
 from datetime import UTC, date, datetime, time
+from typing import Protocol, cast
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import get_settings
-from utils.activity.helpers import format_time_short, is_application
+from utils.activity.helpers import is_application
 from utils.activity.reports import (
     MONTH_NAMES_RU,
     run_automatic_daily_report,
@@ -29,13 +30,24 @@ from utils.activity.reports import (
     send_daily_report,
     send_monthly_report,
 )
-from utils.activity.views import ActivityView, StatsView
+from utils.activity.views import ActivityView
 from utils.activity_data_manager import ActivityDataManager
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
+from utils.profile import ProfilePeriod
 from utils.time_utils import MOSCOW_TZ, split_interval_by_local_date
-from utils.user_stats_data_manager import UserStatsDataManager
 
 logger: logging.Logger = logging.getLogger("bot.cogs.activity")
+
+
+class _ProfileSender(Protocol):
+    """Минимальный интерфейс нового профиля для старых команд-алиасов."""
+
+    async def send_from_context(
+        self,
+        ctx: commands.Context,
+        target: discord.Member,
+        period: ProfilePeriod,
+    ) -> None: ...
 
 
 class ActivityTracker(commands.Cog):
@@ -63,7 +75,6 @@ class ActivityTracker(commands.Cog):
         """
         self.bot: commands.Bot = bot
         self.data_manager: ActivityDataManager = ActivityDataManager()
-        self.user_stats_manager: UserStatsDataManager = UserStatsDataManager()
         logger.info("Инициализация ActivityDataManager завершена.")
 
         # {user_id: (game_name, start_time_utc)}
@@ -86,76 +97,12 @@ class ActivityTracker(commands.Cog):
         except Exception as e:
             logger.error(f"Не удалось запустить фоновые задачи ActivityTracker: {e}", exc_info=True)
 
-        self.stats_menu = app_commands.ContextMenu(
-            name="Статистика за месяц",
-            callback=self.stats_context_menu,
-        )
-        self.bot.tree.add_command(self.stats_menu)
-
-    @app_commands.guild_only()
-    async def stats_context_menu(
-        self, interaction: discord.Interaction, member: discord.Member
-    ) -> None:
-        """Контекст-меню (ПКМ по юзеру) «Статистика за месяц» — эфемерный ответ автору."""
-        view, embed = await self._build_current_month_stats(member)
-        if view is None:
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-        await interaction.response.send_message(view=view, ephemeral=True)
-        view.message = await interaction.original_response()
-
-    async def _build_current_month_stats(
-        self, target_user: discord.Member
-    ) -> tuple[StatsView | None, discord.Embed | None]:
-        """Собирает статистику пользователя за текущий месяц.
-
-        Returns:
-            Кортеж ``(view, embed)``: заполнен ровно один элемент — готовая
-            вью-пагинация по играм либо эмбед-заглушка, если играть не во что.
-        """
-        user_id = target_user.id
-        today = date.today()
-        await self.update_current_activities()
-
-        monthly_data = await self.data_manager.get_monthly_stats(user_id, today.year, today.month)
-        today_stats = await self.data_manager.get_daily_stats(today)
-        if user_id in today_stats:
-            for game, seconds in today_stats[user_id].items():
-                monthly_data[game] = monthly_data.get(game, 0) + seconds
-
-        us_month = await self.user_stats_manager.get_user_monthly(user_id, today.year, today.month)
-        us_extra = (
-            await self.user_stats_manager.get_daily_totals_by_prefix(
-                f"{today.year}-{today.month:02d}"
-            )
-        ).get(user_id)
-        period_messages = us_month.messages + (us_extra.messages if us_extra else 0)
-        period_voice = us_month.voice_seconds + (us_extra.voice_seconds if us_extra else 0)
-
-        title = f"📊 Статистика {target_user.display_name} за текущий месяц"
-        if not monthly_data:
-            embed = discord.Embed(title=title, color=discord.Color.blue())
-            embed.set_thumbnail(url=target_user.display_avatar.url)
-            if period_messages or period_voice:
-                embed.description = "Игр не зафиксировано, но активность есть:"
-                embed.add_field(name="💬 Сообщения", value=str(period_messages), inline=True)
-                embed.add_field(
-                    name="🎙️ В войсе", value=format_time_short(period_voice), inline=True
-                )
-            else:
-                embed.description = "Нет данных об активности за текущий месяц 😢"
-            return None, embed
-
-        sorted_games = sorted(monthly_data.items(), key=lambda item: item[1], reverse=True)
-        view = StatsView(
-            title,
-            sorted_games,
-            user=target_user,
-            items_per_page=get_settings().limits.activity_items_per_page,
-            messages_count=period_messages,
-            voice_seconds=period_voice,
-        )  # type: ignore[arg-type]
-        return view, None
+    def _profile_cog(self) -> _ProfileSender:
+        """Возвращает загруженный модуль единого профиля."""
+        profile_cog = self.bot.get_cog("ProfileCog")
+        if not isinstance(profile_cog, commands.Cog):
+            raise RuntimeError("ProfileCog не загружен")
+        return cast(_ProfileSender, profile_cog)
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -213,7 +160,6 @@ class ActivityTracker(commands.Cog):
         self.daily_report.cancel()
         self.monthly_report.cancel()
         self.periodic_save.cancel()
-        self.bot.tree.remove_command(self.stats_menu.name, type=self.stats_menu.type)
         logger.info("Фоновые задачи ActivityTracker остановлены.")
         # Попытка сохранить последние данные об активности перед выгрузкой
         try:
@@ -660,8 +606,10 @@ class ActivityTracker(commands.Cog):
         view.message = message  # Сохраняем для таймаута
 
     @commands.hybrid_command(  # type: ignore[arg-type]
-        name="mystats", description="Показать статистику игровой активности пользователя за месяц."
+        name="mystats", description="Открыть профиль пользователя за выбранный месяц."
     )
+    @app_commands.guild_only()
+    @commands.guild_only()
     @app_commands.describe(
         user="Пользователь, чью статистику показать (по умолчанию - вы).",
         month="Месяц (число от 1 до 12, по умолчанию - текущий).",
@@ -675,16 +623,12 @@ class ActivityTracker(commands.Cog):
         month: int | None = None,
         year: int | None = None,
     ) -> None:
-        """Показывает статистику игровой активности пользователя за указанный месяц (или текущий).
-
-        Использует пагинацию через эмбед и кнопки.
-        """
+        """Открывает единый профиль за указанный месяц."""
         target_user = user if user else ctx.author
         logger.info(
             f"Команда /mystats вызвана {ctx.author} для {target_user} (Месяц: {month}, Год: {year})"
         )
 
-        user_id = target_user.id
         today = date.today()
 
         target_year = year if year is not None else today.year
@@ -696,129 +640,32 @@ class ActivityTracker(commands.Cog):
         else:
             target_month = today.month
 
-        is_current_month = target_year == today.year and target_month == today.month
-
-        if is_current_month:
-            await self.update_current_activities()
-
-        monthly_data = await self.data_manager.get_monthly_stats(user_id, target_year, target_month)
-
-        # Если текущий месяц, добавляем данные за сегодня из daily_activity
-        if is_current_month:
-            today_stats = await self.data_manager.get_daily_stats(today)
-            if user_id in today_stats:
-                for game, seconds in today_stats[user_id].items():
-                    monthly_data[game] = monthly_data.get(game, 0) + seconds
-
-        # Сообщения и «умный» войс за тот же период: помесячная таблица +
-        # ещё не перенесённые дневные строки этого месяца. Отсутствие данных
-        # даёт 0, поэтому команда не падает у неактивных пользователей.
-        us_month = await self.user_stats_manager.get_user_monthly(
-            user_id, target_year, target_month
+        await self._profile_cog().send_from_context(
+            ctx,
+            cast(discord.Member, target_user),
+            ProfilePeriod("month", target_year, target_month),
         )
-        us_extra = (
-            await self.user_stats_manager.get_daily_totals_by_prefix(
-                f"{target_year}-{target_month:02d}"
-            )
-        ).get(user_id)
-        period_messages = us_month.messages + (us_extra.messages if us_extra else 0)
-        period_voice = us_month.voice_seconds + (us_extra.voice_seconds if us_extra else 0)
-
-        month_name = MONTH_NAMES_RU.get(target_month, str(target_month))
-        data_period_str = (
-            f"за {month_name} {target_year}"
-            if month is not None or year is not None
-            else "за текущий месяц"
-        )
-
-        if not monthly_data:
-            embed = discord.Embed(
-                title=f"📊 Статистика {target_user.display_name} {data_period_str}",
-                color=discord.Color.blue(),
-            )
-            embed.set_thumbnail(url=target_user.display_avatar.url)
-            if period_messages or period_voice:
-                embed.description = "Игр не зафиксировано, но активность есть:"
-                embed.add_field(name="💬 Сообщения", value=str(period_messages), inline=True)
-                embed.add_field(
-                    name="🎙️ В войсе", value=format_time_short(period_voice), inline=True
-                )
-            else:
-                embed.description = f"Нет данных об активности {data_period_str} 😢"
-            await safe_send(ctx, embed=embed, ephemeral=True)
-            return
-
-        # Сортируем игры по времени
-        sorted_games: list[tuple[str, int]] = sorted(
-            monthly_data.items(), key=lambda item: item[1], reverse=True
-        )
-
-        # Создаем и отправляем View
-        title = f"📊 Статистика {target_user.display_name} {data_period_str}"
-        view = StatsView(
-            title,
-            sorted_games,
-            user=target_user,
-            items_per_page=get_settings().limits.activity_items_per_page,
-            messages_count=period_messages,
-            voice_seconds=period_voice,
-        )  # type: ignore[arg-type]
-        message = await ctx.send(view=view, ephemeral=False)  # Статистика теперь публичная
-        view.message = message
-
-        # Показываем текущую сессию, если смотрим текущий месяц
-        if is_current_month and user_id in self.current_activities:
-            game_name, start_time = self.current_activities[user_id]
-            now_utc = datetime.now(UTC)
-            current_session_seconds = int((now_utc - start_time).total_seconds())
-            if current_session_seconds > 10:  # Показываем только если сессия длится > 10 сек
-                current_info = (
-                    f"🔴 **{target_user.display_name}** сейчас играет в **{game_name}** "
-                    f"(текущая сессия: {format_time_short(current_session_seconds)})"
-                )
-                await ctx.send(current_info, ephemeral=False)
 
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="mystatsall",
-        description="Показывает статистику игровой активности пользователя за всё время.",
+        description="Открыть профиль пользователя за всё время.",
     )
+    @app_commands.guild_only()
+    @commands.guild_only()
     @app_commands.describe(user="Пользователь, чью статистику показать (по умолчанию - вы).")
     @command_error_handler
     async def mystatsall_command(
         self, ctx: commands.Context, user: discord.Member | None = None
     ) -> None:
-        """Показывает суммарную статистику игровой активности пользователя за всё время."""
+        """Открывает единый профиль за всё доступное время."""
         target_user = user if user else ctx.author
         logger.info(f"Команда /mystatsall вызвана {ctx.author} для {target_user}")
 
-        user_id = target_user.id
-        await self.update_current_activities()
-        all_user_games = await self.data_manager.get_all_time_stats(user_id)
-
-        if not all_user_games:
-            embed = discord.Embed(
-                title=f"📊 Статистика {target_user.display_name}",
-                description="Нет данных об активности за всё время 😢",
-                color=discord.Color.blue(),
-            )
-            embed.set_thumbnail(url=target_user.display_avatar.url)
-            await safe_send(ctx, embed=embed, ephemeral=True)
-            return
-
-        # Сортируем игры по времени
-        sorted_games: list[tuple[str, int]] = sorted(
-            all_user_games.items(), key=lambda item: item[1], reverse=True
+        await self._profile_cog().send_from_context(
+            ctx,
+            cast(discord.Member, target_user),
+            ProfilePeriod.all_time(),
         )
-
-        title = f"📊 Статистика {target_user.display_name} за всё время"
-        view = StatsView(
-            title,
-            sorted_games,
-            user=target_user,
-            items_per_page=get_settings().limits.activity_items_per_page,
-        )  # type: ignore[arg-type]
-        message = await ctx.send(view=view, ephemeral=False)
-        view.message = message
 
     # --- Команды для ручного запуска отчетов ---
 

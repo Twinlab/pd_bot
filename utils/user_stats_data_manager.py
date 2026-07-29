@@ -258,6 +258,42 @@ class UserStatsDataManager:
             if m > 0 or v > 0
         }
 
+    async def get_all_time_totals(self) -> dict[int, UserTotals]:
+        """Возвращает статистику сообщений и голоса за всё время.
+
+        Месячные и оставшиеся дневные строки не пересекаются: после успешного
+        переноса дневные записи удаляются в той же транзакции.
+        """
+        acc: dict[int, list[int]] = defaultdict(lambda: [0, 0])
+        try:
+            monthly_rows = (
+                await MonthlyUserStats.all()
+                .group_by("discord_user_id")
+                .annotate(total_messages=Sum("messages"), total_voice=Sum("voice_seconds"))
+                .values("discord_user_id", "total_messages", "total_voice")
+            )
+            for row in monthly_rows:
+                acc[row["discord_user_id"]][0] += row["total_messages"] or 0
+                acc[row["discord_user_id"]][1] += row["total_voice"] or 0
+
+            daily_rows = (
+                await DailyUserStats.all()
+                .group_by("discord_user_id")
+                .annotate(total_messages=Sum("messages"), total_voice=Sum("voice_seconds"))
+                .values("discord_user_id", "total_messages", "total_voice")
+            )
+            for row in daily_rows:
+                acc[row["discord_user_id"]][0] += row["total_messages"] or 0
+                acc[row["discord_user_id"]][1] += row["total_voice"] or 0
+        except Exception as e:
+            logger.error(f"Ошибка get_all_time_totals: {e}", exc_info=True)
+
+        return {
+            uid: UserTotals(user_id=uid, messages=m, voice_seconds=v)
+            for uid, (m, v) in acc.items()
+            if m > 0 or v > 0
+        }
+
     async def get_user_monthly(self, user_id: int, year: int, month: int) -> UserTotals:
         """Возвращает суммарную статистику одного пользователя за месяц.
 

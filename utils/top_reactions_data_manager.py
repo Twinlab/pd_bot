@@ -13,7 +13,7 @@ MessageReactor (записи о конкретных реакциях user × em
 
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import Any, Literal
 
 from tortoise import Tortoise
@@ -95,6 +95,7 @@ def resolve_period_range(
     now: datetime | None = None,
     year: int | None = None,
     month: int | None = None,
+    timezone: tzinfo = UTC,
 ) -> tuple[datetime | None, datetime | None]:
     """Возвращает диапазон ``[start, end)`` для фильтрации `posted_at`.
 
@@ -108,34 +109,37 @@ def resolve_period_range(
     Все границы — в UTC, ``end`` исключительный (`__lt`).
     """
     if now is None:
-        now = datetime.now(UTC)
+        now = datetime.now(timezone)
+    else:
+        now = now.astimezone(timezone)
 
     if year is not None and month is not None:
-        start = datetime(year, month, 1, tzinfo=UTC)
+        start = datetime(year, month, 1, tzinfo=timezone)
         ny, nm = _next_month(year, month)
-        return start, datetime(ny, nm, 1, tzinfo=UTC)
+        end = datetime(ny, nm, 1, tzinfo=timezone)
+        return start.astimezone(UTC), end.astimezone(UTC)
 
     if year is not None:
-        return (
-            datetime(year, 1, 1, tzinfo=UTC),
-            datetime(year + 1, 1, 1, tzinfo=UTC),
-        )
+        start = datetime(year, 1, 1, tzinfo=timezone)
+        end = datetime(year + 1, 1, 1, tzinfo=timezone)
+        return start.astimezone(UTC), end.astimezone(UTC)
 
     if month is not None:
-        start = datetime(now.year, month, 1, tzinfo=UTC)
+        start = datetime(now.year, month, 1, tzinfo=timezone)
         ny, nm = _next_month(now.year, month)
-        return start, datetime(ny, nm, 1, tzinfo=UTC)
+        end = datetime(ny, nm, 1, tzinfo=timezone)
+        return start.astimezone(UTC), end.astimezone(UTC)
 
     if period == "month":
-        start = datetime(now.year, now.month, 1, tzinfo=UTC)
+        start = datetime(now.year, now.month, 1, tzinfo=timezone)
         ny, nm = _next_month(now.year, now.month)
-        return start, datetime(ny, nm, 1, tzinfo=UTC)
+        end = datetime(ny, nm, 1, tzinfo=timezone)
+        return start.astimezone(UTC), end.astimezone(UTC)
 
     if period == "year":
-        return (
-            datetime(now.year, 1, 1, tzinfo=UTC),
-            datetime(now.year + 1, 1, 1, tzinfo=UTC),
-        )
+        start = datetime(now.year, 1, 1, tzinfo=timezone)
+        end = datetime(now.year + 1, 1, 1, tzinfo=timezone)
+        return start.astimezone(UTC), end.astimezone(UTC)
 
     return None, None
 
@@ -349,9 +353,11 @@ class TopReactionsDataManager:
         *,
         year: int | None = None,
         month: int | None = None,
+        author_id: int | None = None,
         excluded_message_ids: set[int] | None = None,
         excluded_user_ids: set[int] | None = None,
         ignore_self_reactions: bool = False,
+        timezone: tzinfo = UTC,
     ) -> list[LeaderboardEntry]:
         """Возвращает топ сообщений за указанный период.
 
@@ -373,18 +379,25 @@ class TopReactionsDataManager:
             year: Явный год для фильтра (например 2025). Если задан без ``month`` —
                 выдача за весь год.
             month: Явный месяц 1–12. Без ``year`` берёт текущий год.
+            author_id: Если задан, вернуть только сообщения этого автора.
             excluded_message_ids: Сообщения с этими id будут исключены из выдачи
                 (например, сообщение role-реакций). Может быть None или пустым.
             excluded_user_ids: ID, которых не учитываем ни как авторов, ни как
                 реакторов (обычно — боты гилда).
             ignore_self_reactions: Не учитывать реакции автора на своё сообщение
                 (фильтр в ON-условии джойна, чтобы строка сообщения сохранялась).
+            timezone: Часовой пояс календарных границ месяца и года.
 
         Returns:
             Список LeaderboardEntry, отсортированный по убыванию счётчика.
         """
         try:
-            start, end = resolve_period_range(period, year=year, month=month)
+            start, end = resolve_period_range(
+                period,
+                year=year,
+                month=month,
+                timezone=timezone,
+            )
 
             # Параметры собираем строго в текстовом порядке SQL: сначала плейсхолдеры
             # из ON-условия джойна, затем из WHERE, в конце — LIMIT.
@@ -407,6 +420,9 @@ class TopReactionsDataManager:
                 # Наивный UTC под формат хранения posted_at: иначе tz-aware границу
                 # sqlite сериализует с "+00:00" и сравнение на границе периода ломается.
                 params.extend([start.replace(tzinfo=None), end.replace(tzinfo=None)])
+            if author_id is not None:
+                where_clauses.append("rm.author_id = ?")
+                params.append(author_id)
             if excluded_message_ids:
                 placeholders = ",".join(["?"] * len(excluded_message_ids))
                 where_clauses.append(f"rm.message_id NOT IN ({placeholders})")
@@ -492,6 +508,7 @@ class TopReactionsDataManager:
         excluded_message_ids: set[int] | None = None,
         excluded_user_ids: set[int] | None = None,
         ignore_self_reactions: bool = False,
+        timezone: tzinfo = UTC,
     ) -> list[AuthorLeaderboardEntry]:
         """Возвращает топ авторов по сумме реакций на их сообщения.
 
@@ -520,12 +537,18 @@ class TopReactionsDataManager:
             excluded_user_ids: ID, которых не учитываем ни как авторов, ни как
                 реакторов (обычно — боты гилда).
             ignore_self_reactions: Не учитывать реакции автора на своё сообщение.
+            timezone: Часовой пояс календарных границ месяца и года.
 
         Returns:
             Список AuthorLeaderboardEntry, отсортированный по убыванию total_reactions.
         """
         try:
-            start, end = resolve_period_range(period, year=year, month=month)
+            start, end = resolve_period_range(
+                period,
+                year=year,
+                month=month,
+                timezone=timezone,
+            )
 
             # Та же логика, что в get_leaderboard: при ignore_self_reactions
             # самореакция автора не попадает в COUNT уникальных реакторов; ботов-

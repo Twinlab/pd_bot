@@ -314,6 +314,52 @@ class ActivityDataManager:
             )
             return {}
 
+    async def get_daily_stats_by_prefix(self, user_id: int, prefix: str) -> dict[str, int]:
+        """Суммирует неперенесённую игровую статистику пользователя по префиксу даты.
+
+        Args:
+            user_id: ID пользователя Discord.
+            prefix: Префикс даты ``YYYY`` или ``YYYY-MM``.
+
+        Returns:
+            Словарь ``{game_name: seconds}``.
+        """
+        user_stats: dict[str, int] = defaultdict(int)
+        try:
+            rows = await DailyActivity.filter(
+                discord_user_id=user_id,
+                date__startswith=prefix,
+                seconds_played_today__gt=0,
+            )
+            for row in rows:
+                user_stats[row.game_name] += row.seconds_played_today
+        except Exception as e:
+            logger.error(
+                f"Ошибка get_daily_stats_by_prefix для {user_id} ({prefix}): {e}",
+                exc_info=True,
+            )
+        return dict(user_stats)
+
+    async def get_yearly_stats(self, user_id: int, year: int) -> dict[str, int]:
+        """Возвращает перенесённую игровую статистику пользователя за год."""
+        user_stats: dict[str, int] = defaultdict(int)
+        try:
+            rows = (
+                await MonthlyActivity.filter(
+                    discord_user_id=user_id,
+                    year=year,
+                    total_seconds_in_month__gt=0,
+                )
+                .group_by("game_name")
+                .annotate(total_seconds=Sum("total_seconds_in_month"))
+                .values("game_name", "total_seconds")
+            )
+            for row in rows:
+                user_stats[row["game_name"]] += row["total_seconds"] or 0
+        except Exception as e:
+            logger.error(f"Ошибка get_yearly_stats для {user_id} ({year}): {e}", exc_info=True)
+        return dict(user_stats)
+
     async def get_all_time_stats(self, user_id: int) -> dict[str, int]:
         """Получает суммарную статистику активности пользователя за всё время из БД.
 
@@ -338,10 +384,10 @@ class ActivityDataManager:
             for entry in monthly_sums:
                 user_stats[entry["game_name"]] += entry["total_seconds"]
 
-            # 2. Добавляем данные из daily_activity за СЕГОДНЯШНИЙ день
-            today_str = date.today().isoformat()
+            # Неперенесённые дневные строки не пересекаются с monthly_activity:
+            # после успешной архивации они удаляются в той же транзакции.
             daily_activities = await DailyActivity.filter(
-                discord_user_id=user_id, date=today_str, seconds_played_today__gt=0
+                discord_user_id=user_id, seconds_played_today__gt=0
             )
 
             for activity in daily_activities:

@@ -2,7 +2,7 @@
 
 from datetime import date
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -129,3 +129,56 @@ class TestUserMonthly:
         ):
             totals = await manager.get_user_monthly(999, 2026, 5)
         assert totals == UserTotals(user_id=999, messages=0, voice_seconds=0)
+
+
+class TestAllTimeTotals:
+    """Тесты полного периода профиля."""
+
+    @pytest.mark.asyncio
+    async def test_merges_monthly_and_untransferred_daily_rows(self, manager):
+        monthly_query = MagicMock()
+        monthly_query.group_by.return_value.annotate.return_value.values.return_value = (
+            _AwaitableRows(
+                [
+                    {
+                        "discord_user_id": 1,
+                        "total_messages": 10,
+                        "total_voice": 100,
+                    }
+                ]
+            )
+        )
+        daily_query = MagicMock()
+        daily_query.group_by.return_value.annotate.return_value.values.return_value = (
+            _AwaitableRows(
+                [
+                    {
+                        "discord_user_id": 1,
+                        "total_messages": 5,
+                        "total_voice": 50,
+                    },
+                    {
+                        "discord_user_id": 2,
+                        "total_messages": 2,
+                        "total_voice": 0,
+                    },
+                ]
+            )
+        )
+
+        with (
+            patch(
+                "utils.user_stats_data_manager.MonthlyUserStats.all",
+                return_value=monthly_query,
+            ),
+            patch(
+                "utils.user_stats_data_manager.DailyUserStats.all",
+                return_value=daily_query,
+            ),
+        ):
+            totals = await manager.get_all_time_totals()
+
+        assert totals == {
+            1: UserTotals(1, 15, 150),
+            2: UserTotals(2, 2, 0),
+        }

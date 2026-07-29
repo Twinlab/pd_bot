@@ -556,7 +556,7 @@ class NowPlayingView(discord.ui.LayoutView):
     """CV2-аналог ``now_playing_embed`` + :class:`PlayerControlView` в одном вью.
 
     Контент и кнопки управления живут в одном ``LayoutView``: при каждом действии
-    вью перерисовывается целиком (как :class:`utils.activity.views.StatsView`) и
+    вью перерисовывается целиком (как :class:`utils.profile.views.ProfileView`) и
     редактирует сообщение через ``edit_message(view=self)``.
     """
 

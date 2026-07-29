@@ -8,6 +8,7 @@ import pytest
 from tortoise import Tortoise
 
 from utils.models import MessageReactor, ReactedMessage
+from utils.time_utils import MOSCOW_TZ
 from utils.top_reactions_data_manager import (
     LeaderboardEntry,
     TopReactionsDataManager,
@@ -416,6 +417,28 @@ class TestGetLeaderboard:
         assert result[0].is_historical is True
 
     @pytest.mark.asyncio
+    async def test_filters_messages_by_author(self, db, manager):
+        now = datetime.now(UTC)
+        for message_id, author_id in ((1, 200), (2, 201)):
+            await manager.upsert_message(
+                message_id=message_id,
+                channel_id=100,
+                author_id=author_id,
+                content=str(author_id),
+                jump_url=f"https://discord.com/x/{message_id}",
+                posted_at=now,
+            )
+            await manager.add_reactor(message_id=message_id, user_id=10, emoji="👍")
+
+        result = await manager.get_leaderboard(
+            "month",
+            limit=10,
+            author_id=200,
+        )
+
+        assert [entry.author_id for entry in result] == [200]
+
+    @pytest.mark.asyncio
     async def test_live_wins_over_historical_for_same_message(self, db, manager):
         now = datetime.now(UTC)
         await ReactedMessage.create(
@@ -726,6 +749,16 @@ class TestResolvePeriodRange:
         start, end = resolve_period_range("all", now=now, month=2)
         assert start == datetime(2024, 2, 1, tzinfo=UTC)
         assert end == datetime(2024, 3, 1, tzinfo=UTC)
+
+    def test_explicit_month_can_use_moscow_boundaries(self):
+        start, end = resolve_period_range(
+            "month",
+            year=2024,
+            month=7,
+            timezone=MOSCOW_TZ,
+        )
+        assert start == datetime(2024, 6, 30, 21, tzinfo=UTC)
+        assert end == datetime(2024, 7, 31, 21, tzinfo=UTC)
 
 
 class TestGetTopAuthors:

@@ -459,3 +459,48 @@ class TestGetAllTimeStats:
         ):
             result = await manager.get_all_time_stats(123)
             assert result == {}
+
+
+class TestProfilePeriodQueries:
+    """Тесты агрегатов, используемых интерактивным профилем."""
+
+    @pytest.mark.asyncio
+    async def test_get_daily_stats_by_prefix_sums_games(self, manager):
+        rows = [
+            MagicMock(game_name="Dota 2", seconds_played_today=120),
+            MagicMock(game_name="Dota 2", seconds_played_today=180),
+            MagicMock(game_name="CS2", seconds_played_today=60),
+        ]
+        with patch("utils.activity_data_manager.DailyActivity.filter") as mock_filter:
+            future = asyncio.Future()
+            future.set_result(rows)
+            mock_filter.return_value = future
+
+            result = await manager.get_daily_stats_by_prefix(123, "2026-07")
+
+        assert result == {"Dota 2": 300, "CS2": 60}
+        mock_filter.assert_called_once_with(
+            discord_user_id=123,
+            date__startswith="2026-07",
+            seconds_played_today__gt=0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_yearly_stats_aggregates_months(self, manager):
+        values = [
+            {"game_name": "Dota 2", "total_seconds": 300},
+            {"game_name": "CS2", "total_seconds": 60},
+        ]
+        with patch("utils.activity_data_manager.MonthlyActivity.filter") as mock_filter:
+            future = asyncio.Future()
+            future.set_result(values)
+            mock_filter.return_value.group_by.return_value.annotate.return_value.values.return_value = future
+
+            result = await manager.get_yearly_stats(123, 2026)
+
+        assert result == {"Dota 2": 300, "CS2": 60}
+        mock_filter.assert_called_once_with(
+            discord_user_id=123,
+            year=2026,
+            total_seconds_in_month__gt=0,
+        )

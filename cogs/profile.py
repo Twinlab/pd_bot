@@ -1,0 +1,147 @@
+"""Единый интерактивный профиль пользователя."""
+
+from __future__ import annotations
+
+import logging
+from typing import cast
+
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from utils.activity.helpers import is_application
+from utils.error_handler import command_error_handler, safe_send_error
+from utils.profile import ProfilePeriod, ProfileStatsBuilder, ProfileView
+
+logger = logging.getLogger("bot.cogs.profile")
+
+
+class ProfileCog(commands.Cog):
+    """Команда профиля и контекстное меню пользователя."""
+
+    def __init__(self, bot: commands.Bot) -> None:
+        self.bot = bot
+        self.builder = ProfileStatsBuilder()
+        self.profile_menu = app_commands.ContextMenu(
+            name="Профиль",
+            callback=self.profile_context_menu,
+        )
+        self.bot.tree.add_command(self.profile_menu)
+
+    async def cog_unload(self) -> None:
+        """Удаляет контекстное меню при выгрузке кога."""
+        self.bot.tree.remove_command(self.profile_menu.name, type=self.profile_menu.type)
+
+    @staticmethod
+    def _current_game(member: discord.Member) -> str | None:
+        for activity in member.activities:
+            if activity.type == discord.ActivityType.playing and activity.name:
+                return activity.name
+        return None
+
+    @staticmethod
+    def _eligible_user_ids(guild: discord.Guild) -> set[int]:
+        return {
+            member.id for member in guild.members if not member.bot and not is_application(member)
+        }
+
+    async def build_view(
+        self,
+        *,
+        requester_id: int,
+        target: discord.Member,
+        period: ProfilePeriod,
+    ) -> ProfileView:
+        """Собирает начальное состояние профиля."""
+        eligible_user_ids = self._eligible_user_ids(target.guild)
+        stats = await self.builder.build_stats(
+            user_id=target.id,
+            period=period,
+            eligible_user_ids=eligible_user_ids,
+            current_game=self._current_game(target),
+        )
+        return ProfileView(
+            requester_id=requester_id,
+            target=target,
+            builder=self.builder,
+            stats=stats,
+            eligible_user_ids=eligible_user_ids,
+        )
+
+    async def send_from_context(
+        self,
+        ctx: commands.Context,
+        target: discord.Member,
+        period: ProfilePeriod,
+    ) -> None:
+        """Отправляет публичный профиль из hybrid-команды."""
+        await ctx.defer()
+        view = await self.build_view(
+            requester_id=ctx.author.id,
+            target=target,
+            period=period,
+        )
+        message = await ctx.send(view=view)
+        view.message = message
+
+    async def send_from_interaction(
+        self,
+        interaction: discord.Interaction,
+        target: discord.Member,
+        period: ProfilePeriod,
+        *,
+        ephemeral: bool,
+    ) -> None:
+        """Отправляет профиль из контекстного меню."""
+        await interaction.response.defer(ephemeral=ephemeral)
+        view = await self.build_view(
+            requester_id=interaction.user.id,
+            target=target,
+            period=period,
+        )
+        message = await interaction.followup.send(
+            view=view,
+            ephemeral=ephemeral,
+            wait=True,
+        )
+        view.message = cast(discord.Message, message)
+
+    @commands.hybrid_command(
+        name="profile",
+        description="Показать интерактивный профиль участника.",
+    )
+    @app_commands.guild_only()
+    @commands.guild_only()
+    @app_commands.describe(user="Чей профиль показать (по умолчанию — ваш).")
+    @command_error_handler
+    async def profile(
+        self,
+        ctx: commands.Context,
+        user: discord.Member | None = None,
+    ) -> None:
+        """Открывает профиль за текущий месяц."""
+        target = user or ctx.author
+        if not isinstance(target, discord.Member):
+            await safe_send_error(ctx, "Профиль доступен только участникам сервера.")
+            return
+        await self.send_from_context(ctx, target, ProfilePeriod.current_month())
+
+    @app_commands.guild_only()
+    async def profile_context_menu(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+    ) -> None:
+        """Открывает профиль выбранного участника эфемерно."""
+        await self.send_from_interaction(
+            interaction,
+            member,
+            ProfilePeriod.current_month(),
+            ephemeral=True,
+        )
+
+
+async def setup(bot: commands.Bot) -> None:
+    """Загружает профиль в бота."""
+    await bot.add_cog(ProfileCog(bot))
+    logger.info("ProfileCog успешно загружен.")
