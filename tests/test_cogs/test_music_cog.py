@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from cogs.music import MusicCog
 from utils.music.player import MusicPlayer
+from utils.ui import colors
 
 
 @pytest.fixture
@@ -27,20 +28,20 @@ def cog() -> MusicCog:
 
 
 @pytest.fixture
-def mock_player() -> MusicPlayer:
+def mock_player(monkeypatch: pytest.MonkeyPatch) -> MusicPlayer:
     """Минимальный MusicPlayer для проверок."""
     player = MusicPlayer.__new__(MusicPlayer)
     player.text_channel = None
     player.now_playing_message = None
 
-    type(player).current = property(lambda self: None)  # type: ignore[assignment]
-    type(player).playing = property(lambda self: False)  # type: ignore[assignment]
-    type(player).paused = property(lambda self: False)  # type: ignore[assignment]
-    type(player).connected = property(lambda self: True)  # type: ignore[assignment]
+    monkeypatch.setattr(type(player), "current", property(lambda self: None))
+    monkeypatch.setattr(type(player), "playing", property(lambda self: False))
+    monkeypatch.setattr(type(player), "paused", property(lambda self: False))
+    monkeypatch.setattr(type(player), "connected", property(lambda self: True))
 
     channel = MagicMock(spec=discord.VoiceChannel)
     channel.name = "Voice"
-    type(player).channel = property(lambda self, _c=channel: _c)  # type: ignore[assignment]
+    monkeypatch.setattr(type(player), "channel", property(lambda self, _c=channel: _c), raising=False)
 
     queue = MagicMock(spec=wavelink.Queue)
     queue.__len__ = lambda self: 0
@@ -181,41 +182,58 @@ class TestCommandsGuardErrors:
             assert "позицию" in args[1].lower() or "разобрать" in args[1].lower()
 
 
-class TestPresentationFlag:
-    """Хелперы отрисовки выбирают CV2 или классику по ``settings.ui.cv2_music``."""
+class TestEnsurePlayer:
+    async def test_voice_timeout_cleans_registered_client(self, cog: MusicCog) -> None:
+        ctx = MagicMock(spec=commands.Context)
+        guild = MagicMock(spec=discord.Guild)
+        guild.voice_client = None
+        ctx.guild = guild
 
-    async def test_send_status_cv2_uses_view(self, cog: MusicCog) -> None:
+        channel = MagicMock(spec=discord.VoiceChannel)
+        failed_player = MagicMock(spec=MusicPlayer)
+        failed_player.disconnect = AsyncMock()
+
+        async def fail_connect(**_kwargs: object) -> None:
+            guild.voice_client = failed_player
+            raise wavelink.ChannelTimeoutException("timeout")
+
+        channel.connect = AsyncMock(side_effect=fail_connect)
+        member = MagicMock(spec=discord.Member)
+        member.voice = MagicMock(spec=discord.VoiceState)
+        member.voice.channel = channel
+        ctx.author = member
+
+        with patch("cogs.music.safe_send_error", new=AsyncMock()) as mock_error:
+            result = await cog._ensure_player(ctx)
+
+        assert result is None
+        failed_player.disconnect.assert_awaited_once_with(force=True)
+        mock_error.assert_awaited_once()
+
+
+class TestPresentation:
+    """Хелперы отрисовки всегда отправляют карточки Components V2."""
+
+    async def test_send_status_uses_status_card(self, cog: MusicCog) -> None:
         ctx = MagicMock(spec=commands.Context)
         ctx.send = AsyncMock()
-        with patch.object(MusicCog, "_cv2_enabled", return_value=True):
+        card = discord.ui.LayoutView()
+        with patch("cogs.music.status_card", return_value=card) as mock_status_card:
             await cog._send_status(ctx, "⏸️ Пауза", kind="info")
-        ctx.send.assert_awaited_once()
-        assert isinstance(ctx.send.await_args.kwargs["view"], discord.ui.LayoutView)
 
-    async def test_send_status_v1_uses_embed(self, cog: MusicCog) -> None:
-        ctx = MagicMock(spec=commands.Context)
-        with (
-            patch.object(MusicCog, "_cv2_enabled", return_value=False),
-            patch("cogs.music.safe_send", new=AsyncMock()) as mock_send,
-        ):
-            await cog._send_status(ctx, "⏸️ Пауза", kind="info")
-        mock_send.assert_awaited_once()
-        assert mock_send.await_args.kwargs.get("embed") is not None
+        mock_status_card.assert_called_once_with("⏸️ Пауза", "", colors.INFO)
+        ctx.send.assert_awaited_once_with(view=card)
 
-    async def test_send_added_cv2_uses_card(self, cog: MusicCog, mock_player: MusicPlayer) -> None:
+    async def test_send_added_uses_card(self, cog: MusicCog, mock_player: MusicPlayer) -> None:
         ctx = MagicMock(spec=commands.Context)
         ctx.send = AsyncMock()
         track = MagicMock(spec=wavelink.Playable)
-        track.title = "Song"
-        track.uri = "https://example.com/v/1"
-        track.length = 60_000
-        track.artwork = None
-        track.extras = SimpleNamespace(requester_id=None)
-        mock_player._guild = None  # _requester_mention отдаёт "—" при guild=None
-        with patch.object(MusicCog, "_cv2_enabled", return_value=True):
+        card = discord.ui.LayoutView()
+        with patch("cogs.music.added_to_queue_card", return_value=card) as mock_card:
             await cog._send_added(ctx, track, position=1, player=mock_player)
-        ctx.send.assert_awaited_once()
-        assert isinstance(ctx.send.await_args.kwargs["view"], discord.ui.LayoutView)
+
+        mock_card.assert_called_once_with(track, 1, mock_player)
+        ctx.send.assert_awaited_once_with(view=card)
 
 
 class TestTrackException:
@@ -234,12 +252,10 @@ class TestTrackException:
                 "cause": "FriendlyException",
             },
         )
-        embed = MagicMock(spec=discord.Embed)
+        card = discord.ui.LayoutView()
 
         with (
-            patch.object(MusicCog, "_cv2_enabled", return_value=False),
-            patch("cogs.music.COLORS", {"ERROR": 0xFF0000}),
-            patch("cogs.music.create_embed", return_value=embed) as mock_create_embed,
+            patch("cogs.music.status_card", return_value=card) as mock_status_card,
             patch("cogs.music.logger.error") as mock_log,
         ):
             await cog.on_wavelink_track_exception(payload)
@@ -247,7 +263,9 @@ class TestTrackException:
         log_args = mock_log.call_args.args
         assert log_args[3:] == ("SUSPICIOUS", "FriendlyException")
         assert len(log_args[2]) <= 1500
-        description = mock_create_embed.call_args.args[1]
+        title, description, accent = mock_status_card.call_args.args
+        assert title == "❌ Ошибка воспроизведения"
         assert "failure" in description
         assert len(description) < 800
-        channel.send.assert_awaited_once_with(embed=embed)
+        assert accent == colors.ERROR
+        channel.send.assert_awaited_once_with(view=card)

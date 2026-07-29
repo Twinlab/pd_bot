@@ -15,26 +15,17 @@ import wavelink
 from discord import app_commands
 from discord.ext import commands
 
-from utils.error_handler import command_error_handler, safe_send, safe_send_error
+from utils.error_handler import command_error_handler, safe_send_error
 from utils.music import (
-    COLORS,
     MusicPlayer,
     NowPlayingView,
-    PlayerControlView,
     QueueLayoutView,
-    QueueView,
     SearchLayoutView,
-    SearchView,
     added_playlist_card,
-    added_playlist_embed,
     added_to_queue_card,
-    added_to_queue_embed,
     close_nodes,
-    create_embed,
     format_duration,
-    now_playing_embed,
     now_playing_static_view,
-    queue_embed,
     setup_node,
     status_card,
 )
@@ -62,45 +53,23 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         self.bot: commands.Bot = bot
 
     # ------------------------------------------------------------------
-    # Presentation (CV2 за флагом settings.ui.cv2_music)
+    # Presentation
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _cv2_enabled() -> bool:
-        """Включён ли Components V2 для музыки (фича-флаг Фазы 3)."""
-        from config import get_settings
-
-        return get_settings().ui.cv2_music
-
     async def _publish_now_playing(self, player: MusicPlayer) -> None:
-        """Отправляет или обновляет сообщение "Сейчас играет" в нужном стеке.
-
-        CV2 несовместим с ``embed`` в одном сообщении, поэтому ветки полностью
-        раздельны: либо один ``NowPlayingView``, либо ``embed`` + V1-``view``.
-        """
+        """Отправляет или обновляет сообщение Components V2 "Сейчас играет"."""
         channel = player.text_channel
         if channel is None:
             return
-        cv2 = self._cv2_enabled()
         old_msg = player.now_playing_message
         if old_msg is not None:
             try:
-                if cv2:
-                    await old_msg.edit(view=NowPlayingView(player))
-                else:
-                    await old_msg.edit(
-                        embed=now_playing_embed(player), view=PlayerControlView(player)
-                    )
+                await old_msg.edit(view=NowPlayingView(player))
                 return
             except (discord.NotFound, discord.HTTPException):
                 player.now_playing_message = None
         try:
-            if cv2:
-                player.now_playing_message = await channel.send(view=NowPlayingView(player))
-            else:
-                player.now_playing_message = await channel.send(
-                    embed=now_playing_embed(player), view=PlayerControlView(player)
-                )
+            player.now_playing_message = await channel.send(view=NowPlayingView(player))
         except discord.HTTPException as exc:
             logger.warning("Не удалось отправить now-playing сообщение: %s", exc)
 
@@ -112,21 +81,13 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         *,
         kind: str = "info",
     ) -> None:
-        """Отправляет короткий статус (пауза/скип/громкость…) в нужном стеке."""
-        if self._cv2_enabled():
-            accent = {
-                "info": colors.INFO,
-                "success": colors.SUCCESS,
-                "error": colors.ERROR,
-            }.get(kind, colors.NEUTRAL)
-            await ctx.send(view=status_card(title, description, accent))
-        else:
-            color = {
-                "info": COLORS["INFO"],
-                "success": COLORS["SUCCESS"],
-                "error": COLORS["ERROR"],
-            }.get(kind, COLORS["DEFAULT"])
-            await safe_send(ctx, embed=create_embed(title, description, color))
+        """Отправляет короткий CV2-статус (пауза/скип/громкость…)."""
+        accent = {
+            "info": colors.INFO,
+            "success": colors.SUCCESS,
+            "error": colors.ERROR,
+        }.get(kind, colors.NEUTRAL)
+        await ctx.send(view=status_card(title, description, accent))
 
     async def _send_added(
         self,
@@ -135,11 +96,8 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         position: int,
         player: MusicPlayer,
     ) -> None:
-        """Подтверждение добавления одного трека (CV2 или эмбед)."""
-        if self._cv2_enabled():
-            await ctx.send(view=added_to_queue_card(track, position, player))
-        else:
-            await safe_send(ctx, embed=added_to_queue_embed(track, position, player))
+        """Отправляет CV2-подтверждение добавления одного трека."""
+        await ctx.send(view=added_to_queue_card(track, position, player))
 
     async def _send_added_playlist(
         self,
@@ -148,11 +106,8 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         added: int,
         player: MusicPlayer,
     ) -> None:
-        """Подтверждение добавления плейлиста (CV2 или эмбед)."""
-        if self._cv2_enabled():
-            await ctx.send(view=added_playlist_card(playlist, added, player))
-        else:
-            await safe_send(ctx, embed=added_playlist_embed(playlist, added, player))
+        """Отправляет CV2-подтверждение добавления плейлиста."""
+        await ctx.send(view=added_playlist_card(playlist, added, player))
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -214,19 +169,13 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         if player.queue.is_empty and player.current is None:
             if player.now_playing_message is not None:
                 try:
-                    if self._cv2_enabled():
-                        # CV2-сообщение нельзя оставить пустым (контент жил во
-                        # вью) — заменяем на статичную карточку без кнопок.
-                        await player.now_playing_message.edit(
-                            embed=None,
-                            view=status_card(
-                                "⏹️ Очередь закончилась",
-                                "Добавьте треки командой `/play`.",
-                                colors.INFO,
-                            ),
-                        )
-                    else:
-                        await player.now_playing_message.edit(view=None)
+                    await player.now_playing_message.edit(
+                        view=status_card(
+                            "⏹️ Очередь закончилась",
+                            "Добавьте треки командой `/play`.",
+                            colors.INFO,
+                        ),
+                    )
                 except discord.HTTPException:
                     pass
 
@@ -254,14 +203,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
                 "Перехожу к следующему."
             )
             try:
-                if self._cv2_enabled():
-                    await player.text_channel.send(
-                        view=status_card(title, description, colors.ERROR)
-                    )
-                else:
-                    await player.text_channel.send(
-                        embed=create_embed(title, description, COLORS["ERROR"])
-                    )
+                await player.text_channel.send(view=status_card(title, description, colors.ERROR))
             except discord.HTTPException:
                 pass
 
@@ -278,14 +220,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
             title = "💤 Автоотключение"
             description = "Бот покинул канал из-за неактивности."
             try:
-                if self._cv2_enabled():
-                    await player.text_channel.send(
-                        view=status_card(title, description, colors.INFO)
-                    )
-                else:
-                    await player.text_channel.send(
-                        embed=create_embed(title, description, COLORS["INFO"])
-                    )
+                await player.text_channel.send(view=status_card(title, description, colors.INFO))
             except discord.HTTPException:
                 pass
         await player.disconnect()
@@ -364,6 +299,23 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
 
         try:
             player = await target_channel.connect(cls=MusicPlayer, self_deaf=True)
+        except wavelink.ChannelTimeoutException as exc:
+            failed_player = ctx.guild.voice_client if ctx.guild else None
+            if failed_player is not None:
+                try:
+                    await failed_player.disconnect(force=True)
+                except Exception as cleanup_exc:
+                    logger.warning(
+                        "Не удалось очистить VoiceClient после таймаута: %s",
+                        cleanup_exc,
+                    )
+            logger.error("Таймаут Discord Voice handshake: %s", exc, exc_info=True)
+            await safe_send_error(
+                ctx,
+                "Discord не завершил подключение к голосовому каналу. "
+                "Состояние соединения очищено — повторите команду.",
+            )
+            return None
         except discord.ClientException as exc:
             await safe_send_error(ctx, f"Не удалось подключиться к каналу: {exc}")
             return None
@@ -422,7 +374,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         track: wavelink.Playable,
         requester: discord.Member,
     ) -> None:
-        """Колбэк для ``SearchView`` — добавляет выбранный трек в очередь."""
+        """Колбэк для ``SearchLayoutView`` — добавляет выбранный трек в очередь."""
         player = interaction.guild.voice_client if interaction.guild else None
         if not isinstance(player, MusicPlayer):
             await interaction.response.send_message(
@@ -431,14 +383,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
             )
             return
         position = await self._enqueue(player, track, requester)
-        if self._cv2_enabled():
-            await interaction.response.edit_message(
-                embed=None, view=added_to_queue_card(track, position, player)
-            )
-        else:
-            await interaction.response.edit_message(
-                content=None, embed=added_to_queue_embed(track, position, player), view=None
-            )
+        await interaction.response.edit_message(view=added_to_queue_card(track, position, player))
 
     # ------------------------------------------------------------------
     # Commands
@@ -513,28 +458,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
             await self._send_added(ctx, track, position, player)
             return
 
-        if self._cv2_enabled():
-            # CV2: заголовок и Select живут в одном LayoutView (одно сообщение).
-            await ctx.send(
-                view=SearchLayoutView(self, top_results, requester, query), ephemeral=True
-            )
-            return
-
-        await safe_send(
-            ctx,
-            embed=create_embed(
-                f"🔍 Результаты поиска: «{query}»",
-                f"Выберите трек из топ-{len(top_results)} результатов:",
-                COLORS["DEFAULT"],
-            ),
-        )
-        # safe_send уже отправил эмбед; теперь добавляем view отдельным
-        # followup-сообщением (View нельзя добавить ретроактивно).
-        view = SearchView(self, top_results, requester)
-        if ctx.interaction:
-            await ctx.interaction.followup.send(view=view, ephemeral=True)
-        else:
-            await ctx.send(view=view)
+        await ctx.send(view=SearchLayoutView(self, top_results, requester, query), ephemeral=True)
 
     @commands.hybrid_command(name="skip", description="Пропустить текущий трек.")
     @command_error_handler
@@ -639,32 +563,19 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         from config import get_settings
 
         page_size = get_settings().music.lavalink.queue_page_size
-        if self._cv2_enabled():
-            await ctx.send(view=QueueLayoutView(player, page=page, page_size=page_size))
-            return
-
-        embed = queue_embed(player, page=page, page_size=page_size)
-        view = QueueView(player, page=page, page_size=page_size)
-        await safe_send(ctx, embed=embed)
-        if ctx.interaction:
-            await ctx.interaction.followup.send(view=view, ephemeral=True)
-        else:
-            await ctx.send(view=view)
+        await ctx.send(view=QueueLayoutView(player, page=page, page_size=page_size))
 
     @commands.hybrid_command(
         name="nowplaying", aliases=["np"], description="Показать текущий трек."
     )
     @command_error_handler
     async def nowplaying(self, ctx: commands.Context) -> None:
-        """Отправляет актуальный now-playing эмбед."""
+        """Отправляет актуальную CV2-карточку текущего трека."""
         player = ctx.guild.voice_client if ctx.guild else None
         if not isinstance(player, MusicPlayer) or player.current is None:
             await safe_send_error(ctx, "Сейчас ничего не играет.")
             return
-        if self._cv2_enabled():
-            await ctx.send(view=now_playing_static_view(player))
-        else:
-            await safe_send(ctx, embed=now_playing_embed(player))
+        await ctx.send(view=now_playing_static_view(player))
 
     @commands.hybrid_command(
         name="remove",

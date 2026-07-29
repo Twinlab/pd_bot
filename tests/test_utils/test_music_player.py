@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -109,6 +110,41 @@ class TestCanControl:
     def test_random_user_cannot_control(self, regular_member: MagicMock) -> None:
         player = self._make_player(current_requester_id=42)
         assert player.can_control(regular_member) is False
+
+
+class TestVoiceHandshake:
+    """Discord Voice Gateway может прислать части handshake в любом порядке."""
+
+    @staticmethod
+    def _make_player(*, with_server_data: bool) -> MusicPlayer:
+        player = MusicPlayer.__new__(MusicPlayer)
+        player._guild = MagicMock(spec=discord.Guild)
+        player._voice_state = {
+            "voice": (
+                {"token": "voice-token", "endpoint": "voice.example"} if with_server_data else {}
+            )
+        }
+        player._connection_event = asyncio.Event()
+        player._connected = False
+        channel = MagicMock(spec=discord.VoiceChannel)
+        player.client = MagicMock(spec=discord.Client)
+        player.client.get_channel.return_value = channel
+        player._dispatch_voice_update = AsyncMock()  # type: ignore[method-assign]
+        return player
+
+    async def test_state_update_finishes_server_first_handshake(self) -> None:
+        player = self._make_player(with_server_data=True)
+
+        await player.on_voice_state_update({"channel_id": "123", "session_id": "session"})
+
+        player._dispatch_voice_update.assert_awaited_once()  # type: ignore[attr-defined]
+
+    async def test_state_update_waits_for_missing_server_data(self) -> None:
+        player = self._make_player(with_server_data=False)
+
+        await player.on_voice_state_update({"channel_id": "123", "session_id": "session"})
+
+        player._dispatch_voice_update.assert_not_awaited()  # type: ignore[attr-defined]
 
 
 class TestSetupNode:
@@ -222,7 +258,5 @@ class TestCloseNodes:
             assert mock_close.called
 
     async def test_swallows_close_errors(self) -> None:
-        with patch.object(
-            wavelink.Pool, "close", new=AsyncMock(side_effect=RuntimeError("boom"))
-        ):
+        with patch.object(wavelink.Pool, "close", new=AsyncMock(side_effect=RuntimeError("boom"))):
             await close_nodes()  # не должен поднимать исключение

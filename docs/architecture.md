@@ -72,7 +72,7 @@ sequenceDiagram
         MusicCog->>Wavelink: player.queue.put(track)
         MusicCog->>Wavelink: player.play(...)
     else Текстовый поиск
-        MusicCog->>User: SearchView с топ-N результатами
+        MusicCog->>User: SearchLayoutView с топ-N результатами
         User->>MusicCog: выбор трека
         MusicCog->>Wavelink: queue.put(track) + play()
     end
@@ -83,23 +83,16 @@ sequenceDiagram
 
     Lavalink-->>Wavelink: TrackStartEvent
     Wavelink-->>MusicCog: on_wavelink_track_start
-    MusicCog->>User: "Сейчас играет" (CV2 NowPlayingView либо эмбед + PlayerControlView)
+    MusicCog->>User: NowPlayingView — CV2-карточка «Сейчас играет»
 ```
 
 Ключевые компоненты:
 
 - `cogs/music.py` — все hybrid-команды + слушатели событий wavelink.
 - `utils/music/player.py::MusicPlayer` — subclass `wavelink.Player`; добавляет `text_channel`, `now_playing_message` и привязку «трек → заказчик» через `track.extras.requester_id`.
-- `utils/music/ui.py` — два поколения View за флагом `settings.ui.cv2_music`:
-    - **V1 (классика):** `PlayerControlView` (кнопки под now-playing-эмбедом), `SearchView` (Select), `QueueView` (пагинация эмбеда).
-    - **Components V2:** `NowPlayingView`, `SearchLayoutView`, `QueueLayoutView` — весь контент и интерактив в одном `LayoutView` (контейнер + `Section`/`Thumbnail` + `ActionRow`-кнопки), плюс `now_playing_static_view` для `/nowplaying`.
-- `utils/music/embeds.py` — обе ветки отрисовки: классические эмбеды (`*_embed`) и CV2-карточки (`status_card`, `added_to_queue_card`, `added_playlist_card`).
+- `utils/music/ui.py` — Components V2-представления `NowPlayingView`, `SearchLayoutView` и `QueueLayoutView`: контент и интерактив живут в одном `LayoutView` (контейнер + `Section`/`Thumbnail` + `ActionRow`-кнопки). Для `/nowplaying` используется статический `now_playing_static_view`.
+- `utils/music/embeds.py` — общие форматтеры и CV2-карточки `status_card`, `added_to_queue_card`, `added_playlist_card`.
 - `lavalink/application.yml` — конфиг JVM-сервиса с плагинами `youtube-source` и `LavaSrc`.
-
-> **Фича-флаг `settings.ui.cv2_music`.** Музыкальные поверхности рисуются на
-> Components V2, только если флаг включён в `config/bot_settings.yaml`; иначе
-> используется классический стек (эмбед + V1-View). Это даёт мгновенный откат
-> тумблером без revert+rebuild. После стабилизации флаг и V1-ветку нужно убрать.
 
 ## Поток данных в модуле отслеживания активности
 
