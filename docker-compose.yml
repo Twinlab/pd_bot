@@ -11,7 +11,7 @@ services:
     environment:
       # Вариант скрипта декодера. IAS — текущая дефолтная стратегия,
       # см. https://github.com/kikkia/yt-cipher#configuration.
-      - OVERRIDE_SCRIPT_VARIANT=IAS
+      - OVERRIDE_PLAYER_VARIANT=IAS
       - TZ=Europe/Moscow
     expose:
       - "8001"

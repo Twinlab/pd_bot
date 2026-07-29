@@ -500,6 +500,40 @@ class TestSendLogMessage:
         mock_text_channel.send.assert_not_called() # Не должно ничего отправляться
 
     @pytest.mark.asyncio
+    async def test_send_log_message_splits_single_oversized_line(
+        self, logging_cog: LoggingCog, mock_text_channel: discord.TextChannel
+    ):
+        """Одна длинная строка не должна превышать лимит Discord."""
+        logging_cog.log_channel = mock_text_channel
+        max_length = logging_cog.bot.settings.limits.max_message_length
+
+        await logging_cog.send_log_message("x" * (max_length * 2))
+
+        assert mock_text_channel.send.await_count == 3
+        sent_messages = [call.args[0] for call in mock_text_channel.send.await_args_list]
+        assert all(len(message) <= max_length for message in sent_messages)
+        assert "".join(message.removeprefix("```\n").removesuffix("\n```") for message in sent_messages) == (
+            "x" * (max_length * 2)
+        )
+
+    @pytest.mark.asyncio
+    async def test_send_log_message_splits_after_json_formatting(
+        self, logging_cog: LoggingCog, mock_text_channel: discord.TextChannel
+    ):
+        """Форматирование JSON может увеличить строку уже после первичного батчинга."""
+        logging_cog.log_channel = mock_text_channel
+        max_length = logging_cog.bot.settings.limits.max_message_length
+        logging_cog.format_json_log = MagicMock(return_value="y" * (max_length + 100))
+
+        await logging_cog.send_log_message('{"message": "short"}')
+
+        assert mock_text_channel.send.await_count == 2
+        assert all(
+            len(call.args[0]) <= max_length
+            for call in mock_text_channel.send.await_args_list
+        )
+
+    @pytest.mark.asyncio
     async def test_send_log_message_discord_http_exception(
         self, logging_cog: LoggingCog, mock_text_channel: discord.TextChannel
     ):

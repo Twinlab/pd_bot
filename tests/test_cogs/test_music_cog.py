@@ -216,3 +216,38 @@ class TestPresentationFlag:
             await cog._send_added(ctx, track, position=1, player=mock_player)
         ctx.send.assert_awaited_once()
         assert isinstance(ctx.send.await_args.kwargs["view"], discord.ui.LayoutView)
+
+
+class TestTrackException:
+    async def test_uses_dict_fields_and_truncates_discord_message(self, cog: MusicCog) -> None:
+        player = MusicPlayer.__new__(MusicPlayer)
+        channel = MagicMock(spec=discord.TextChannel)
+        channel.send = AsyncMock()
+        player.text_channel = channel
+
+        payload = SimpleNamespace(
+            player=player,
+            track=SimpleNamespace(title="Broken track"),
+            exception={
+                "message": "failure " * 1000,
+                "severity": "SUSPICIOUS",
+                "cause": "FriendlyException",
+            },
+        )
+        embed = MagicMock(spec=discord.Embed)
+
+        with (
+            patch.object(MusicCog, "_cv2_enabled", return_value=False),
+            patch("cogs.music.COLORS", {"ERROR": 0xFF0000}),
+            patch("cogs.music.create_embed", return_value=embed) as mock_create_embed,
+            patch("cogs.music.logger.error") as mock_log,
+        ):
+            await cog.on_wavelink_track_exception(payload)
+
+        log_args = mock_log.call_args.args
+        assert log_args[3:] == ("SUSPICIOUS", "FriendlyException")
+        assert len(log_args[2]) <= 1500
+        description = mock_create_embed.call_args.args[1]
+        assert "failure" in description
+        assert len(description) < 800
+        channel.send.assert_awaited_once_with(embed=embed)
