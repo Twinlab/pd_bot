@@ -52,3 +52,10 @@ ruff check . && ruff format .
 ## Лицензия
 
 MIT
+
+
+## Автор проекта
+
+<p align="center">
+  <img src="https://i.ytimg.com/vi/tGrHnMcYDDo/maxresdefault.jpg?sqp=-oaymwEmCIAKENAF8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGF4gXiheMA8=&amp;rs=AOn4CLBpZB5SN8n1Bqk2UJTZDu9iUGAocA" alt="Автор проекта" width="800">
+</p>
