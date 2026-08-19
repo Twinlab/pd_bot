@@ -303,6 +303,7 @@ class TestCommands:
     @pytest.mark.asyncio
     async def test_activity_command(self, mock_bot, mock_context):
         """Тест команды activity_command."""
+        expected_date = date(2026, 8, 20)
         # Патчим tasks.loop, чтобы избежать проблем с циклом событий
         with patch("discord.ext.tasks.loop", return_value=MagicMock()):
             # Создаем экземпляр ActivityTracker
@@ -313,6 +314,7 @@ class TestCommands:
                 patch.object(activity_tracker, "update_current_activities") as mock_update,
                 patch.object(activity_tracker.data_manager, "get_daily_stats") as mock_get_stats,
                 patch("cogs.activity.ActivityView") as mock_view,
+                patch("cogs.activity.moscow_today", return_value=expected_date),
             ):
                 # Настраиваем mock_get_stats, чтобы он возвращал тестовые данные
                 mock_get_stats.return_value = {123456789: {"Test Game": 3600}}
@@ -329,7 +331,7 @@ class TestCommands:
                 mock_update.assert_called_once()
 
                 # Проверяем, что get_daily_stats был вызван с правильными аргументами
-                mock_get_stats.assert_called_once_with(date.today())
+                mock_get_stats.assert_called_once_with(expected_date)
 
                 # Проверяем, что ActivityView был создан с правильными аргументами
                 mock_view.assert_called_once()
