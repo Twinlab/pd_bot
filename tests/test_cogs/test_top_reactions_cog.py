@@ -81,6 +81,17 @@ class TestCogInit:
         assert "topreactions" in names
         assert "topauthors" in names
 
+    @pytest.mark.asyncio
+    async def test_on_ready_starts_monthly_report_once(self, cog):
+        with (
+            patch.object(cog.monthly_report, "is_running", side_effect=[False, True]),
+            patch.object(cog.monthly_report, "start") as mock_start,
+        ):
+            await cog.on_ready()
+            await cog.on_ready()
+
+        mock_start.assert_called_once_with()
+
 
 class TestReactionAdd:
     @pytest.mark.asyncio

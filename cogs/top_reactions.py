@@ -343,13 +343,13 @@ class TopReactionsCog(commands.Cog):
             content_preview_length=settings.top_reactions.content_preview_length
         )
         self.role_reaction_manager = RoleReactionDataManager()
-        # Стартуем фоновую таску ежемесячного отчёта.
-        # Если что-то пойдёт не так на старте — не валим ког.
-        try:
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Запускает ежемесячный отчёт только после готовности Discord-клиента."""
+        if not self.monthly_report.is_running():
             self.monthly_report.start()
             logger.info("TopReactions monthly_report фоновая задача запущена.")
-        except RuntimeError as e:
-            logger.warning(f"Не удалось запустить monthly_report: {e}")
 
     async def cog_unload(self) -> None:
         try:
@@ -714,14 +714,6 @@ class TopReactionsCog(commands.Cog):
             await self._send_monthly_top_messages_report(prev_year, prev_month)
         except Exception as e:
             logger.error(f"monthly_report: критическая ошибка: {e}", exc_info=True)
-
-    @monthly_report.before_loop
-    async def before_monthly_report(self) -> None:
-        try:
-            await self.bot.wait_until_ready()
-            logger.info("Задача TopReactions monthly_report готова к запуску.")
-        except Exception as e:
-            logger.error(f"before_monthly_report: {e}", exc_info=True)
 
     async def _send_monthly_top_messages_report(self, year: int, month: int) -> bool:
         """Собирает и публикует embed с топом сообщений за конкретный месяц.
