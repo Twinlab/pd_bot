@@ -19,13 +19,8 @@ class RoleReactionDataManager:
     Управляет привязками эмодзи к ролям для системы ролей по реакциям с использованием Tortoise ORM.
     """
 
-    def __init__(self, db_path: str | None = None) -> None:
-        """
-        Инициализирует менеджер данных привязок эмодзи к ролям.
-
-        Args:
-            db_path: Не используется в Tortoise ORM версии, оставлен для совместимости.
-        """
+    def __init__(self) -> None:
+        """Инициализирует менеджер данных привязок эмодзи к ролям."""
         logger.info("Инициализация RoleReactionDataManager (Tortoise ORM)")
 
     async def get_message_info(self, guild_id: int) -> tuple[int, int] | None:

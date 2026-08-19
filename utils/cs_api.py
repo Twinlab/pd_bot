@@ -9,6 +9,7 @@ REST-клиент с теми же гарантиями, что и :mod:`utils.d
 import asyncio
 import logging
 from typing import Any, cast
+from weakref import WeakValueDictionary
 
 import aiohttp
 
@@ -26,7 +27,7 @@ _session_lock: asyncio.Lock | None = None
 _DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
 _DEFAULT_CONNECTOR_LIMIT = 20
 
-_inflight_locks: dict[str, asyncio.Lock] = {}
+_inflight_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 _inflight_locks_mutex: asyncio.Lock | None = None
 
 
@@ -121,13 +122,13 @@ async def faceit_get(
         return await _do_faceit_get(path, api_key, params, cache_key=None, ttl=ttl)
 
     cached_data = await get_cached_response(cache_key)
-    if cached_data:
+    if cached_data is not None:
         return cached_data
 
     lock = await _get_inflight_lock(cache_key)
     async with lock:
         cached_data = await get_cached_response(cache_key)
-        if cached_data:
+        if cached_data is not None:
             return cached_data
         return await _do_faceit_get(path, api_key, params, cache_key=cache_key, ttl=ttl)
 

@@ -104,6 +104,43 @@ class TestIncrement:
             await manager.add_voice_seconds(123, 0)
             mock_filter.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_database_error_is_not_silenced(self, manager):
+        """Счётчик сообщает об ошибке, чтобы голосовая сессия могла быть повторена."""
+        with patch(
+            "utils.user_stats_data_manager.DailyUserStats.filter",
+            side_effect=RuntimeError("db unavailable"),
+        ):
+            with pytest.raises(RuntimeError, match="db unavailable"):
+                await manager.add_voice_seconds(123, 300)
+
+
+class TestPendingDailyDates:
+    """Тесты поиска дневных строк, оставшихся после простоя бота."""
+
+    @pytest.mark.asyncio
+    async def test_returns_sorted_unique_valid_dates(self, manager):
+        query = MagicMock()
+        query.distinct.return_value.values_list = AsyncMock(
+            return_value=["2026-08-19", "invalid", "2026-08-17", "2026-08-19"]
+        )
+
+        with patch(
+            "utils.user_stats_data_manager.DailyUserStats.filter", return_value=query
+        ) as mock_filter:
+            result = await manager.get_pending_daily_dates(date(2026, 8, 20))
+
+        mock_filter.assert_called_once_with(date__lt="2026-08-20")
+        assert result == [date(2026, 8, 17), date(2026, 8, 19)]
+
+    @pytest.mark.asyncio
+    async def test_database_error_returns_empty_list(self, manager):
+        with patch(
+            "utils.user_stats_data_manager.DailyUserStats.filter",
+            side_effect=RuntimeError("db unavailable"),
+        ):
+            assert await manager.get_pending_daily_dates(date(2026, 8, 20)) == []
+
 
 class TestUserMonthly:
     """Тесты выборки тоталов одного пользователя за месяц."""

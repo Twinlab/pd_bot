@@ -12,7 +12,6 @@ import discord
 from discord import ButtonStyle, Interaction, ui
 from discord.ext import commands
 
-# Импортируем хелперы форматирования времени
 from .helpers import format_time_short
 
 logger = logging.getLogger("bot.utils.activity")
@@ -75,23 +74,15 @@ class ActivityView(ui.View):
     def _get_guild(self) -> discord.Guild | None:
         """Получает объект гильдии (сервера).
 
-        Сначала пытается получить гильдию из контекста команды (self.ctx).
-        Если контекст отсутствует или в нем нет гильдии (например, для автоматических отчетов,
-        вызываемых не из команды), пытается вернуть первую гильдию из кеша бота.
-        Это упрощение для ботов, работающих преимущественно на одном сервере.
-        Для многосерверных ботов может потребоваться более сложная логика определения
-        целевой гильдии.
+        Сначала пытается получить гильдию из контекста команды. Для автоматических
+        отчётов берёт единственную гильдию из кеша бота.
 
         Returns:
             Объект discord.Guild или None, если гильдию определить не удалось.
         """
         if self.ctx and self.ctx.guild:
             return self.ctx.guild
-        # Если контекста нет (например, автоматический отчет), берем первую попавшуюся гильдию.
-        # Это может быть не идеально для многосерверных ботов, но для одного сервера подойдет.
-        if self.bot.guilds:
-            return self.bot.guilds[0]
-        return None
+        return self.bot.guilds[0] if self.bot.guilds else None
 
     def prepare_data(self) -> None:
         """Подготавливает и сортирует данные для отображения.

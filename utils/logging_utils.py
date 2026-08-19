@@ -8,7 +8,7 @@ import sys
 import time
 import traceback
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any, TypeVar, cast
@@ -45,7 +45,7 @@ class JsonFormatter(logging.Formatter):
             Строка в формате JSON.
         """
         log_data = {
-            "timestamp": datetime.fromtimestamp(record.created).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": record.getMessage(),
@@ -154,7 +154,7 @@ def setup_logging(
         logger.warning("Ошибка при очистке старых логов: %s", exc)
 
     # Создаем уникальное имя файла для текущего запуска
-    log_filename = datetime.now().strftime("%Y-%m-%d_%H-%M-%S.log")
+    log_filename = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S.log")
     log_path = log_dir_path / log_filename
 
     # Создаем/обновляем симлинк на последний лог

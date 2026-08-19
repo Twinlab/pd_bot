@@ -34,7 +34,7 @@ from utils.activity.views import ActivityView
 from utils.activity_data_manager import ActivityDataManager
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.profile import ProfilePeriod
-from utils.time_utils import MOSCOW_TZ, split_interval_by_local_date
+from utils.time_utils import MOSCOW_TZ, moscow_today, split_interval_by_local_date
 
 logger: logging.Logger = logging.getLogger("bot.cogs.activity")
 
@@ -79,6 +79,7 @@ class ActivityTracker(commands.Cog):
 
         # {user_id: (game_name, start_time_utc)}
         self.current_activities: dict[int, tuple[str, datetime]] = {}
+        self._activity_lock = asyncio.Lock()
 
         self.scan_scheduled = False
 
@@ -110,7 +111,7 @@ class ActivityTracker(commands.Cog):
         if not self.scan_scheduled:
             self.scan_scheduled = True
             logger.info("Бот готов. Запуск начального сканирования активности...")
-            asyncio.create_task(self.scan_all_users_activity())
+            await self.scan_all_users_activity()
 
     async def scan_all_users_activity(self) -> None:
         """Сканирует активность всех пользователей на сервере при запуске бота."""
@@ -124,24 +125,25 @@ class ActivityTracker(commands.Cog):
 
             now_utc = datetime.now(UTC)
             found_activities = 0
-            for member in guild.members:
-                if member.bot or is_application(member):
-                    continue
+            async with self._activity_lock:
+                for member in guild.members:
+                    if member.bot or is_application(member):
+                        continue
 
-                playing_activity = None
-                for activity in member.activities:
-                    if activity.type == discord.ActivityType.playing:
-                        playing_activity = activity
-                        break
+                    playing_activity = None
+                    for activity in member.activities:
+                        if activity.type == discord.ActivityType.playing:
+                            playing_activity = activity
+                            break
 
-                if playing_activity and playing_activity.name:
-                    assert playing_activity.name is not None
-                    self.current_activities[member.id] = (playing_activity.name, now_utc)
-                    found_activities += 1
-                    logger.debug(
-                        f"Обнаружена активная игра у {member.name} ({member.id}): "
-                        f"{playing_activity.name}"
-                    )
+                    if playing_activity and playing_activity.name:
+                        assert playing_activity.name is not None
+                        self.current_activities[member.id] = (playing_activity.name, now_utc)
+                        found_activities += 1
+                        logger.debug(
+                            f"Обнаружена активная игра у {member.name} ({member.id}): "
+                            f"{playing_activity.name}"
+                        )
 
             logger.info(
                 f"Сканирование завершено. Обнаружено {found_activities} активных игровых сессий."
@@ -187,6 +189,11 @@ class ActivityTracker(commands.Cog):
         if member.bot:
             return
 
+        async with self._activity_lock:
+            await self._close_member_session(member)
+
+    async def _close_member_session(self, member: discord.Member) -> None:
+        """Закрывает игровую сессию вышедшего участника под общим lock."""
         user_id = member.id
 
         # Проверяем, есть ли у пользователя активная сессия
@@ -196,9 +203,6 @@ class ActivityTracker(commands.Cog):
         game_name, start_time = self.current_activities[user_id]
         now_utc = datetime.now(UTC)
         elapsed_seconds = int((now_utc - start_time).total_seconds())
-
-        # Удаляем сессию из памяти
-        del self.current_activities[user_id]
 
         # Записываем валидную часть в БД
         settings = get_settings()
@@ -217,6 +221,8 @@ class ActivityTracker(commands.Cog):
                 f"Сессия {game_name} ({elapsed_seconds} сек) не записана "
                 f"(вне допустимого диапазона)."
             )
+
+        self.current_activities.pop(user_id, None)
 
     async def _save_activity_interval(
         self,
@@ -243,73 +249,63 @@ class ActivityTracker(commands.Cog):
             final_save: Если True, выполняется финальное сохранение перед выгрузкой кога.
                         В этом режиме время старта в current_activities не обновляется.
         """
-        now_utc = datetime.now(UTC)
-        tasks_to_run = []
-        users_to_update_start_time = {}  # Для обновления времени старта в памяти
+        async with self._activity_lock:
+            await self._update_current_activities(final_save=final_save)
 
+    async def _update_current_activities(self, *, final_save: bool) -> None:
+        """Сохраняет активные сессии; вызывается только под ``_activity_lock``."""
+        now_utc = datetime.now(UTC)
         if not self.current_activities:
             logger.debug("update_current_activities: Нет активных сессий для обновления.")
-            return  # Нечего обновлять
-
-        # Удаляем сессии пользователей, которых нет на сервере
-        # (страховка на случай, если on_member_remove был пропущен)
-        guild = self.bot.guilds[0] if self.bot.guilds else None
-        stale_user_ids = []
-        if guild is not None:
-            for user_id in self.current_activities:
-                if guild.get_member(user_id) is None:
-                    stale_user_ids.append(user_id)
-
-        for user_id in stale_user_ids:
-            game_name, _ = self.current_activities.pop(user_id)
-            logger.warning(
-                f"Удалена устаревшая сессия для {user_id} ({game_name}): "
-                f"пользователь не найден на сервере."
-            )
-
-        if not self.current_activities:
-            logger.debug(
-                "update_current_activities: Все сессии были устаревшими, нечего обновлять."
-            )
             return
 
         logger.debug(
             f"update_current_activities: Обновление "
             f"{len(self.current_activities)} активных сессий..."
         )
+        guild = self.bot.guilds[0] if self.bot.guilds else None
+        settings = get_settings()
+        min_record_threshold = settings.timeouts.activity_min_record
+        max_record_threshold = settings.timeouts.activity_max_record
 
         for user_id, (game_name, start_time) in list(self.current_activities.items()):
             elapsed_seconds = int((now_utc - start_time).total_seconds())
-
-            # Получаем пороги из новой системы настроек
-            settings = get_settings()
-            min_record_threshold = settings.timeouts.activity_min_record
-            max_record_threshold = settings.timeouts.activity_max_record
+            is_stale = guild is not None and guild.get_member(user_id) is None
 
             if elapsed_seconds >= min_record_threshold and elapsed_seconds < max_record_threshold:
-                # Добавляем задачу обновления в БД в список
-                tasks_to_run.append(
-                    self._save_activity_interval(
+                try:
+                    await self._save_activity_interval(
                         user_id,
                         game_name,
                         start_time,
                         now_utc,
                     )
-                )
-                # Если это не финальное сохранение, запоминаем, что нужно обновить время старта
-                if not final_save:
-                    users_to_update_start_time[user_id] = (game_name, now_utc)
-                logger.debug(
-                    f"Подготовлено обновление для {user_id} - {game_name}: +{elapsed_seconds} сек."
-                )
+                except Exception as e:
+                    logger.error(
+                        "Не удалось сохранить активность %s (%s): %s; "
+                        "начало сессии оставлено для повтора",
+                        user_id,
+                        game_name,
+                        e,
+                        exc_info=True,
+                    )
+                    continue
+
+                if is_stale:
+                    self.current_activities.pop(user_id, None)
+                    logger.warning(
+                        "Закрыта зависшая игровая сессия %s (%s): пользователь не найден",
+                        user_id,
+                        game_name,
+                    )
+                elif not final_save:
+                    self.current_activities[user_id] = (game_name, now_utc)
             elif elapsed_seconds < 0:
-                # Обработка возможной смены системного времени или других аномалий
                 logger.warning(
                     f"Обнаружено отрицательное время ({elapsed_seconds}s) для {user_id} "
                     f"в {game_name}. "
                     "Сбрасываем время начала сессии в памяти."
                 )
-                # Обновляем только в памяти, чтобы избежать записи отрицательного времени
                 self.current_activities[user_id] = (game_name, now_utc)
             elif elapsed_seconds >= max_record_threshold:
                 logger.warning(
@@ -317,43 +313,16 @@ class ActivityTracker(commands.Cog):
                     f"{max_record_threshold}s) "
                     f"для {user_id} в {game_name}. Сессия будет проигнорирована и сброшена."
                 )
-                # Удаляем аномальную сессию из памяти, чтобы она не копилась
                 if (
                     user_id in self.current_activities
                     and self.current_activities[user_id][0] == game_name
                 ):
                     del self.current_activities[user_id]
-
-        if not tasks_to_run:
-            logger.debug(
-                "update_current_activities: Нет сессий, удовлетворяющих порогу для записи в БД."
-            )
-            return  # Если нечего обновлять в БД
-
-        try:
-            # Выполняем все задачи записи в БД параллельно
-            await asyncio.gather(*tasks_to_run)
-            logger.debug(
-                f"update_current_activities: Успешно выполнено {len(tasks_to_run)} обновлений в БД."
-            )
-
-            # Обновляем время старта в памяти ПОСЛЕ успешной записи в БД
-            # (если не финальное сохранение)
-            if not final_save:
-                for user_id, new_start_data in users_to_update_start_time.items():
-                    # Проверяем, что сессия все еще активна и игра та же
-                    if (
-                        user_id in self.current_activities
-                        and self.current_activities[user_id][0] == new_start_data[0]
-                    ):
-                        self.current_activities[user_id] = new_start_data
-                        logger.debug(
-                            f"Обновлено время старта в памяти для {user_id} - {new_start_data[0]}."
-                        )
-
-        except Exception as e:
-            logger.error(f"Ошибка при пакетном обновлении активности в БД: {e}", exc_info=True)
-            # Время старта в памяти не обновляется при ошибке, чтобы попытаться записать позже
+            elif is_stale:
+                self.current_activities.pop(user_id, None)
+                logger.warning(
+                    "Удалена короткая зависшая игровая сессия %s (%s)", user_id, game_name
+                )
 
     @commands.Cog.listener()
     async def on_presence_update(self, before: discord.Member, after: discord.Member) -> None:
@@ -365,6 +334,11 @@ class ActivityTracker(commands.Cog):
         if after.bot or is_application(after):  # Используем хелпер
             return
 
+        async with self._activity_lock:
+            await self._process_presence_update(before, after)
+
+    async def _process_presence_update(self, before: discord.Member, after: discord.Member) -> None:
+        """Изменяет игровую сессию участника под общим lock."""
         try:
             now_utc = datetime.now(UTC)
             user_id = after.id
@@ -400,11 +374,6 @@ class ActivityTracker(commands.Cog):
                     start_time = self.current_activities[user_id][1]
                     elapsed_seconds = int((now_utc - start_time).total_seconds())
 
-                    # Удаляем завершенную сессию из памяти ДО записи в БД,
-                    # чтобы избежать состояния гонки, если событие придет снова быстро.
-                    del self.current_activities[user_id]
-                    logger.debug(f"Сессия {user_id} - {before_game} удалена из памяти.")
-
                     # Записываем в БД, если время сессии достаточное
                     settings = get_settings()
                     min_record_threshold = settings.timeouts.activity_min_record
@@ -424,6 +393,9 @@ class ActivityTracker(commands.Cog):
                             f"Сессия {user_id} - {before_game} была слишком короткой "
                             f"({elapsed_seconds} сек), пропуск записи."
                         )
+
+                    self.current_activities.pop(user_id, None)
+                    logger.debug(f"Сессия {user_id} - {before_game} удалена из памяти.")
 
             # --- Обработка начала новой игры ---
             if after_game is not None:
@@ -577,7 +549,7 @@ class ActivityTracker(commands.Cog):
         )
         # Обновляем текущие сессии перед показом статистики
         await self.update_current_activities()
-        today_data = await self.data_manager.get_daily_stats(date.today())
+        today_data = await self.data_manager.get_daily_stats(moscow_today())
 
         # Генерация тестовых данных, если запрошено и реальных данных нет
         if not today_data and test_mode:
@@ -629,7 +601,7 @@ class ActivityTracker(commands.Cog):
             f"Команда /mystats вызвана {ctx.author} для {target_user} (Месяц: {month}, Год: {year})"
         )
 
-        today = date.today()
+        today = moscow_today()
 
         target_year = year if year is not None else today.year
         if month is not None:
@@ -693,7 +665,7 @@ class ActivityTracker(commands.Cog):
             await safe_send_error(ctx, "Некорректная дата. Проверьте год, месяц и день.")
             return
 
-        if target_date >= date.today():
+        if target_date >= moscow_today():
             await safe_send_error(ctx, "Нельзя генерировать отчет за сегодня или будущую дату.")
             return
 
@@ -735,11 +707,11 @@ class ActivityTracker(commands.Cog):
         if not 1 <= month <= 12:
             await safe_send_error(ctx, "Неверный номер месяца. Укажите число от 1 до 12.")
             return
-        if not 2020 <= year <= date.today().year + 1:
+        today = moscow_today()
+        if not 2020 <= year <= today.year + 1:
             await safe_send_error(ctx, "Некорректный год.")
             return
 
-        today = date.today()
         if year > today.year or (year == today.year and month >= today.month):
             await safe_send_error(
                 ctx, "Нельзя генерировать месячный отчет за текущий или будущий месяц."

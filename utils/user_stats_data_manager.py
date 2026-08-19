@@ -16,6 +16,7 @@ from tortoise.functions import Sum
 from tortoise.transactions import in_transaction
 
 from .models import DailyUserStats, MonthlyUserStats
+from .time_utils import moscow_today
 
 logger = logging.getLogger("bot.utils.user_stats_data_manager")
 
@@ -59,7 +60,7 @@ class UserStatsDataManager:
         if messages <= 0 and voice_seconds <= 0:
             return
 
-        target_date_str = (target_date or date.today()).isoformat()
+        target_date_str = (target_date or moscow_today()).isoformat()
         try:
             updated = await DailyUserStats.filter(
                 discord_user_id=user_id, date=target_date_str
@@ -84,6 +85,7 @@ class UserStatsDataManager:
                     )
         except Exception as e:
             logger.error(f"Ошибка инкремента daily_user_stats для {user_id}: {e}", exc_info=True)
+            raise
 
     async def add_message(self, user_id: int) -> None:
         """Прибавляет одно сообщение пользователю за сегодня."""
@@ -121,6 +123,26 @@ class UserStatsDataManager:
         except Exception as e:
             logger.error(f"Ошибка get_daily_totals за {target_str}: {e}", exc_info=True)
         return result
+
+    async def get_pending_daily_dates(self, before_date: date) -> list[date]:
+        """Возвращает дневные даты, которые ещё не перенесены в месячную таблицу."""
+        try:
+            raw_dates = (
+                await DailyUserStats.filter(date__lt=before_date.isoformat())
+                .distinct()
+                .values_list("date", flat=True)
+            )
+        except Exception as e:
+            logger.error("Ошибка получения дат user-stats для переноса: %s", e, exc_info=True)
+            return []
+
+        pending_dates: list[date] = []
+        for raw_date in raw_dates:
+            try:
+                pending_dates.append(date.fromisoformat(str(raw_date)))
+            except ValueError:
+                logger.error("Некорректная дата в daily_user_stats: %r", raw_date)
+        return sorted(set(pending_dates))
 
     async def get_daily_totals_by_prefix(self, prefix: str) -> dict[int, UserTotals]:
         """Агрегирует дневные строки, чья дата начинается с ``prefix`` (YYYY или YYYY-MM).

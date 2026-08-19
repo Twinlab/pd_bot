@@ -1,6 +1,7 @@
 """Тесты для модуля dota_api."""
 
 import asyncio
+import gc
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,6 +10,7 @@ import utils.dota_api as dota_api_module
 from utils.dota_api import (
     StratzNonRetryable,
     StratzRateLimited,
+    _get_inflight_lock,
     _get_session,
     _parse_retry_after,
     close_session,
@@ -28,9 +30,24 @@ class TestDotaAPI:
         """Сбрасывает модульную сессию и Lock между тестами."""
         dota_api_module._session = None
         dota_api_module._session_lock = None
+        dota_api_module._inflight_locks.clear()
+        dota_api_module._inflight_locks_mutex = None
         yield
         dota_api_module._session = None
         dota_api_module._session_lock = None
+        dota_api_module._inflight_locks.clear()
+        dota_api_module._inflight_locks_mutex = None
+
+    @pytest.mark.asyncio
+    async def test_inflight_locks_do_not_accumulate_cache_keys(self):
+        """Завершённые single-flight запросы не оставляют ключи навсегда."""
+        lock = await _get_inflight_lock("match:123")
+        assert "match:123" in dota_api_module._inflight_locks
+
+        del lock
+        gc.collect()
+
+        assert "match:123" not in dota_api_module._inflight_locks
 
     @pytest.mark.asyncio
     async def test_get_session_concurrent_creates_single_session(self):
@@ -118,6 +135,21 @@ class TestDotaAPI:
         with patch("utils.dota_api.aiohttp.ClientSession", return_value=mock_session):
             result = await query_api("query", "url", {})
             assert result == {"hero": "Pudge"}
+
+    @pytest.mark.asyncio
+    async def test_query_api_uses_empty_cached_response(self):
+        """Пустой валидный JSON остаётся cache hit, а не вызывает повторный HTTP-запрос."""
+        with (
+            patch(
+                "utils.dota_api.get_cached_response",
+                new=AsyncMock(return_value={}),
+            ),
+            patch("utils.dota_api._do_query_api", new=AsyncMock()) as mock_query,
+        ):
+            result = await query_api("query", "url", {}, cache_key="empty")
+
+        assert result == {}
+        mock_query.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_query_api_reuses_session(self):

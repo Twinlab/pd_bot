@@ -81,6 +81,7 @@ class TestMainWithNewConfig:
                 with (
                     patch("main.setup_logging"),
                     patch("main.initialize_database", AsyncMock()) as mock_init_db,
+                    patch("main.prune_expired_cache", AsyncMock()) as mock_prune_cache,
                     patch("main.close_database", AsyncMock()) as mock_close_db,
                     patch("main.load_cogs", AsyncMock()) as mock_load_cogs,
                     patch("main.bot", mock_bot),
@@ -92,6 +93,7 @@ class TestMainWithNewConfig:
 
                     # Проверяем, что все функции были вызваны
                     mock_init_db.assert_called_once()
+                    mock_prune_cache.assert_awaited_once()
                     mock_load_cogs.assert_called_once()
                     mock_bot.start.assert_called_once_with("test_token")
 
@@ -197,6 +199,7 @@ class TestMainWithNewConfig:
                 with (
                     patch("main.setup_logging"),
                     patch("main.initialize_database", AsyncMock()),
+                    patch("main.prune_expired_cache", AsyncMock()),
                     patch("main.close_database", AsyncMock()),
                     patch("main.load_cogs", AsyncMock()),
                     patch("main.bot", mock_bot),

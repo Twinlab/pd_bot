@@ -19,12 +19,6 @@ class TestTwitchDataManager:
     """Тесты для класса TwitchDataManager."""
 
     @pytest.mark.asyncio
-    async def test_initialize_table_success(self, twitch_manager):
-        """Тест успешной инициализации таблицы."""
-        result = await twitch_manager.initialize_table()
-        assert result is True
-
-    @pytest.mark.asyncio
     async def test_add_streamer_new(self, twitch_manager):
         """Тест добавления нового стримера."""
         with patch(
@@ -198,60 +192,6 @@ class TestTwitchDataManager:
             assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_all_streamers_success(self, twitch_manager):
-        """Тест успешного получения списка всех стримеров."""
-        with patch(
-            "utils.twitch_data_manager.TwitchStreamer.all", new_callable=AsyncMock
-        ) as mock_all:
-            mock_streamer1 = MagicMock(
-                guild_id=1,
-                channel_id=2,
-                twitch_username="user1",
-                twitch_id="123",
-                is_live=False,
-                last_stream_id=None,
-                last_notification_time=0,
-            )
-            mock_streamer2 = MagicMock(
-                guild_id=2,
-                channel_id=3,
-                twitch_username="user2",
-                twitch_id="456",
-                is_live=True,
-                last_stream_id="s1",
-                last_notification_time=100,
-            )
-            mock_all.return_value = [mock_streamer1, mock_streamer2]
-
-            result = await twitch_manager.get_all_streamers()
-
-            assert len(result) == 2
-            assert result[0]["twitch_username"] == "user1"
-            assert result[1]["twitch_username"] == "user2"
-
-    @pytest.mark.asyncio
-    async def test_get_all_streamers_empty(self, twitch_manager):
-        """Тест получения пустого списка всех стримеров."""
-        with patch(
-            "utils.twitch_data_manager.TwitchStreamer.all", new_callable=AsyncMock
-        ) as mock_all:
-            mock_all.return_value = []
-
-            result = await twitch_manager.get_all_streamers()
-
-            assert result == []
-
-    @pytest.mark.asyncio
-    async def test_get_all_streamers_exception(self, twitch_manager):
-        """Тест обработки исключения при получении списка всех стримеров."""
-        with patch(
-            "utils.twitch_data_manager.TwitchStreamer.all", side_effect=Exception("Test DB Error")
-        ):
-            result = await twitch_manager.get_all_streamers()
-
-            assert result == []
-
-    @pytest.mark.asyncio
     async def test_update_streamer_status_online(self, twitch_manager):
         """Тест обновления статуса стримера на онлайн."""
         with patch("utils.twitch_data_manager.TwitchStreamer.filter") as mock_filter:
@@ -259,11 +199,11 @@ class TestTwitchDataManager:
             mock_filter.return_value.update = mock_update
 
             result = await twitch_manager.update_streamer_status(
-                twitch_username="testuser", is_live=True, stream_id="stream123"
+                twitch_username="testuser", guild_id=1, is_live=True, stream_id="stream123"
             )
 
             assert result is True
-            mock_filter.assert_called_once_with(twitch_username="testuser")
+            mock_filter.assert_called_once_with(twitch_username="testuser", guild_id=1)
             mock_update.assert_called_once_with(is_live=True, last_stream_id="stream123")
 
     @pytest.mark.asyncio
@@ -274,11 +214,11 @@ class TestTwitchDataManager:
             mock_filter.return_value.update = mock_update
 
             result = await twitch_manager.update_streamer_status(
-                twitch_username="testuser", is_live=False
+                twitch_username="testuser", guild_id=1, is_live=False
             )
 
             assert result is True
-            mock_filter.assert_called_once_with(twitch_username="testuser")
+            mock_filter.assert_called_once_with(twitch_username="testuser", guild_id=1)
             mock_update.assert_called_once_with(is_live=False)
 
     @pytest.mark.asyncio
@@ -289,10 +229,10 @@ class TestTwitchDataManager:
             mock_filter.return_value.update = mock_update
 
             result = await twitch_manager.update_streamer_status(
-                twitch_username="TestUser", is_live=True
+                twitch_username="TestUser", guild_id=1, is_live=True
             )
 
-            mock_filter.assert_called_once_with(twitch_username="testuser")
+            mock_filter.assert_called_once_with(twitch_username="testuser", guild_id=1)
             assert result is True
 
     @pytest.mark.asyncio
@@ -303,7 +243,7 @@ class TestTwitchDataManager:
             side_effect=Exception("Test DB Error"),
         ):
             result = await twitch_manager.update_streamer_status(
-                twitch_username="testuser", is_live=True
+                twitch_username="testuser", guild_id=1, is_live=True
             )
 
             assert result is False
@@ -384,11 +324,11 @@ class TestTwitchDataManager:
             mock_filter.return_value.update = mock_update
 
             result = await twitch_manager.update_twitch_id(
-                twitch_username="testuser", twitch_id="123456789"
+                twitch_username="testuser", guild_id=1, twitch_id="123456789"
             )
 
             assert result is True
-            mock_filter.assert_called_once_with(twitch_username="testuser")
+            mock_filter.assert_called_once_with(twitch_username="testuser", guild_id=1)
             mock_update.assert_called_once_with(twitch_id="123456789")
 
     @pytest.mark.asyncio
@@ -399,10 +339,10 @@ class TestTwitchDataManager:
             mock_filter.return_value.update = mock_update
 
             result = await twitch_manager.update_twitch_id(
-                twitch_username="TestUser", twitch_id="123456789"
+                twitch_username="TestUser", guild_id=1, twitch_id="123456789"
             )
 
-            mock_filter.assert_called_once_with(twitch_username="testuser")
+            mock_filter.assert_called_once_with(twitch_username="testuser", guild_id=1)
             assert result is True
 
     @pytest.mark.asyncio
@@ -413,7 +353,7 @@ class TestTwitchDataManager:
             side_effect=Exception("Test DB Error"),
         ):
             result = await twitch_manager.update_twitch_id(
-                twitch_username="testuser", twitch_id="123456789"
+                twitch_username="testuser", guild_id=1, twitch_id="123456789"
             )
 
             assert result is False

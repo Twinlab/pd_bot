@@ -73,7 +73,7 @@ class MusicPlayer(wavelink.Player):
     async def on_voice_server_update(self, data: VoiceServerUpdatePayload, /) -> None:
         """Логирует безопасное состояние server-части voice handshake."""
         logger.info(
-            "Получен VOICE_SERVER_UPDATE (endpoint=%s, token=%s, state=%s).",
+            "Получен VOICE_SERVER_UPDATE (endpoint=%s, token_present=%s, state=%s).",
             bool(data.get("endpoint")),
             bool(data.get("token")),
             bool(self._voice_state["voice"].get("session_id")),

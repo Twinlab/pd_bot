@@ -21,8 +21,7 @@ from config import get_settings
 from utils.activity.helpers import is_application
 from utils.activity_data_manager import ActivityDataManager
 from utils.error_handler import command_error_handler, safe_send
-from utils.models import WrappedOptOut
-from utils.time_utils import MOSCOW_TZ, split_interval_by_local_date
+from utils.time_utils import MOSCOW_TZ, moscow_today, split_interval_by_local_date
 from utils.top_reactions_data_manager import TopReactionsDataManager
 from utils.user_stats_data_manager import UserStatsDataManager
 from utils.wrapped.builder import (
@@ -53,6 +52,7 @@ class UserStatsTracker(commands.Cog):
         self.activity_manager = ActivityDataManager()
         self.reactions_manager = TopReactionsDataManager()
         self.voice_sessions: dict[int, datetime] = {}
+        self._voice_lock = asyncio.Lock()
         self._scan_scheduled = False
 
         try:
@@ -87,7 +87,7 @@ class UserStatsTracker(commands.Cog):
         if self._scan_scheduled:
             return
         self._scan_scheduled = True
-        asyncio.create_task(self._scan_voice_channels())
+        await self._scan_voice_channels()
 
     async def _scan_voice_channels(self) -> None:
         await self.bot.wait_until_ready()
@@ -96,16 +96,17 @@ class UserStatsTracker(commands.Cog):
             return
         now = datetime.now(UTC)
         cfg = get_settings().user_stats
-        for vc in guild.voice_channels:
-            for member in vc.members:
-                if member.bot or is_application(member):
-                    continue
-                if member_is_active(
-                    member,
-                    count_while_muted=cfg.count_while_muted,
-                    min_humans=cfg.min_humans_in_channel,
-                ):
-                    self.voice_sessions.setdefault(member.id, now)
+        async with self._voice_lock:
+            for vc in guild.voice_channels:
+                for member in vc.members:
+                    if member.bot or is_application(member):
+                        continue
+                    if member_is_active(
+                        member,
+                        count_while_muted=cfg.count_while_muted,
+                        min_humans=cfg.min_humans_in_channel,
+                    ):
+                        self.voice_sessions.setdefault(member.id, now)
         logger.info(f"Скан голоса при старте: {len(self.voice_sessions)} активных сессий.")
 
     @commands.Cog.listener()
@@ -123,7 +124,6 @@ class UserStatsTracker(commands.Cog):
         if member.bot or is_application(member):
             return
 
-        now = datetime.now(UTC)
         affected: dict[int, discord.Member] = {}
         if not member.bot:
             affected[member.id] = member
@@ -134,8 +134,10 @@ class UserStatsTracker(commands.Cog):
                 if not m.bot and not is_application(m):
                     affected[m.id] = m
 
-        for m in affected.values():
-            await self._reevaluate(m, now)
+        async with self._voice_lock:
+            now = datetime.now(UTC)
+            for m in affected.values():
+                await self._reevaluate(m, now)
 
     async def _reevaluate(self, member: discord.Member, now: datetime) -> None:
         """Открывает/закрывает сессию пользователя в зависимости от его активности."""
@@ -184,6 +186,11 @@ class UserStatsTracker(commands.Cog):
             restart: Если True, сессия остаётся открытой с новым стартом (периодический
                 флаш). Если False, сессии закрываются (выгрузка кога).
         """
+        async with self._voice_lock:
+            await self._flush_active_locked(restart=restart)
+
+    async def _flush_active_locked(self, *, restart: bool) -> None:
+        """Сохраняет голосовые сессии; вызывается только под ``_voice_lock``."""
         if not self.voice_sessions:
             return
         now = datetime.now(UTC)
@@ -230,11 +237,16 @@ class UserStatsTracker(commands.Cog):
 
     @tasks.loop(time=time(hour=21, minute=0, tzinfo=UTC))  # 00:00 МСК
     async def daily_transfer(self) -> None:
-        """В полночь по МСК флашит голос и переносит вчерашние дневные данные в помесячные."""
+        """В полночь по МСК флашит голос и переносит накопившиеся дневные данные."""
         try:
             await self._flush_active(restart=True)
-            yesterday = (datetime.now(MOSCOW_TZ).date()) - timedelta(days=1)
-            await self.stats_manager.transfer_daily_to_monthly(yesterday)
+            today = moscow_today()
+            yesterday = today - timedelta(days=1)
+            pending_dates = await self.stats_manager.get_pending_daily_dates(today)
+            for target_date in sorted({yesterday, *pending_dates}):
+                transferred = await self.stats_manager.transfer_daily_to_monthly(target_date)
+                if not transferred:
+                    logger.error("Не удалось перенести user-stats за %s", target_date.isoformat())
         except Exception as e:
             logger.error(f"Ошибка daily_transfer: {e}", exc_info=True)
 
@@ -282,16 +294,23 @@ class UserStatsTracker(commands.Cog):
 
         return resolve
 
-    async def _fetch_avatar(self, user: discord.abc.User | None) -> bytes | None:
+    async def _fetch_avatar(
+        self,
+        user: discord.abc.User | None,
+        *,
+        session: aiohttp.ClientSession | None = None,
+    ) -> bytes | None:
         """Загружает PNG аватара пользователя (None при ошибке)."""
         if user is None:
             return None
+        if session is None:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as owned:
+                return await self._fetch_avatar(user, session=owned)
         try:
             url = str(user.display_avatar.replace(size=128, format="png").url)
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                async with session.get(url) as resp:
-                    if resp.status == 200:
-                        return await resp.read()
+            async with session.get(url) as resp:
+                if resp.status == 200:
+                    return await resp.read()
         except Exception as e:
             logger.debug(f"Не удалось загрузить аватар {getattr(user, 'id', '?')}: {e}")
         return None
@@ -303,16 +322,27 @@ class UserStatsTracker(commands.Cog):
         members = [(uid, m) for uid, m in members if m is not None]
         if not members:
             return result
+
+        async def fetch_one(
+            uid: int,
+            member: discord.Member,
+            session: aiohttp.ClientSession,
+        ) -> tuple[int, bytes] | None:
+            try:
+                url = str(member.display_avatar.replace(size=128, format="png").url)
+                async with session.get(url) as resp:
+                    if resp.status == 200:
+                        return uid, await resp.read()
+            except Exception as e:
+                logger.debug(f"avatar fetch {uid}: {e}")
+            return None
+
         try:
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                for uid, member in members:
-                    try:
-                        url = str(member.display_avatar.replace(size=128, format="png").url)
-                        async with session.get(url) as resp:
-                            if resp.status == 200:
-                                result[uid] = await resp.read()
-                    except Exception as e:
-                        logger.debug(f"avatar fetch {uid}: {e}")
+                responses = await asyncio.gather(
+                    *(fetch_one(uid, member, session) for uid, member in members)
+                )
+                result.update(response for response in responses if response is not None)
         except Exception as e:
             logger.debug(f"Ошибка сессии загрузки аватаров: {e}")
         return result
@@ -355,12 +385,11 @@ class UserStatsTracker(commands.Cog):
         return True
 
     async def _broadcast_personal_wrapped(self, year: int) -> None:
-        """Рассылает персональные карточки активным участникам в ЛС (с учётом opt-out)."""
+        """Рассылает персональные карточки активным участникам в ЛС."""
         guild = self.bot.guilds[0] if self.bot.guilds else None
         if guild is None:
             return
         cfg = get_settings().user_stats
-        opted_out = set(await WrappedOptOut.all().values_list("user_id", flat=True))
 
         yearly = await self.stats_manager.get_yearly_totals(year)
         yearly = self.stats_manager.merge_totals(
@@ -369,39 +398,35 @@ class UserStatsTracker(commands.Cog):
         active_ids = [uid for uid, t in yearly.items() if t.messages > 0 or t.voice_seconds > 0]
 
         sent = 0
-        for user_id in active_ids:
-            if user_id in opted_out:
-                continue
-            member = guild.get_member(user_id)
-            if member is None or member.bot:
-                continue
-            try:
-                personal = await build_personal_wrapped(
-                    user_id=user_id,
-                    year=year,
-                    stats_mgr=self.stats_manager,
-                    activity_mgr=self.activity_manager,
-                    reactions_mgr=self.reactions_manager,
-                    footnote=self._footnote(),
-                )
-                avatar = await self._fetch_avatar(member)
-                png = await asyncio.to_thread(
-                    render_personal_card, personal, member.display_name, avatar
-                )
-                file = discord.File(BytesIO(png), filename="my_wrapped.png")
-                await member.send(
-                    content=(
-                        "Твой персональный итог года на сервере! "
-                        "Отписаться от рассылки — команда `/wrapped_optout`."
-                    ),
-                    file=file,
-                )
-                sent += 1
-            except discord.Forbidden:
-                logger.debug(f"ЛС закрыты для {user_id} — пропуск персонального wrapped.")
-            except Exception as e:
-                logger.error(f"Ошибка отправки персонального wrapped {user_id}: {e}")
-            await asyncio.sleep(cfg.dm_send_delay)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+            for user_id in active_ids:
+                member = guild.get_member(user_id)
+                if member is None or member.bot:
+                    continue
+                try:
+                    personal = await build_personal_wrapped(
+                        user_id=user_id,
+                        year=year,
+                        stats_mgr=self.stats_manager,
+                        activity_mgr=self.activity_manager,
+                        reactions_mgr=self.reactions_manager,
+                        footnote=self._footnote(),
+                    )
+                    avatar = await self._fetch_avatar(member, session=session)
+                    png = await asyncio.to_thread(
+                        render_personal_card, personal, member.display_name, avatar
+                    )
+                    file = discord.File(BytesIO(png), filename="my_wrapped.png")
+                    await member.send(
+                        content="Твой персональный итог года на сервере!",
+                        file=file,
+                    )
+                    sent += 1
+                except discord.Forbidden:
+                    logger.debug(f"ЛС закрыты для {user_id} — пропуск персонального wrapped.")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки персонального wrapped {user_id}: {e}")
+                await asyncio.sleep(cfg.dm_send_delay)
         logger.info(f"Персональный wrapped разослан: {sent} из {len(active_ids)} активных.")
 
     # --- Команды ---
@@ -466,28 +491,6 @@ class UserStatsTracker(commands.Cog):
             png = await self._render_server("monthly", today.year, today.month)
         file = discord.File(BytesIO(png), filename="topstats.png")
         await ctx.send(file=file)
-
-    @commands.hybrid_command(  # type: ignore[arg-type]
-        name="wrapped_optout",
-        description="[Админ] Включить/выключить персональную рассылку wrapped в ЛС.",
-    )
-    @app_commands.default_permissions(administrator=True)
-    @app_commands.guild_only()
-    @commands.has_permissions(administrator=True)
-    @command_error_handler
-    async def wrapped_optout_command(self, ctx: commands.Context) -> None:
-        """Переключает подписку пользователя на персональную рассылку wrapped."""
-        existing = await WrappedOptOut.filter(user_id=ctx.author.id).first()
-        if existing:
-            await existing.delete()
-            await safe_send(
-                ctx, "Вы снова будете получать персональный wrapped в ЛС.", ephemeral=True
-            )
-        else:
-            await WrappedOptOut.create(user_id=ctx.author.id)
-            await safe_send(
-                ctx, "Вы отписались от персональной рассылки wrapped в ЛС.", ephemeral=True
-            )
 
     @commands.hybrid_command(  # type: ignore[arg-type]
         name="wrapped_monthly", description="[Админ] Опубликовать месячный серверный wrapped."

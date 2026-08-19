@@ -469,10 +469,10 @@ async def test_run_automatic_daily_report_archives_data_when_send_raises(mock_co
 
 
 @pytest.mark.asyncio
-async def test_run_automatic_daily_report_processes_stale_dates_oldest_first(
+async def test_run_automatic_daily_report_archives_stale_dates_without_publishing_them(
     mock_cog, mock_channel
 ):
-    """После простоя архивирует все старые даты, а не только вчерашнюю."""
+    """После простоя архивирует хвосты, но публикует только вчерашний отчёт."""
     mock_cog.data_manager.get_pending_daily_dates.return_value = [
         date(2025, 4, 29),
         date(2025, 4, 30),
@@ -498,7 +498,7 @@ async def test_run_automatic_daily_report_processes_stale_dates_oldest_first(
         date(2025, 4, 30),
         date(2025, 5, 1),
     ]
-    assert reported_dates == processed_dates
+    assert reported_dates == [date(2025, 5, 1)]
 
 
 # --- Тесты для run_automatic_monthly_report ---

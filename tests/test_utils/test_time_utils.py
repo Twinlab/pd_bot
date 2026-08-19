@@ -1,10 +1,20 @@
 """Тесты календарного разбиения временных интервалов."""
 
 from datetime import UTC, date, datetime
+from unittest.mock import patch
 
 import pytest
 
-from utils.time_utils import split_interval_by_local_date
+from utils.time_utils import MOSCOW_TZ, moscow_today, split_interval_by_local_date
+
+
+def test_moscow_today_uses_moscow_calendar_date() -> None:
+    """Дата берётся в МСК, а не из часового пояса хоста."""
+    with patch("utils.time_utils.datetime") as mock_datetime:
+        mock_datetime.now.return_value = datetime(2026, 8, 21, 0, 30, tzinfo=MOSCOW_TZ)
+
+        assert moscow_today() == date(2026, 8, 21)
+        mock_datetime.now.assert_called_once_with(MOSCOW_TZ)
 
 
 def test_split_interval_inside_one_moscow_day() -> None:

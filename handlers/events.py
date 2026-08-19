@@ -111,7 +111,7 @@ class Events(commands.Cog):
         if not any(isinstance(error, etype) for etype in _KNOWN_PREFIX_ERRORS):
             logger.error(
                 f"Необработанная ошибка в префиксной команде '{ctx.command}': {error}",
-                exc_info=True,
+                exc_info=(type(error), error, error.__traceback__),
             )
 
         await safe_send_error(ctx, get_error_message(error))

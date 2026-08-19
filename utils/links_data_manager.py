@@ -6,8 +6,11 @@
 Использует Tortoise ORM.
 """
 
+import asyncio
+import json
 import logging
 from collections import defaultdict
+from pathlib import Path
 from typing import cast
 
 from .models import Link
@@ -20,14 +23,18 @@ class LinksDataManager:
     Управляет привязками Steam ID к Discord ID пользователей с использованием Tortoise ORM.
     """
 
-    def __init__(self, db_path: str | None = None) -> None:
-        """
-        Инициализирует менеджер данных привязок.
-
-        Args:
-            db_path: Не используется в Tortoise ORM версии, оставлен для совместимости.
-        """
+    def __init__(self) -> None:
+        """Инициализирует менеджер данных привязок."""
         logger.info("Инициализация LinksDataManager (Tortoise ORM)")
+
+    @staticmethod
+    def _load_json_file(json_file_path: str) -> object | None:
+        """Синхронно читает JSON; вызывается через ``asyncio.to_thread``."""
+        path = Path(json_file_path)
+        if not path.is_file() or path.stat().st_size == 0:
+            return None
+        with path.open(encoding="utf-8") as file:
+            return cast(object, json.load(file))
 
     async def add_link(self, discord_user_id: int, steam_id: int) -> bool:
         """
@@ -158,17 +165,12 @@ class LinksDataManager:
         logger.info(f"Начало миграции привязок из {json_file_path}...")
         inserted_count = 0
         try:
-            import json as sync_json
-            import os as sync_os
-
-            if not sync_os.path.exists(json_file_path) or sync_os.path.getsize(json_file_path) == 0:
+            data = await asyncio.to_thread(self._load_json_file, json_file_path)
+            if data is None:
                 logger.warning(
                     f"Файл {json_file_path} не найден или пуст. Миграция привязок пропущена."
                 )
                 return 0
-
-            with open(json_file_path, encoding="utf-8") as f:
-                data = sync_json.load(f)
 
             links_to_insert: list[Link] = []
 

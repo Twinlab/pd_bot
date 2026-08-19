@@ -7,6 +7,7 @@ import asyncio
 import logging
 import time
 from typing import Any, cast
+from weakref import WeakValueDictionary
 
 import aiohttp
 
@@ -28,7 +29,7 @@ _DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
 _DEFAULT_CONNECTOR_LIMIT = 20
 
 # Single-flight локи на cache_key: дубли одинаковых запросов ждут общий результат.
-_inflight_locks: dict[str, asyncio.Lock] = {}
+_inflight_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
 _inflight_locks_mutex: asyncio.Lock | None = None
 
 
@@ -173,7 +174,7 @@ async def query_api(
         return await _do_query_api(query, url, headers, variables, cache_key=None)
 
     cached_data = await get_cached_response(cache_key)
-    if cached_data:
+    if cached_data is not None:
         return cached_data
 
     # Защита от cache-stampede: пока один запрос летит к API, остальные ждут.
@@ -181,7 +182,7 @@ async def query_api(
     async with lock:
         # Повторный check — пока ждали лок, кто-то мог уже наполнить кэш.
         cached_data = await get_cached_response(cache_key)
-        if cached_data:
+        if cached_data is not None:
             return cached_data
         return await _do_query_api(query, url, headers, variables, cache_key=cache_key)
 
@@ -312,7 +313,7 @@ async def fetch_items_data(url: str, headers: dict[str, str]) -> dict[int, dict[
     # В старой версии мы сохраняли обработанный словарь.
     # Давайте сохранять обработанный словарь для удобства.
 
-    if cached_data:
+    if cached_data is not None:
         # В save_to_cache мы сохраняем то, что передаем.
         # Если мы сохраним items_dict, то получим его обратно.
         # Но get_cached_response возвращает dict[str, Any].

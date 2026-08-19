@@ -12,6 +12,7 @@
 import asyncio
 import datetime
 import logging
+import time
 
 import discord
 from discord import app_commands
@@ -178,7 +179,7 @@ class AdminCog(commands.Cog):
 
         # Защита от спама командой clear
         channel_id = ctx.channel.id
-        current_time = datetime.datetime.now().timestamp()
+        current_time = time.monotonic()
 
         if channel_id in self.recent_purges:
             last_time, last_count = self.recent_purges[channel_id]

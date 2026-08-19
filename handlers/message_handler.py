@@ -33,12 +33,25 @@ class MessageHandler(commands.Cog):
         # {user_id: timestamp}
         self.cooldowns: dict[int, float] = {}
         self.stats_manager: UserStatsDataManager = UserStatsDataManager()
+        self._stats_tasks: set[asyncio.Task[None]] = set()
+
+    def _on_stats_task_done(self, task: asyncio.Task[None]) -> None:
+        """Удаляет завершённую задачу счётчика и забирает возможное исключение."""
+        self._stats_tasks.discard(task)
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Ошибка фоновой записи счётчика сообщений")
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога.
 
         Выполняет необходимые действия для корректного завершения работы кога.
         """
+        if self._stats_tasks:
+            await asyncio.gather(*tuple(self._stats_tasks), return_exceptions=True)
         logger.info(f"Ког {self.__class__.__name__} выгружается")
 
     @commands.Cog.listener()
@@ -52,8 +65,9 @@ class MessageHandler(commands.Cog):
         Args:
             message: Объект сообщения Discord.
         """
-        # Игнорируем сообщения от ботов, сообщения вне серверов (в ЛС) и команды
-        # Получаем префиксы для текущего сообщения
+        if message.author.bot or message.guild is None:
+            return
+
         prefixes = await self.bot.get_prefix(message)
         # Если prefixes это строка, оборачиваем в список для единообразия
         if isinstance(prefixes, str):
@@ -66,7 +80,7 @@ class MessageHandler(commands.Cog):
                     is_command = True
                     break
 
-        if message.author.bot or not message.guild or is_command:
+        if is_command:
             return
 
         author_id = message.author.id
@@ -74,7 +88,12 @@ class MessageHandler(commands.Cog):
         # Счётчик сообщений для wrapped считаем БЕЗ анти-спам кулдауна (иначе
         # потеряем большинство сообщений активных болтунов). Запускаем фоном,
         # чтобы запись в БД не тормозила обработку сообщения.
-        asyncio.create_task(self.stats_manager.add_message(author_id))
+        stats_task = asyncio.create_task(
+            self.stats_manager.add_message(author_id),
+            name=f"message-stats-{author_id}",
+        )
+        self._stats_tasks.add(stats_task)
+        stats_task.add_done_callback(self._on_stats_task_done)
 
         current_time = time.monotonic()
 

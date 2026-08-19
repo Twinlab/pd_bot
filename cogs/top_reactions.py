@@ -19,7 +19,7 @@ from discord import ButtonStyle, Interaction, app_commands, ui
 from discord.ext import commands, tasks
 
 from config import get_settings
-from utils.error_handler import command_error_handler
+from utils.error_handler import command_error_handler, safe_send_error
 from utils.role_reaction_data_manager import RoleReactionDataManager
 from utils.time_utils import MOSCOW_TZ
 from utils.top_reactions_data_manager import (
@@ -528,10 +528,10 @@ class TopReactionsCog(commands.Cog):
     ) -> bool:
         """Возвращает True, если аргументы валидны. Иначе шлёт ошибку и False."""
         if month is not None and not (1 <= month <= 12):
-            await ctx.send("Месяц должен быть от 1 до 12.", ephemeral=True)
+            await safe_send_error(ctx, "Месяц должен быть от 1 до 12.")
             return False
         if year is not None and not (2000 <= year <= 2100):
-            await ctx.send("Год должен быть в диапазоне 2000–2100.", ephemeral=True)
+            await safe_send_error(ctx, "Год должен быть в диапазоне 2000–2100.")
             return False
         return True
 

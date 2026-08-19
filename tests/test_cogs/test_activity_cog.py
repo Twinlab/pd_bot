@@ -1,5 +1,6 @@
 """Тесты для кога ActivityTracker."""
 
+import asyncio
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -760,11 +761,51 @@ class TestUpdateCurrentActivitiesEdgeCases:
                 # Вызываем метод update_current_activities (не должен выбрасывать исключение)
                 await activity_tracker.update_current_activities()
 
-                # Проверяем, что update_activity был вызван (может быть несколько раз из-за asyncio.gather)
-                assert mock_update.call_count >= 1
+                mock_update.assert_awaited_once()
 
                 # Проверяем, что время в памяти НЕ было обновлено из-за ошибки
                 assert activity_tracker.current_activities[user_id][1] == start_time
+
+    @pytest.mark.asyncio
+    async def test_update_current_activities_serializes_concurrent_flushes(self, mock_bot):
+        """Одновременные midnight/periodic flush не записывают один интервал дважды."""
+        activity_tracker = ActivityTracker(mock_bot)
+        activity_tracker.periodic_save.cancel()
+        activity_tracker.daily_report.cancel()
+        activity_tracker.monthly_report.cancel()
+        user_id = 123456789
+        first_now = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+        second_now = first_now + timedelta(seconds=5)
+        activity_tracker.current_activities[user_id] = (
+            "Dota 2",
+            first_now - timedelta(minutes=1),
+        )
+
+        write_started = asyncio.Event()
+        allow_write = asyncio.Event()
+
+        async def slow_update(*args, **kwargs) -> None:
+            write_started.set()
+            await allow_write.wait()
+
+        with (
+            patch("cogs.activity.datetime") as mock_datetime,
+            patch.object(
+                activity_tracker.data_manager,
+                "update_activity",
+                new=AsyncMock(side_effect=slow_update),
+            ) as mock_update,
+        ):
+            mock_datetime.now.side_effect = [first_now, second_now]
+            first_flush = asyncio.create_task(activity_tracker.update_current_activities())
+            await write_started.wait()
+            second_flush = asyncio.create_task(activity_tracker.update_current_activities())
+            await asyncio.sleep(0)
+            allow_write.set()
+            await asyncio.gather(first_flush, second_flush)
+
+        mock_update.assert_awaited_once()
+        assert activity_tracker.current_activities[user_id] == ("Dota 2", first_now)
 
     @pytest.mark.asyncio
     async def test_update_current_activities_final_save(self, mock_bot):
@@ -905,8 +946,8 @@ class TestScanAllUsersActivity:
         # Создаем экземпляр ActivityTracker
         activity_tracker = ActivityTracker(mock_bot)
 
-        # Настраиваем mock_bot.guilds для выброса исключения
-        mock_bot.guilds = MagicMock(side_effect=Exception("Guild access error"))
+        mock_bot.guilds = MagicMock()
+        mock_bot.guilds.__bool__.side_effect = Exception("Guild access error")
 
         # Патчим wait_until_ready
         with patch.object(mock_bot, "wait_until_ready", new_callable=AsyncMock):
@@ -1451,7 +1492,7 @@ class TestStaleSessionCleanup:
 
     @pytest.mark.asyncio
     async def test_stale_session_removed(self, mock_bot):
-        """Тест: сессия пользователя, отсутствующего на всех серверах, удаляется."""
+        """Сессия отсутствующего участника сохраняется перед удалением из памяти."""
         activity_tracker = ActivityTracker(mock_bot)
 
         stale_user_id = 384486431680364545
@@ -1470,6 +1511,5 @@ class TestStaleSessionCleanup:
         with patch.object(activity_tracker.data_manager, "update_activity") as mock_update:
             await activity_tracker.update_current_activities()
 
-            # Сессия удалена без записи в БД
             assert stale_user_id not in activity_tracker.current_activities
-            mock_update.assert_not_called()
+            mock_update.assert_awaited_once()

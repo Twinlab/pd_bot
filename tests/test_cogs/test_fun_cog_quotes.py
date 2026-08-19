@@ -40,10 +40,10 @@ class TestQuoteCommand:
         mock_ctx.channel = MagicMock()
         mock_ctx.channel.id = 456
 
-        await fun_cog.quote.callback(fun_cog, mock_ctx, None)
+        with patch("cogs.fun.safe_send_error", new=AsyncMock()) as mock_error:
+            await fun_cog.quote.callback(fun_cog, mock_ctx, None)
 
-        # Проверяем, что отправлено сообщение об ошибке
-        mock_ctx.send.assert_called_once_with("❌ Цитаты не найдены!", ephemeral=True)
+        mock_error.assert_awaited_once_with(mock_ctx, "Цитаты не найдены.")
 
     @pytest.mark.asyncio
     @patch("cogs.fun.scan_quotes_folders")
@@ -115,11 +115,11 @@ class TestQuoteCommand:
         mock_ctx.channel = MagicMock()
         mock_ctx.channel.id = 456
 
-        await fun_cog.quote.callback(fun_cog, mock_ctx, "invalid_user")
+        with patch("cogs.fun.safe_send_error", new=AsyncMock()) as mock_error:
+            await fun_cog.quote.callback(fun_cog, mock_ctx, "invalid_user")
 
-        # Проверяем, что отправлено сообщение об ошибке
-        mock_ctx.send.assert_called_once_with(
-            "❌ Цитаты пользователя `invalid_user` не найдены!", ephemeral=True
+        mock_error.assert_awaited_once_with(
+            mock_ctx, "Цитаты пользователя `invalid_user` не найдены."
         )
 
     @pytest.mark.asyncio

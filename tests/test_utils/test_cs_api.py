@@ -1,5 +1,6 @@
 """Тесты для модуля cs_api (FACEIT Data API клиент)."""
 
+import gc
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,6 +10,7 @@ from utils.cs_api import (
     FaceitNonRetryable,
     FaceitNotFound,
     FaceitRateLimited,
+    _get_inflight_lock,
     _parse_retry_after,
     close_session,
     faceit_get,
@@ -35,9 +37,24 @@ class TestFaceitGet:
         """Сбрасывает модульную сессию и Lock между тестами."""
         cs_api_module._session = None
         cs_api_module._session_lock = None
+        cs_api_module._inflight_locks.clear()
+        cs_api_module._inflight_locks_mutex = None
         yield
         cs_api_module._session = None
         cs_api_module._session_lock = None
+        cs_api_module._inflight_locks.clear()
+        cs_api_module._inflight_locks_mutex = None
+
+    @pytest.mark.asyncio
+    async def test_inflight_locks_do_not_accumulate_cache_keys(self):
+        """Завершённые single-flight запросы не оставляют ключи навсегда."""
+        lock = await _get_inflight_lock("player:123")
+        assert "player:123" in cs_api_module._inflight_locks
+
+        del lock
+        gc.collect()
+
+        assert "player:123" not in cs_api_module._inflight_locks
 
     @pytest.mark.asyncio
     async def test_success(self):
@@ -50,6 +67,18 @@ class TestFaceitGet:
         with patch("utils.cs_api.aiohttp.ClientSession", return_value=session):
             result = await faceit_get("/players", "key")
             assert result == {"player_id": "abc"}
+
+    @pytest.mark.asyncio
+    async def test_empty_cached_response_is_a_cache_hit(self):
+        """Пустой валидный JSON не вызывает повторный FACEIT-запрос."""
+        with (
+            patch("utils.cs_api.get_cached_response", new=AsyncMock(return_value={})),
+            patch("utils.cs_api._do_faceit_get", new=AsyncMock()) as mock_get,
+        ):
+            result = await faceit_get("/players", "key", cache_key="empty")
+
+        assert result == {}
+        mock_get.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_rate_limited_raises(self):

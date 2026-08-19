@@ -124,10 +124,9 @@ def get_error_message(error: Exception) -> str:
             try:
                 return message_template.format(error=error)
             except Exception:
-                return f"Произошла ошибка: {error}"
+                return "Произошла ошибка. Попробуйте позже."
 
-    # Если не нашли, возвращаем общее сообщение
-    return f"Произошла непредвиденная ошибка: {error}"
+    return "Произошла непредвиденная ошибка. Попробуйте позже."
 
 
 async def safe_send(
@@ -198,7 +197,7 @@ async def handle_app_command_error(
         command_name = interaction.command.name if interaction.command else "unknown"
         logger.error(
             f"Необработанная ошибка в slash-команде '{command_name}': {error}",
-            exc_info=error,
+            exc_info=(type(error), error, error.__traceback__),
         )
 
     embed = discord.Embed(

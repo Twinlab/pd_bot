@@ -3,6 +3,7 @@
 import asyncio
 import datetime
 import logging
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -127,7 +128,7 @@ class TestClearCommand:
     async def test_clear_spam_protection(self, admin_cog: AdminCog, mock_context: commands.Context):
         """Тест защиты от спама команды clear."""
         channel_id = mock_context.channel.id
-        admin_cog.recent_purges[channel_id] = (datetime.datetime.now().timestamp() - 5, 15) # 5 секунд назад, 15 сообщений
+        admin_cog.recent_purges[channel_id] = (time.monotonic() - 5, 15) # 5 секунд назад, 15 сообщений
 
         with patch("cogs.admin.safe_send", new_callable=AsyncMock) as mock_safe_send:
             await admin_cog.clear.callback(admin_cog, mock_context, count=20) # Пытаемся удалить > 10
@@ -138,7 +139,7 @@ class TestClearCommand:
     async def test_clear_spam_protection_allows_small_purge(self, admin_cog: AdminCog, mock_context: commands.Context, mock_text_channel: discord.TextChannel):
         """Тест, что защита от спама позволяет небольшую очистку."""
         channel_id = mock_context.channel.id
-        admin_cog.recent_purges[channel_id] = (datetime.datetime.now().timestamp() - 5, 15)
+        admin_cog.recent_purges[channel_id] = (time.monotonic() - 5, 15)
         admin_cog._clear_messages_helper = AsyncMock(return_value=5) # Мокаем хелпер
 
         with patch("cogs.admin.safe_send", new_callable=AsyncMock) as mock_safe_send:

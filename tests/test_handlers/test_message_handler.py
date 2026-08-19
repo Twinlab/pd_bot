@@ -39,6 +39,26 @@ class TestMessageHandlerMethods:
             assert handler.__class__.__name__ in mock_logger.info.call_args[0][0]
 
     @pytest.mark.asyncio
+    async def test_cog_unload_waits_for_pending_stats_writes(self, mock_bot):
+        """Выгрузка кога не теряет уже запущенную запись статистики."""
+        handler = MessageHandler(mock_bot)
+        allow_finish = asyncio.Event()
+
+        async def pending_write() -> None:
+            await allow_finish.wait()
+
+        stats_task = asyncio.create_task(pending_write())
+        handler._stats_tasks.add(stats_task)
+        stats_task.add_done_callback(handler._on_stats_task_done)
+        unload_task = asyncio.create_task(handler.cog_unload())
+        await asyncio.sleep(0)
+
+        assert not unload_task.done()
+        allow_finish.set()
+        await unload_task
+        assert not handler._stats_tasks
+
+    @pytest.mark.asyncio
     async def test_on_message_from_bot(self, mock_bot, mock_message):
         """Тест обработки сообщения от бота."""
         handler = MessageHandler(mock_bot)
@@ -52,6 +72,7 @@ class TestMessageHandlerMethods:
         
         # Проверяем, что обработка была прервана (cooldowns не изменился)
         assert len(handler.cooldowns) == 0
+        mock_bot.get_prefix.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_on_message_in_dm(self, mock_bot, mock_message):
@@ -68,6 +89,7 @@ class TestMessageHandlerMethods:
         
         # Проверяем, что обработка была прервана (cooldowns не изменился)
         assert len(handler.cooldowns) == 0
+        mock_bot.get_prefix.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_on_message_command(self, mock_bot, mock_message):

@@ -57,8 +57,8 @@ class RoleReactionCog(commands.Cog):
 
         ``add_dynamic_items`` оживляет кнопки после рестарта (``role_id`` зашит в
         ``custom_id``). Загрузку кеша и перерисовку старого сообщения делаем в
-        :meth:`on_ready` — на момент ``cog_load`` бот ещё не подключён к гильдиям
-        (``self.bot.guilds`` пуст), и кеш просто не загрузился бы.
+        :meth:`on_ready` — на момент ``cog_load`` настроенная гильдия ещё может
+        отсутствовать в кеше Discord.
         """
         self.bot.add_dynamic_items(RoleButton)
 

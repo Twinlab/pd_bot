@@ -281,7 +281,8 @@ class TestHandleAppCommandError:
             await handle_app_command_error(mock_interaction, error)
 
         mock_logger.error.assert_called_once()
-        assert mock_logger.error.call_args.kwargs.get("exc_info") is error
+        exc_info = mock_logger.error.call_args.kwargs["exc_info"]
+        assert exc_info == (type(error), error, error.__traceback__)
         mock_interaction.response.send_message.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -326,6 +327,13 @@ class TestGetErrorMessage:
         """Тест получения сообщения для разных типов ошибок."""
         message = get_error_message(error)
         assert expected_substring in message
+
+    def test_unknown_error_does_not_expose_internal_details(self):
+        """Текст неизвестной ошибки остаётся только в логах."""
+        message = get_error_message(RuntimeError("token=secret-value"))
+
+        assert "secret-value" not in message
+        assert "непредвиденная ошибка" in message
 
     def test_get_error_message_nested(self):
         """Тест получения сообщения для вложенных ошибок."""

@@ -131,12 +131,8 @@ class TwitchCog(commands.Cog):
     async def cog_load(self) -> None:
         """Вызывается при загрузке кога.
 
-        Инициализирует таблицу в БД, Twitch API и запускает фоновую задачу
-        для проверки статуса стримов, если API ключи доступны.
+        Инициализирует Twitch API и запускает фоновую задачу проверки статуса.
         """
-        # Инициализируем таблицу в БД
-        await self.data_manager.initialize_table()
-
         # Инициализируем Twitch API
         if self.twitch_api:
             await self.twitch_api.initialize()
@@ -180,19 +176,19 @@ class TwitchCog(commands.Cog):
 
             logger.debug("Начало проверки статуса стримов")
 
-            # Получаем всех отслеживаемых стримеров
-            streamers = await self.data_manager.get_all_streamers()
+            guild = self.bot.guilds[0] if self.bot.guilds else None
+            if guild is None:
+                logger.error("Настроенная гильдия не найдена в кеше Discord")
+                return
+
+            streamers = await self.data_manager.get_streamers(guild.id)
             if not streamers:
                 logger.debug("Нет отслеживаемых стримеров")
                 return
 
-            # Группируем стримеров по имени пользователя для оптимизации запросов к API
-            streamers_by_username: dict[str, list[dict]] = {}
-            for streamer in streamers:
-                username = streamer["twitch_username"]
-                if username not in streamers_by_username:
-                    streamers_by_username[username] = []
-                streamers_by_username[username].append(streamer)
+            streamers_by_username = {
+                streamer["twitch_username"]: streamer for streamer in streamers
+            }
 
             # Получаем информацию о пользователях Twitch
             usernames = list(streamers_by_username.keys())
@@ -208,22 +204,19 @@ class TwitchCog(commands.Cog):
                 user_ids_by_username[username] = user["id"]
 
                 # Обновляем Twitch ID в базе данных, если он отсутствует
-                for streamer in streamers_by_username.get(username, []):
-                    if not streamer["twitch_id"]:
-                        await self.data_manager.update_twitch_id(username, user["id"])
+                streamer = streamers_by_username.get(username)
+                if streamer is not None and not streamer["twitch_id"]:
+                    await self.data_manager.update_twitch_id(username, guild.id, user["id"])
 
             # Получаем информацию о текущих стримах
             user_ids = [user["id"] for user in users]
-            if self.twitch_api is None:
-                logger.error("Twitch API не инициализирован")
-                return
             streams = await self.twitch_api.get_streams(user_ids)
 
             # Создаем словарь {user_id: stream_data}
             streams_by_user_id = {stream["user_id"]: stream for stream in streams}
 
             # Обновляем статус стримеров и отправляем уведомления
-            for username, user_streamers in streamers_by_username.items():
+            for username, streamer_info in streamers_by_username.items():
                 # Пропускаем стримеров, которых нет в ответе API
                 if username not in user_ids_by_username:
                     logger.warning(f"Стример {username} не найден в Twitch API")
@@ -235,11 +228,10 @@ class TwitchCog(commands.Cog):
                 stream_id = stream_data["id"] if stream_data else None
 
                 if username not in self.streamers_cache:
-                    persisted = user_streamers[0]
                     self.streamers_cache[username] = {
                         "user_id": user_id,
-                        "is_live": bool(persisted["is_live"]),
-                        "last_stream_id": persisted["last_stream_id"],
+                        "is_live": bool(streamer_info["is_live"]),
+                        "last_stream_id": streamer_info["last_stream_id"],
                         "stream_data": None,
                     }
 
@@ -256,36 +248,33 @@ class TwitchCog(commands.Cog):
                         else f"ОБНАРУЖЕН НОВЫЙ СТРИМ: Стример {username} — нет данных о стриме"
                     )
 
-                    if user_streamers:
-                        streamer_info = user_streamers[0]
-                        guild_id = streamer_info["guild_id"]
-                        channel_id = streamer_info["channel_id"]
+                    channel_id = streamer_info["channel_id"]
+                    logger.info(f"Отправка уведомления о стриме {username} в канал {channel_id}")
+                    notification_sent = await self.send_stream_notification(
+                        guild.id,
+                        channel_id,
+                        username,
+                        stream_data if stream_data else {},
+                    )
+                    if not notification_sent:
+                        logger.warning(
+                            "Уведомление о стриме %s не отправлено; повторим на следующей проверке",
+                            username,
+                        )
+                        continue
 
-                        logger.info(
-                            f"Отправка уведомления о стриме {username} в канал {channel_id}"
-                        )
-                        notification_sent = await self.send_stream_notification(
-                            guild_id, channel_id, username, stream_data if stream_data else {}
-                        )
-                        if not notification_sent:
-                            logger.warning(
-                                "Уведомление о стриме %s не отправлено; повторим на следующей "
-                                "проверке",
-                                username,
-                            )
-                            continue
-
-                        await self.data_manager.update_streamer_status(username, True, stream_id)
-                        await self.data_manager.update_notification_time(
-                            username, guild_id, stream_id
-                        )
-                        cached["is_live"] = True
-                        cached["last_stream_id"] = stream_id
+                    await self.data_manager.update_streamer_status(
+                        username, guild.id, True, stream_id
+                    )
+                    await self.data_manager.update_notification_time(username, guild.id, stream_id)
+                    cached["is_live"] = True
+                    cached["last_stream_id"] = stream_id
 
                 elif is_live:
                     if not was_live:
                         await self.data_manager.update_streamer_status(
                             username,
+                            guild.id,
                             True,
                             stream_id,
                         )
@@ -293,7 +282,7 @@ class TwitchCog(commands.Cog):
 
                 elif not is_live and was_live:
                     logger.info(f"Стример {username} закончил стрим")
-                    await self.data_manager.update_streamer_status(username, False)
+                    await self.data_manager.update_streamer_status(username, guild.id, False)
                     cached["is_live"] = False
 
                 cached["user_id"] = user_id
@@ -345,16 +334,10 @@ class TwitchCog(commands.Cog):
                 logger.error(f"Бот не готов при попытке отправить уведомление о стриме {username}")
                 return False
 
-            # Сначала по переданному guild_id, иначе fallback на единственную (single-guild).
-            guild = self.bot.get_guild(guild_id) if guild_id else None
+            guild = self.bot.get_guild(guild_id)
             if guild is None:
-                if not self.bot.guilds:
-                    logger.error("Бот не подключен ни к одному серверу")
-                    return False
-                guild = self.bot.guilds[0]
-                logger.warning(
-                    "Гильдия с ID %s не найдена, используем fallback %s", guild_id, guild.id
-                )
+                logger.error("Гильдия с ID %s не найдена в кеше Discord", guild_id)
+                return False
             logger.info(f"Используем сервер: {guild.name} (ID: {guild.id})")
 
             # Получаем объект канала
@@ -533,45 +516,46 @@ class TwitchCog(commands.Cog):
             # Проверяем, ведет ли стример стрим в данный момент
             is_live, stream_data = await self.twitch_api.is_user_live(user["id"])
             if is_live and stream_data is not None:
-                # Обновляем статус в БД
-                await self.data_manager.update_streamer_status(
-                    user["login"].lower(), True, stream_data["id"]
-                )
-
-                # Обновляем кеш
-                self.streamers_cache[user["login"].lower()]["is_live"] = True
                 stream_data_cache = self.streamers_cache[user["login"].lower()]
                 stream_data_cache["stream_data"] = stream_data
 
-                # Отправляем уведомление о стриме
                 logger.info(f"Стример {user['login']} уже в сети, отправляем уведомление")
-                await self.send_stream_notification(
+                notification_sent = await self.send_stream_notification(
                     interaction.guild_id,
-                    (
-                        notification_channel.id
-                        if isinstance(notification_channel, discord.TextChannel)
-                        else 0
-                    ),
+                    channel_id,
                     user["login"],
                     stream_data,
                 )
 
-                # Обновляем время последнего уведомления и ID стрима
-                await self.data_manager.update_notification_time(
-                    user["login"].lower(), interaction.guild_id, stream_data["id"]
-                )
+                if notification_sent:
+                    await self.data_manager.update_streamer_status(
+                        user["login"].lower(),
+                        interaction.guild_id,
+                        True,
+                        stream_data["id"],
+                    )
+                    await self.data_manager.update_notification_time(
+                        user["login"].lower(), interaction.guild_id, stream_data["id"]
+                    )
+                    stream_data_cache["is_live"] = True
+                    stream_data_cache["last_stream_id"] = stream_data["id"]
 
                 mention = (
                     notification_channel.mention
                     if isinstance(notification_channel, discord.TextChannel)
                     else str(notification_channel)
                 )
+                delivery_status = (
+                    "Уведомление отправлено в канал."
+                    if notification_sent
+                    else "Уведомление пока не отправлено; бот повторит попытку при проверке."
+                )
                 await interaction.response.send_message(
                     (
                         f"Стример **{user['display_name']}** добавлен для отслеживания в канале "
                         f"{mention}.\n"
                         f"Стример сейчас в сети! Стрим: **{stream_data['title']}**\n"
-                        f"Уведомление отправлено в канал."
+                        f"{delivery_status}"
                     ),
                     ephemeral=True,
                 )
@@ -621,10 +605,7 @@ class TwitchCog(commands.Cog):
         success = await self.data_manager.remove_streamer(interaction.guild_id, twitch_username)
 
         if success:
-            # Удаляем стримера из кеша, если он больше не отслеживается ни на одном сервере
-            streamers = await self.data_manager.get_all_streamers()
-            if not any(s["twitch_username"].lower() == twitch_username.lower() for s in streamers):
-                self.streamers_cache.pop(twitch_username.lower(), None)
+            self.streamers_cache.pop(twitch_username.lower(), None)
 
             await interaction.response.send_message(
                 f"Стример **{twitch_username}** удален из отслеживаемых.", ephemeral=True

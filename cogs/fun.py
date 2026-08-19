@@ -168,7 +168,7 @@ class FunCog(commands.Cog):
             available_users = scan_quotes_folders()
 
             if not available_users:
-                await ctx.send("❌ Цитаты не найдены!", ephemeral=True)
+                await safe_send_error(ctx, "Цитаты не найдены.")
                 return
 
             # Выбираем случайного пользователя
@@ -178,7 +178,7 @@ class FunCog(commands.Cog):
         else:
             # Проверяем существование пользователя
             if not validate_folder_exists(user):
-                await ctx.send(f"❌ Цитаты пользователя `{user}` не найдены!", ephemeral=True)
+                await safe_send_error(ctx, f"Цитаты пользователя `{user}` не найдены.")
                 return
 
             # Отправляем случайную цитату указанного пользователя

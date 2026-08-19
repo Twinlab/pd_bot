@@ -9,6 +9,7 @@ from tortoise.expressions import F
 from tortoise.functions import Sum
 
 from .models import DailyActivity, MonthlyActivity
+from .time_utils import moscow_today
 
 logger = logging.getLogger("bot.utils.activity_data_manager")
 
@@ -16,12 +17,8 @@ logger = logging.getLogger("bot.utils.activity_data_manager")
 class ActivityDataManager:
     """Управляет данными об игровой активности пользователей с использованием Tortoise ORM."""
 
-    def __init__(self, db_path: str | None = None) -> None:
-        """Инициализирует менеджер данных активности.
-
-        Args:
-            db_path: Не используется в Tortoise ORM версии, оставлен для совместимости.
-        """
+    def __init__(self) -> None:
+        """Инициализирует менеджер данных активности."""
         logger.info("Инициализация ActivityDataManager (Tortoise ORM)")
 
     async def update_activity(
@@ -49,7 +46,7 @@ class ActivityDataManager:
         if elapsed_seconds <= 0:
             return
 
-        target_date_str = (target_date or date.today()).isoformat()
+        target_date_str = (target_date or moscow_today()).isoformat()
 
         try:
             # Шаг 1: пытаемся обновить существующую запись атомарно через F-выражение.
@@ -85,6 +82,7 @@ class ActivityDataManager:
             )
         except Exception as e:
             logger.error(f"Ошибка при обновлении daily_activity в БД: {e}", exc_info=True)
+            raise
 
     async def get_daily_stats(self, target_date: date) -> dict[int, dict[str, int]]:
         """Получает всю статистику активности за указанную дату из БД.

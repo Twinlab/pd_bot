@@ -307,11 +307,6 @@ erDiagram
         int voice_seconds
     }
 
-    wrapped_opt_outs {
-        int user_id PK
-        datetime created_at
-    }
-
     links ||--o{ daily_activity : "tracks"
     daily_activity ||--o{ monthly_activity : "aggregates to"
     daily_user_stats ||--o{ monthly_user_stats : "aggregates to"

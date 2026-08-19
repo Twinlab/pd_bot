@@ -23,6 +23,7 @@ from discord.ext import commands
 
 from config import get_settings
 from utils.database import DB_PATH, close_database, initialize_database
+from utils.dota_api import prune_expired_cache
 from utils.error_handler import handle_app_command_error
 from utils.logging_utils import setup_logging
 
@@ -168,7 +169,7 @@ async def load_cogs() -> None:
     """
     logger.info("Загрузка когов команд...")
     cogs_dir = Path("./cogs")
-    for filepath in cogs_dir.glob("*.py"):
+    for filepath in sorted(cogs_dir.glob("*.py")):
         if filepath.name == "__init__.py":
             continue
         cog_module = f"cogs.{filepath.stem}"
@@ -213,6 +214,7 @@ async def main() -> None:
         logger.info(f"Используется файл базы данных: {DB_PATH}")
         await initialize_database()
         database_initialized = True
+        await prune_expired_cache()
         await load_cogs()
         await bot.start(settings.bot_token)
     except Exception:

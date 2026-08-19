@@ -44,6 +44,7 @@ class TestJsonFormatter:
         assert log_data["message"] == "Test message"
         assert log_data["line"] == 42
         assert "timestamp" in log_data
+        assert log_data["timestamp"].endswith("+00:00")
         assert "module" in log_data
         assert "function" in log_data
 

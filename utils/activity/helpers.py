@@ -7,9 +7,10 @@
 
 import discord
 
+_APPLICATION_NAMES = frozenset({"minecraft bot"})
+_APPLICATION_ROLE_NAMES = frozenset({"bot", "app", "application"})
 
-# TODO: В будущем может потребоваться доступ к конфигурации бота или ролям.
-# Пока функция самодостаточна.
+
 def is_application(member: discord.Member) -> bool:
     """Проверяет, является ли участник ботом или приложением на основе имени или ролей.
 
@@ -21,21 +22,13 @@ def is_application(member: discord.Member) -> bool:
     Returns:
         True, если участник вероятно является ботом/приложением, False в противном случае.
     """
-    # Распространенные имена ботов (можно расширить)
-    app_names = ["minecraft bot"]
-    if member.name in app_names:
-        return True
-
-    # Распространенные названия ролей, указывающие на бота
-    app_role_names = ["bot", "app", "application"]
-    if any(role.name.lower() in app_role_names for role in member.roles):
-        return True
-
-    # Проверка официального флага бота
     if member.bot:
         return True
 
-    return False
+    if member.name.casefold() in _APPLICATION_NAMES:
+        return True
+
+    return any(role.name.casefold() in _APPLICATION_ROLE_NAMES for role in member.roles)
 
 
 def format_time_short(seconds: int) -> str:
@@ -48,7 +41,10 @@ def format_time_short(seconds: int) -> str:
         Короткая отформатированная строка, представляющая продолжительность.
     """
     if seconds <= 0:
-        return "0m"  # Возвращаем "0m", если время нулевое или отрицательное
+        return "0m"
+
+    if seconds < 60:
+        return "<1m"
 
     hours, remainder = divmod(seconds, 3600)
     minutes, _ = divmod(remainder, 60)
@@ -56,8 +52,5 @@ def format_time_short(seconds: int) -> str:
     if hours > 0:
         if minutes > 0:
             return f"{hours}h {minutes}m"
-        else:
-            return f"{hours}h"
-    else:
-        # Всегда показываем минуты, даже если 0 и часы равны 0 (например, для ввода 30 секунд)
-        return f"{minutes}m"
+        return f"{hours}h"
+    return f"{minutes}m"

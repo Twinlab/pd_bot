@@ -17,26 +17,9 @@ class TwitchDataManager:
     включая добавление, удаление, получение и обновление информации о стримерах.
     """
 
-    def __init__(self, db_path: str | None = None) -> None:
-        """
-        Инициализирует менеджер данных Twitch.
-
-        Args:
-            db_path: Не используется в Tortoise ORM версии, оставлен для совместимости.
-        """
+    def __init__(self) -> None:
+        """Инициализирует менеджер данных Twitch."""
         logger.info("Инициализация TwitchDataManager (Tortoise ORM)")
-
-    async def initialize_table(self) -> bool:
-        """
-        Создает таблицу для хранения данных о Twitch-стримерах, если она не существует.
-
-        В Tortoise ORM таблицы создаются при инициализации приложения (generate_schemas),
-        поэтому этот метод оставлен для совместимости, но фактически ничего не делает.
-
-        Returns:
-            bool: Всегда True.
-        """
-        return True
 
     async def add_streamer(
         self, guild_id: int, channel_id: int, twitch_username: str, twitch_id: str | None = None
@@ -133,43 +116,19 @@ class TwitchDataManager:
             logger.error(f"Ошибка при получении стримеров: {e}", exc_info=True)
             return []
 
-    async def get_all_streamers(self) -> list[dict]:
-        """
-        Получает список всех отслеживаемых стримеров для всех серверов.
-
-        Returns:
-            list[dict]: Список словарей с информацией о стримерах.
-        """
-        streamers = []
-        try:
-            streamer_objs = await TwitchStreamer.all()
-            for obj in streamer_objs:
-                streamers.append(
-                    {
-                        "guild_id": obj.guild_id,
-                        "channel_id": obj.channel_id,
-                        "twitch_username": obj.twitch_username,
-                        "twitch_id": obj.twitch_id,
-                        "is_live": obj.is_live,
-                        "last_stream_id": obj.last_stream_id,
-                        "last_notification_time": obj.last_notification_time,
-                    }
-                )
-
-            logger.debug(f"Получено {len(streamers)} стримеров для всех серверов")
-            return streamers
-        except Exception as e:
-            logger.error(f"Ошибка при получении всех стримеров: {e}", exc_info=True)
-            return []
-
     async def update_streamer_status(
-        self, twitch_username: str, is_live: bool, stream_id: str | None = None
+        self,
+        twitch_username: str,
+        guild_id: int,
+        is_live: bool,
+        stream_id: str | None = None,
     ) -> bool:
         """
         Обновляет статус стримера (онлайн/оффлайн) и ID стрима.
 
         Args:
             twitch_username: Имя пользователя Twitch (без учета регистра)
+            guild_id: ID единственного сервера Discord.
             is_live: True если стример онлайн, False если оффлайн
             stream_id: ID текущего стрима (используется только если is_live=True)
 
@@ -183,7 +142,10 @@ class TwitchDataManager:
             if is_live and stream_id is not None:
                 update_data["last_stream_id"] = stream_id
 
-            await TwitchStreamer.filter(twitch_username=twitch_username).update(**update_data)
+            await TwitchStreamer.filter(
+                twitch_username=twitch_username,
+                guild_id=guild_id,
+            ).update(**update_data)
 
             logger.debug(
                 f"Обновлен статус стримера {twitch_username}: {'онлайн' if is_live else 'оффлайн'}"
@@ -236,12 +198,13 @@ class TwitchDataManager:
             )
             return False
 
-    async def update_twitch_id(self, twitch_username: str, twitch_id: str) -> bool:
+    async def update_twitch_id(self, twitch_username: str, guild_id: int, twitch_id: str) -> bool:
         """
         Обновляет Twitch ID для стримера.
 
         Args:
             twitch_username: Имя пользователя Twitch (без учета регистра)
+            guild_id: ID единственного сервера Discord.
             twitch_id: ID пользователя Twitch
 
         Returns:
@@ -249,7 +212,10 @@ class TwitchDataManager:
         """
         try:
             twitch_username = twitch_username.lower()
-            await TwitchStreamer.filter(twitch_username=twitch_username).update(twitch_id=twitch_id)
+            await TwitchStreamer.filter(
+                twitch_username=twitch_username,
+                guild_id=guild_id,
+            ).update(twitch_id=twitch_id)
             logger.debug(f"Обновлен Twitch ID для стримера {twitch_username}: {twitch_id}")
             return True
         except Exception as e:

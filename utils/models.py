@@ -96,16 +96,6 @@ class MonthlyUserStats(models.Model):
         indexes = (("year", "month"),)
 
 
-class WrappedOptOut(models.Model):
-    """Пользователи, отказавшиеся от персональной рассылки годового wrapped в ЛС."""
-
-    user_id = fields.BigIntField(pk=True)
-    created_at = fields.DatetimeField(auto_now_add=True)
-
-    class Meta:
-        table = "wrapped_opt_outs"
-
-
 class RoleReaction(models.Model):
     """Настройки ролей по реакциям."""
 
@@ -141,7 +131,7 @@ class TwitchStreamer(models.Model):
 class AnimeCache(models.Model):
     """Кеш аниме-изображений."""
 
-    post_id = fields.IntField(pk=True)
+    post_id = fields.IntField(primary_key=True)
     added_at = fields.IntField()  # Timestamp
 
     class Meta:
@@ -152,7 +142,7 @@ class AnimeCache(models.Model):
 class APICache(models.Model):
     """Кеш ответов API (Dota, Twitch и др.)."""
 
-    key = fields.TextField(pk=True)
+    key = fields.CharField(max_length=255, primary_key=True)
     # Tortoise JSONField принимает любой JSON-сериализуемый тип; в нашем коде
     # всегда кладём JSON-объекты (dict[str, Any]).
     data: dict[str, Any] = fields.JSONField()
@@ -171,7 +161,7 @@ class ReactedMessage(models.Model):
     2. Импорт из дампа DiscordChatExporter (есть только historical_reaction_count).
     """
 
-    message_id = fields.BigIntField(pk=True)
+    message_id = fields.BigIntField(primary_key=True)
     channel_id = fields.BigIntField()
     author_id = fields.BigIntField()
     content = fields.TextField()  # Обрезаем до 500 символов на стороне кода
@@ -192,7 +182,7 @@ class PartyBlock(models.Model):
     Управляется админ-командами `/party_block` и `/party_unblock`.
     """
 
-    user_id = fields.BigIntField(pk=True)
+    user_id = fields.BigIntField(primary_key=True)
     blocked_by = fields.BigIntField()
     reason = fields.TextField(null=True)
     created_at = fields.DatetimeField(auto_now_add=True)
@@ -209,7 +199,7 @@ class MessageReactor(models.Model):
     уникальных реакторов до тех пор, пока есть хотя бы одна его реакция.
     """
 
-    id = fields.IntField(pk=True)
+    id = fields.IntField(primary_key=True)
     message_id = fields.BigIntField()
     user_id = fields.BigIntField()
     emoji = fields.TextField()

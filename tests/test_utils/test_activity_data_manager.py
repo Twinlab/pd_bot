@@ -92,13 +92,13 @@ class TestUpdateActivity:
 
     @pytest.mark.asyncio
     async def test_update_activity_database_error(self, manager):
-        """Тест обработки ошибки базы данных при обновлении активности."""
+        """Ошибка записи пробрасывается, чтобы вызывающий код не потерял интервал."""
         with patch(
             "utils.activity_data_manager.DailyActivity.filter",
             side_effect=Exception("Database error"),
         ):
-            # Не должно выбрасывать исключение, а логировать ошибку
-            await manager.update_activity(123, "Dota 2", 3600)
+            with pytest.raises(Exception, match="Database error"):
+                await manager.update_activity(123, "Dota 2", 3600)
 
     @pytest.mark.asyncio
     async def test_update_activity_race_condition_recovers(self, manager):

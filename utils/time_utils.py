@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo
 MOSCOW_TZ = ZoneInfo("Europe/Moscow")
 
 
+def moscow_today() -> date:
+    """Возвращает текущую календарную дату в московском часовом поясе."""
+    return datetime.now(MOSCOW_TZ).date()
+
+
 def split_interval_by_local_date(
     started_at: datetime,
     ended_at: datetime,

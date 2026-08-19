@@ -73,11 +73,9 @@ def mock_interaction(mock_guild: discord.Guild, mock_text_channel: discord.TextC
 @patch("utils.twitch_data_manager.TwitchDataManager", spec=TwitchDataManager)
 def mock_data_manager(MockDataManager):
     manager = MockDataManager.return_value
-    manager.initialize_table = AsyncMock()
     manager.add_streamer = AsyncMock(return_value=True)
     manager.remove_streamer = AsyncMock(return_value=True)
     manager.get_streamers = AsyncMock(return_value=[])
-    manager.get_all_streamers = AsyncMock(return_value=[])
     manager.update_twitch_id = AsyncMock()
     manager.update_streamer_status = AsyncMock()
     manager.update_notification_time = AsyncMock()
@@ -101,6 +99,7 @@ def mock_twitch_api_class(MockTwitchAPI):
 def twitch_cog(
     mock_bot: commands.Bot, mock_data_manager: TwitchDataManager, mock_twitch_api_class: MagicMock
 ):
+    mock_bot.guilds[0].id = 1
     with (
         patch("cogs.twitch.TwitchDataManager", return_value=mock_data_manager),
         patch("cogs.twitch.TwitchAPI", mock_twitch_api_class),
@@ -151,7 +150,6 @@ class TestTwitchCogInitAndLoad:
 
         with patch.object(twitch_cog.check_streams, "start") as mock_check_streams_start:
             await twitch_cog.cog_load()
-            mock_data_manager.initialize_table.assert_called_once()
             twitch_cog.twitch_api.initialize.assert_called_once()
             mock_check_streams_start.assert_called_once()
 
@@ -173,7 +171,6 @@ class TestTwitchCogInitAndLoad:
 
             with patch.object(cog.check_streams, "start") as mock_check_streams_start:
                 await cog.cog_load()
-                mock_data_manager.initialize_table.assert_called_once()
                 mock_check_streams_start.assert_not_called()
                 assert any(
                     "Twitch API не инициализирован" in call_args[0][0]
@@ -234,7 +231,7 @@ class TestTwitchCommands:
         assert twitch_cog.twitch_api is not None
         twitch_cog.twitch_api.get_user_by_username = AsyncMock(return_value=twitch_user_data)
         twitch_cog.twitch_api.is_user_live = AsyncMock(return_value=(True, stream_data))
-        twitch_cog.send_stream_notification = AsyncMock()
+        twitch_cog.send_stream_notification = AsyncMock(return_value=True)
 
         await twitch_cog.twitch_add.callback(
             twitch_cog, mock_interaction, twitch_username=twitch_username, channel=mock_text_channel
@@ -242,7 +239,7 @@ class TestTwitchCommands:
 
         mock_data_manager.add_streamer.assert_called_once()
         mock_data_manager.update_streamer_status.assert_called_once_with(
-            twitch_username, True, "stream123"
+            twitch_username, mock_interaction.guild_id, True, "stream123"
         )
         twitch_cog.send_stream_notification.assert_called_once_with(
             mock_interaction.guild_id, mock_text_channel.id, twitch_username, stream_data
@@ -252,6 +249,42 @@ class TestTwitchCommands:
         )
         mock_interaction.response.send_message.assert_called_once()
         assert "Стример сейчас в сети!" in mock_interaction.response.send_message.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_twitch_add_live_stream_retries_failed_notification(
+        self,
+        twitch_cog: TwitchCog,
+        mock_interaction: discord.Interaction,
+        mock_data_manager: TwitchDataManager,
+        mock_text_channel: discord.TextChannel,
+    ):
+        """Неудачная доставка не помечает текущий стрим уже уведомлённым."""
+        user = {"login": "live_streamer", "id": "67890", "display_name": "LiveStreamer"}
+        stream_data = {
+            "id": "stream123",
+            "title": "Live Stream Title",
+            "user_name": "LiveStreamer",
+            "game_name": "Cool Game",
+            "viewer_count": 100,
+            "thumbnail_url": "http://example.com/thumb-{width}x{height}.jpg",
+        }
+        assert twitch_cog.twitch_api is not None
+        twitch_cog.twitch_api.get_user_by_username = AsyncMock(return_value=user)
+        twitch_cog.twitch_api.is_user_live = AsyncMock(return_value=(True, stream_data))
+        twitch_cog.send_stream_notification = AsyncMock(return_value=False)
+
+        await twitch_cog.twitch_add.callback(
+            twitch_cog,
+            mock_interaction,
+            twitch_username=user["login"],
+            channel=mock_text_channel,
+        )
+
+        mock_data_manager.update_streamer_status.assert_not_awaited()
+        mock_data_manager.update_notification_time.assert_not_awaited()
+        assert twitch_cog.streamers_cache[user["login"]]["is_live"] is False
+        response = mock_interaction.response.send_message.call_args.args[0]
+        assert "повторит попытку" in response
 
     @pytest.mark.asyncio
     async def test_twitch_add_user_not_found(
@@ -333,8 +366,6 @@ class TestTwitchCommands:
     ):
         twitch_username = "teststreamer"
         mock_data_manager.remove_streamer.return_value = True
-        mock_data_manager.get_all_streamers = AsyncMock(return_value=[])
-
         await twitch_cog.twitch_remove.callback(
             twitch_cog, mock_interaction, twitch_username=twitch_username
         )
@@ -422,7 +453,7 @@ class TestCheckStreamsTask:
     async def test_check_streams_no_streamers(
         self, twitch_cog: TwitchCog, mock_data_manager: TwitchDataManager
     ):
-        mock_data_manager.get_all_streamers = AsyncMock(return_value=[])
+        mock_data_manager.get_streamers = AsyncMock(return_value=[])
         twitch_cog.first_run = False
         await twitch_cog.check_streams()
         assert twitch_cog.twitch_api is not None
@@ -453,7 +484,7 @@ class TestCheckStreamsTask:
                 "last_notification_time": 0,
             }
         ]
-        mock_data_manager.get_all_streamers = AsyncMock(return_value=streamers_db_data)
+        mock_data_manager.get_streamers = AsyncMock(return_value=streamers_db_data)
 
         twitch_user_api_data = [
             {"login": twitch_username, "id": user_id, "display_name": "NewlyLive"}
@@ -473,7 +504,7 @@ class TestCheckStreamsTask:
         assert twitch_cog.twitch_api is not None
         twitch_cog.twitch_api.get_users = AsyncMock(return_value=twitch_user_api_data)
         twitch_cog.twitch_api.get_streams = AsyncMock(return_value=twitch_streams_api_data)
-        twitch_cog.send_stream_notification = AsyncMock()
+        twitch_cog.send_stream_notification = AsyncMock(return_value=True)
 
         mock_bot.guilds = [mock_guild]
         twitch_cog.bot = mock_bot
@@ -484,7 +515,7 @@ class TestCheckStreamsTask:
         twitch_cog.twitch_api.get_users.assert_called_once_with([twitch_username])
         twitch_cog.twitch_api.get_streams.assert_called_once_with([user_id])
         mock_data_manager.update_streamer_status.assert_called_once_with(
-            twitch_username, True, stream_id
+            twitch_username, mock_guild.id, True, stream_id
         )
         twitch_cog.send_stream_notification.assert_called_once_with(
             mock_guild.id, channel_id_for_notif, twitch_username, twitch_streams_api_data[0]
@@ -504,7 +535,7 @@ class TestCheckStreamsTask:
         username = "alreadylive"
         user_id = "user123"
         stream_id = "streamXYZ"
-        mock_data_manager.get_all_streamers = AsyncMock(
+        mock_data_manager.get_streamers = AsyncMock(
             return_value=[
                 {
                     "guild_id": 1,
@@ -554,7 +585,7 @@ class TestCheckStreamsTask:
         username = "newlylive"
         user_id = "user123"
         stream_id = "streamXYZ"
-        mock_data_manager.get_all_streamers = AsyncMock(
+        mock_data_manager.get_streamers = AsyncMock(
             return_value=[
                 {
                     "guild_id": 1,
@@ -603,7 +634,7 @@ class TestCheckStreamsTask:
         username = "knownstream"
         user_id = "user123"
         stream_id = "streamXYZ"
-        mock_data_manager.get_all_streamers = AsyncMock(
+        mock_data_manager.get_streamers = AsyncMock(
             return_value=[
                 {
                     "guild_id": 1,
@@ -641,6 +672,7 @@ class TestCheckStreamsTask:
         twitch_cog.send_stream_notification.assert_not_awaited()
         mock_data_manager.update_streamer_status.assert_awaited_once_with(
             username,
+            1,
             True,
             stream_id,
         )
@@ -673,7 +705,7 @@ class TestCheckStreamsTask:
                 "last_notification_time": 1000,
             }
         ]
-        mock_data_manager.get_all_streamers = AsyncMock(return_value=streamers_db_data)
+        mock_data_manager.get_streamers = AsyncMock(return_value=streamers_db_data)
 
         twitch_user_api_data = [
             {"login": twitch_username, "id": user_id, "display_name": "GoingOffline"}
@@ -691,7 +723,9 @@ class TestCheckStreamsTask:
         twitch_cog.first_run = False
         await twitch_cog.check_streams()
 
-        mock_data_manager.update_streamer_status.assert_called_once_with(twitch_username, False)
+        mock_data_manager.update_streamer_status.assert_called_once_with(
+            twitch_username, mock_guild.id, False
+        )
         twitch_cog.send_stream_notification.assert_not_called()
         assert twitch_cog.streamers_cache[twitch_username]["is_live"] is False
 
@@ -716,7 +750,7 @@ class TestCheckStreamsTask:
                 "last_notification_time": 0,
             }
         ]  # twitch_id is None
-        mock_data_manager.get_all_streamers = AsyncMock(return_value=streamers_db_data)
+        mock_data_manager.get_streamers = AsyncMock(return_value=streamers_db_data)
 
         twitch_user_api_data = [
             {"login": twitch_username, "id": user_id_from_api, "display_name": "NeedsID"}
@@ -734,7 +768,7 @@ class TestCheckStreamsTask:
         await twitch_cog.check_streams()
 
         mock_data_manager.update_twitch_id.assert_called_once_with(
-            twitch_username, user_id_from_api
+            twitch_username, mock_guild.id, user_id_from_api
         )
 
 
@@ -756,7 +790,6 @@ class TestSendStreamNotification:
             "thumbnail_url": "http://example.com/{width}x{height}.jpg",
         }
 
-        mock_bot.guilds = [mock_guild]  # Убедимся, что у бота есть гильдии
         mock_bot.get_guild = MagicMock(
             return_value=mock_guild
         )  # bot.get_guild(guild_id) → mock_guild
@@ -805,9 +838,10 @@ class TestSendStreamNotification:
             )
 
     @pytest.mark.asyncio
-    async def test_send_notification_no_guilds(self, twitch_cog: TwitchCog, mock_bot: commands.Bot):
-        mock_bot.guilds = []
-        mock_bot.get_guild = MagicMock(return_value=None)  # ни в кэше, ни в guilds
+    async def test_send_notification_guild_not_cached(
+        self, twitch_cog: TwitchCog, mock_bot: commands.Bot
+    ):
+        mock_bot.get_guild = MagicMock(return_value=None)
         stream_data = {
             "title": "T",
             "user_name": "U",
@@ -817,7 +851,9 @@ class TestSendStreamNotification:
         }
         with patch("cogs.twitch.logger.error") as mock_logger_error:
             await twitch_cog.send_stream_notification(1, 301, "test", stream_data)
-            mock_logger_error.assert_called_once_with("Бот не подключен ни к одному серверу")
+            mock_logger_error.assert_called_once_with(
+                "Гильдия с ID %s не найдена в кеше Discord", 1
+            )
 
     @pytest.mark.asyncio
     async def test_send_notification_channel_not_found_uses_default(
@@ -836,7 +872,6 @@ class TestSendStreamNotification:
             "thumbnail_url": "http://example.com/{width}x{height}.jpg",
         }
 
-        mock_bot.guilds = [mock_guild]
         mock_bot.get_guild = MagicMock(return_value=mock_guild)
         # Первый get_channel (для channel_id) вернет None
         # Второй get_channel (для default_channel_id) вернет mock_text_channel
@@ -864,7 +899,6 @@ class TestSendStreamNotification:
             "viewer_count": 10,
             "thumbnail_url": "http://example.com/{width}x{height}.jpg",
         }
-        mock_bot.guilds = [mock_guild]
         mock_bot.get_guild = MagicMock(return_value=mock_guild)
         mock_guild.get_channel.return_value = mock_text_channel
         mock_text_channel.permissions_for.return_value = MagicMock(
