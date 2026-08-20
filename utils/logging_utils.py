@@ -1,5 +1,6 @@
 """Утилиты для расширенного логирования."""
 
+import copy
 import json
 import logging
 import os
@@ -7,13 +8,15 @@ import re
 import sys
 import time
 import traceback
-from collections.abc import Callable
-from datetime import UTC, datetime
+from collections.abc import Callable, Mapping
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
 import colorlog
+
+from utils.time_utils import MOSCOW_TZ
 
 # Типы для аннотаций
 F = TypeVar("F", bound=Callable[..., Any])
@@ -28,6 +31,112 @@ LOG_RETENTION_MAX_FILES = 30
 
 # Имена файлов логов: "YYYY-MM-DD_HH-MM-SS.log".
 _LOG_FILENAME_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.log$")
+
+REDACTED = "[REDACTED]"
+_SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?:^|[_-])(?:TOKEN|SECRET|PASSWORD|PASS|API[_-]?KEY|PRIVATE[_-]?KEY|"
+    r"AUTH(?:ORIZATION)?)(?:$|[_-])",
+    re.IGNORECASE,
+)
+_INLINE_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"(?i)(\bauthorization\b\s*[:=]\s*(?:bearer|bot)\s+)[^\s,;]+"),
+        rf"\1{REDACTED}",
+    ),
+    (
+        re.compile(
+            r"(?i)(\b(?:access[_-]?token|refresh[_-]?token|token|client[_-]?secret|"
+            r"secret|password|passwd|api[_-]?key|apikey)\b\s*[:=]\s*)"
+            r"[\"']?[^\s,;&\"'}]+[\"']?"
+        ),
+        rf"\1{REDACTED}",
+    ),
+    (
+        re.compile(r"(?i)(https?://)(?:[^/\s:@]+):(?:[^@/\s]+)@"),
+        rf"\1{REDACTED}@",
+    ),
+    (
+        re.compile(r"(?<![\w-])mfa\.[\w-]{20,}"),
+        REDACTED,
+    ),
+    (
+        re.compile(r"(?<![\w-])[MN][\w-]{20,}\.[\w-]{6}\.[\w-]{20,}"),
+        REDACTED,
+    ),
+    (
+        re.compile(r"(?<![\w-])eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),
+        REDACTED,
+    ),
+)
+
+
+def _is_sensitive_key(key: object) -> bool:
+    return bool(_SENSITIVE_KEY_PATTERN.search(str(key)))
+
+
+def _environment_secrets() -> list[str]:
+    values = {
+        value for key, value in os.environ.items() if _is_sensitive_key(key) and len(value) >= 4
+    }
+    return sorted(values, key=len, reverse=True)
+
+
+def redact_secrets(text: str) -> str:
+    """Скрывает известные секреты и типичные credential-паттерны в тексте."""
+    redacted = text
+    for secret in _environment_secrets():
+        redacted = redacted.replace(secret, REDACTED)
+    for pattern, replacement in _INLINE_SECRET_PATTERNS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted
+
+
+def redact_log_value(value: Any) -> Any:
+    """Рекурсивно очищает контекст лога, включая значения чувствительных ключей."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): REDACTED if _is_sensitive_key(key) else redact_log_value(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [redact_log_value(item) for item in value]
+    if isinstance(value, str):
+        return redact_secrets(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return redact_secrets(str(value))
+
+
+def _redacted_record(record: logging.LogRecord) -> logging.LogRecord:
+    clone = copy.copy(record)
+    clone.msg = redact_secrets(record.getMessage())
+    clone.args = ()
+    if hasattr(record, "context"):
+        clone.context = redact_log_value(record.context)
+    return clone
+
+
+def _moscow_time(timestamp: float) -> time.struct_time:
+    """Преобразует timestamp для текстовых formatter'ов в московское время."""
+    return datetime.fromtimestamp(timestamp, MOSCOW_TZ).timetuple()
+
+
+class RedactingFormatter(logging.Formatter):
+    """Обычный formatter с очисткой сообщения, контекста и traceback."""
+
+    converter = staticmethod(_moscow_time)
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_secrets(super().format(_redacted_record(record)))
+
+
+class RedactingColoredFormatter(colorlog.ColoredFormatter):
+    """Цветной консольный formatter с теми же правилами очистки."""
+
+    converter = staticmethod(_moscow_time)
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_secrets(super().format(_redacted_record(record)))
 
 
 # Класс для JSON-форматирования логов
@@ -45,10 +154,10 @@ class JsonFormatter(logging.Formatter):
             Строка в формате JSON.
         """
         log_data = {
-            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
+            "timestamp": datetime.fromtimestamp(record.created, MOSCOW_TZ).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": redact_secrets(record.getMessage()),
             "module": record.module,
             "function": record.funcName,
             "line": record.lineno,
@@ -56,17 +165,19 @@ class JsonFormatter(logging.Formatter):
 
         # Добавляем контекст, если он есть
         if hasattr(record, "context") and record.context:
-            log_data["context"] = record.context
+            log_data["context"] = redact_log_value(record.context)
 
         # Добавляем информацию об исключении, если оно есть
         if record.exc_info and record.exc_info[0] is not None:
             log_data["exception"] = {
                 "type": record.exc_info[0].__name__,
-                "message": str(record.exc_info[1]),
-                "traceback": traceback.format_exception(*record.exc_info),
+                "message": redact_secrets(str(record.exc_info[1])),
+                "traceback": [
+                    redact_secrets(line) for line in traceback.format_exception(*record.exc_info)
+                ],
             }
 
-        return json.dumps(log_data)
+        return json.dumps(log_data, ensure_ascii=False)
 
 
 def cleanup_old_logs(
@@ -154,7 +265,7 @@ def setup_logging(
         logger.warning("Ошибка при очистке старых логов: %s", exc)
 
     # Создаем уникальное имя файла для текущего запуска
-    log_filename = datetime.now(UTC).strftime("%Y-%m-%d_%H-%M-%S.log")
+    log_filename = datetime.now(MOSCOW_TZ).strftime("%Y-%m-%d_%H-%M-%S.log")
     log_path = log_dir_path / log_filename
 
     # Создаем/обновляем симлинк на последний лог
@@ -181,7 +292,7 @@ def setup_logging(
         file_handler.setFormatter(JsonFormatter())
     else:
         file_handler.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+            RedactingFormatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         )
 
     root_logger.addHandler(file_handler)
@@ -190,7 +301,7 @@ def setup_logging(
     if enable_console_logs:
         console_handler = colorlog.StreamHandler()
         console_handler.setFormatter(
-            colorlog.ColoredFormatter(
+            RedactingColoredFormatter(
                 "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
                 log_colors={
                     "DEBUG": "cyan",

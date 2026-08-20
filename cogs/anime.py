@@ -15,7 +15,7 @@
 import logging
 import random
 from collections import deque
-from datetime import time
+from datetime import UTC, time
 from time import time as unix_now
 from typing import Any, Literal, NamedTuple
 
@@ -124,17 +124,38 @@ class AnimeCog(commands.Cog):
             return
 
         morning_time = time(
-            hour=settings.anime.schedule.morning_hour, minute=settings.anime.schedule.morning_minute
+            hour=settings.anime.schedule.morning_hour,
+            minute=settings.anime.schedule.morning_minute,
+            tzinfo=UTC,
         )
         evening_time = time(
-            hour=settings.anime.schedule.evening_hour, minute=settings.anime.schedule.evening_minute
+            hour=settings.anime.schedule.evening_hour,
+            minute=settings.anime.schedule.evening_minute,
+            tzinfo=UTC,
         )
 
         self.morning_post.change_interval(time=morning_time)
         self.evening_post.change_interval(time=evening_time)
 
-        self.morning_post.start()
-        self.evening_post.start()
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Запускает ежедневные публикации после готовности Discord-клиента."""
+        if not self.channel_id:
+            return
+
+        scheduled_posts = (
+            ("morning_post", self.morning_post, "10:00 UTC"),
+            ("evening_post", self.evening_post, "18:00 UTC"),
+        )
+        for task_name, scheduled_post, scheduled_time in scheduled_posts:
+            if scheduled_post.is_running():
+                continue
+            scheduled_post.start()
+            logger.info(
+                "Задача %s публикации аниме запущена; расписание: %s.",
+                task_name,
+                scheduled_time,
+            )
 
     def _get_session(self) -> aiohttp.ClientSession:
         """Возвращает переиспользуемую aiohttp-сессию с User-Agent для Danbooru."""
@@ -163,8 +184,10 @@ class AnimeCog(commands.Cog):
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога, останавливает задачи и закрывает сессию."""
         logger.info("Остановка задач публикации аниме...")
-        self.morning_post.cancel()
-        self.evening_post.cancel()
+        if self.morning_post.is_running():
+            self.morning_post.cancel()
+        if self.evening_post.is_running():
+            self.evening_post.cancel()
         if self._session and not self._session.closed:
             await self._session.close()
 
@@ -481,13 +504,13 @@ class AnimeCog(commands.Cog):
 
     # --- Фоновые задачи ---
 
-    @tasks.loop(time=time(hour=10, minute=0))
+    @tasks.loop(time=time(hour=10, minute=0, tzinfo=UTC))
     async def morning_post(self) -> None:
         """Ежедневная утренняя публикация."""
         logger.info("Запуск утренней публикации аниме...")
         await self.post_anime_image()
 
-    @tasks.loop(time=time(hour=18, minute=0))
+    @tasks.loop(time=time(hour=18, minute=0, tzinfo=UTC))
     async def evening_post(self) -> None:
         """Ежедневная вечерняя публикация."""
         logger.info("Запуск вечерней публикации аниме...")
@@ -504,6 +527,24 @@ class AnimeCog(commands.Cog):
         """Ожидает готовности бота перед первым запуском вечерней задачи."""
         await self.bot.wait_until_ready()
         logger.info("Задача evening_post готова к запуску.")
+
+    @morning_post.error
+    async def on_morning_post_error(self, error: Exception) -> None:
+        """Логирует остановку утренней задачи публикации."""
+        logger.error(
+            "Утренняя задача публикации аниме остановлена: %s",
+            error,
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
+    @evening_post.error
+    async def on_evening_post_error(self, error: Exception) -> None:
+        """Логирует остановку вечерней задачи публикации."""
+        logger.error(
+            "Вечерняя задача публикации аниме остановлена: %s",
+            error,
+            exc_info=(type(error), error, error.__traceback__),
+        )
 
     # --- Команды ---
 
