@@ -10,7 +10,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from utils.logging_utils import JsonFormatter, cleanup_old_logs, setup_logging, with_context
+from utils.logging_utils import (
+    REDACTED,
+    JsonFormatter,
+    RedactingFormatter,
+    cleanup_old_logs,
+    redact_log_value,
+    redact_secrets,
+    setup_logging,
+    with_context,
+)
 
 
 class TestJsonFormatter:
@@ -44,7 +53,7 @@ class TestJsonFormatter:
         assert log_data["message"] == "Test message"
         assert log_data["line"] == 42
         assert "timestamp" in log_data
-        assert log_data["timestamp"].endswith("+00:00")
+        assert log_data["timestamp"].endswith("+03:00")
         assert "module" in log_data
         assert "function" in log_data
 
@@ -108,6 +117,86 @@ class TestJsonFormatter:
         assert log_data["exception"]["message"] == "Test exception"
         assert isinstance(log_data["exception"]["traceback"], list)
 
+    def test_json_formatter_redacts_message_context_and_exception(self):
+        """Секрет не попадает ни в одно поле структурированного лога."""
+        try:
+            raise RuntimeError("token=exception-secret")
+        except RuntimeError:
+            exc_info = sys.exc_info()
+        record = logging.LogRecord(
+            name="test_logger",
+            level=logging.ERROR,
+            pathname="test_path",
+            lineno=42,
+            msg="Authorization: Bearer message-secret",
+            args=(),
+            exc_info=exc_info,
+        )
+        record.context = {
+            "api_key": "context-secret",
+            "nested": {"value": "password=nested-secret"},
+        }
+
+        formatted = JsonFormatter().format(record)
+
+        assert "message-secret" not in formatted
+        assert "exception-secret" not in formatted
+        assert "context-secret" not in formatted
+        assert "nested-secret" not in formatted
+        assert formatted.count(REDACTED) >= 4
+
+
+class TestSecretRedaction:
+    """Единые правила очистки для всех обработчиков логов."""
+
+    def test_redacts_environment_value_and_common_patterns(self):
+        with patch.dict(os.environ, {"BOT_TOKEN": "exact-environment-secret"}):
+            result = redact_secrets(
+                "exact-environment-secret token=query-secret "
+                "Authorization: Bearer bearer-secret https://user:pass@example.com"
+            )
+
+        assert "exact-environment-secret" not in result
+        assert "query-secret" not in result
+        assert "bearer-secret" not in result
+        assert "user:pass" not in result
+
+    def test_redacts_sensitive_mapping_keys_recursively(self):
+        result = redact_log_value(
+            {
+                "client_secret": "raw-secret",
+                "compass": "ordinary-value",
+                "safe": ["token=list-secret", {"password": "raw-password"}],
+            }
+        )
+
+        assert result == {
+            "client_secret": REDACTED,
+            "compass": "ordinary-value",
+            "safe": [f"token={REDACTED}", {"password": REDACTED}],
+        }
+
+    def test_plain_formatter_redacts_traceback(self):
+        try:
+            raise RuntimeError("password=traceback-secret")
+        except RuntimeError:
+            exc_info = sys.exc_info()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.ERROR,
+            pathname="test.py",
+            lineno=1,
+            msg="token=message-secret",
+            args=(),
+            exc_info=exc_info,
+        )
+
+        formatted = RedactingFormatter("%(message)s").format(record)
+
+        assert "message-secret" not in formatted
+        assert "traceback-secret" not in formatted
+        assert REDACTED in formatted
+
 
 class TestSetupLogging:
     """Тесты для функции setup_logging."""
@@ -157,7 +246,7 @@ class TestSetupLogging:
         ) as mock_stream_handler, patch(
             "utils.logging_utils.JsonFormatter"
         ) as mock_json_formatter, patch(
-            "utils.logging_utils.logging.Formatter"
+            "utils.logging_utils.RedactingFormatter"
         ) as mock_formatter, patch(
             "utils.logging_utils.logging.getLogger"
         ) as mock_get_logger:

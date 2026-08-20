@@ -1,5 +1,6 @@
 """Тесты для кога AnimeCog."""
 
+from datetime import UTC, time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -83,10 +84,12 @@ class TestAnimeCogInit:
         mock_morning_task = MagicMock()
         mock_morning_task.change_interval = MagicMock()
         mock_morning_task.start = MagicMock()
+        mock_morning_task.is_running = MagicMock(return_value=False)
 
         mock_evening_task = MagicMock()
         mock_evening_task.change_interval = MagicMock()
         mock_evening_task.start = MagicMock()
+        mock_evening_task.is_running = MagicMock(return_value=False)
 
         with (
             patch("cogs.anime.get_settings", return_value=create_mock_settings()),
@@ -100,11 +103,31 @@ class TestAnimeCogInit:
             assert anime_cog.bot == mock_bot
             assert anime_cog.channel_id == 123456789
 
-            mock_morning_task.change_interval.assert_called_once()
-            mock_evening_task.change_interval.assert_called_once()
+            mock_morning_task.change_interval.assert_called_once_with(time=time(10, tzinfo=UTC))
+            mock_evening_task.change_interval.assert_called_once_with(time=time(18, tzinfo=UTC))
 
-            mock_morning_task.start.assert_called_once()
-            mock_evening_task.start.assert_called_once()
+            mock_morning_task.start.assert_not_called()
+            mock_evening_task.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_on_ready_starts_scheduled_posts_once(self, mock_bot):
+        """Задачи запускаются после готовности бота и не дублируются при reconnect."""
+        mock_morning_task = MagicMock()
+        mock_morning_task.is_running.side_effect = [False, True]
+        mock_evening_task = MagicMock()
+        mock_evening_task.is_running.side_effect = [False, True]
+
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch.object(AnimeCog, "morning_post", mock_morning_task),
+            patch.object(AnimeCog, "evening_post", mock_evening_task),
+        ):
+            anime_cog = AnimeCog(mock_bot)
+            await anime_cog.on_ready()
+            await anime_cog.on_ready()
+
+        mock_morning_task.start.assert_called_once_with()
+        mock_evening_task.start.assert_called_once_with()
 
 
 class TestAnimeCacheDatabase:
