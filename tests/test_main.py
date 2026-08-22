@@ -117,6 +117,15 @@ class TestMainWithNewConfig:
                     assert main_module.bot.command_prefix == "?"
                     assert hasattr(main_module.bot, "settings")
 
+    def test_runtime_revision_uses_build_value_or_development(self) -> None:
+        import main as main_module
+
+        with patch.dict(os.environ, {"BOT_REVISION": "abc123"}):
+            assert main_module.get_runtime_revision() == "abc123"
+
+        with patch.dict(os.environ, {"BOT_REVISION": "   "}):
+            assert main_module.get_runtime_revision() == "development"
+
     @pytest.mark.asyncio
     async def test_setup_hook_calls_sync(self):
         """setup_hook делегирует синк команд в _sync_commands."""

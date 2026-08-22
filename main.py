@@ -13,6 +13,7 @@
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from collections.abc import Awaitable, Callable
@@ -43,6 +44,12 @@ logger: logging.Logger = logging.getLogger("bot.main")
 BOT_CLOSE_TIMEOUT_SECONDS = 3.0
 RESOURCE_CLOSE_TIMEOUT_SECONDS = 2.0
 DATABASE_CLOSE_TIMEOUT_SECONDS = 2.0
+
+
+def get_runtime_revision() -> str:
+    """Возвращает идентификатор сборки для логов и production-диагностики."""
+    return os.getenv("BOT_REVISION", "").strip() or "development"
+
 
 # Настройка интентов бота
 intents: Intents = Intents.default()
@@ -299,6 +306,7 @@ async def main() -> None:
     current_task = asyncio.current_task()
     installed_signals = _install_shutdown_handlers(current_task) if current_task else []
     try:
+        logger.info("Версия сборки: %s", get_runtime_revision())
         logger.info(f"Используется файл базы данных: {DB_PATH}")
         await initialize_database()
         database_initialized = True

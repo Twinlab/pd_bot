@@ -53,10 +53,15 @@ RUN pip install .
 # Stage 2: Runtime
 FROM python:3.13.14-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64
 
+ARG APP_REVISION=development
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    BOT_REVISION="$APP_REVISION"
+
+LABEL org.opencontainers.image.revision="$APP_REVISION"
 
 WORKDIR /app
 
