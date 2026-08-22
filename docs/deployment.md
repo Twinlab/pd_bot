@@ -196,3 +196,65 @@ docker compose pull bot yt-cipher
 docker compose up -d --force-recreate yt-cipher lavalink bot
 docker compose ps
 ```
+
+---
+
+## Идентификация production-сборки
+
+CI передаёт полный `${{ github.sha }}` в Docker build-arg `APP_REVISION`. Runtime-образ
+сохраняет его в `BOT_REVISION`, а `main.py` пишет значение в стартовый лог:
+
+```text
+Версия сборки: <git-sha>
+```
+
+Локальная сборка без аргумента получает значение `development`. Это позволяет после
+обновления Watchtower сопоставить работающий контейнер с конкретным коммитом, не
+полагаясь только на изменяемый тег `latest`.
+
+## Backup SQLite на VM
+
+Production-база копируется независимо от bot-контейнера. Версия скрипта хранится в
+`ops/backup_db.sh`, на VM устанавливается как `/home/twinlab/backup_db.sh` и
+запускается cron ежедневно в 04:30 МСК:
+
+```cron
+30 4 * * * /home/twinlab/backup_db.sh >> /home/twinlab/backup_db.log 2>&1
+```
+
+Скрипт:
+
+- создаёт согласованный snapshot через SQLite `VACUUM INTO`, поэтому активный WAL не
+  требуется копировать отдельно;
+- проверяет `integrity_check` и внешние ключи до сжатия;
+- распаковывает архив во временный файл и повторно проверяет восстановленную БД;
+- хранит 14 последних локальных копий;
+- отправляет архив во внешнее хранилище через Discord webhook;
+- сообщает в тот же webhook о неуспешном запуске, если URL доступен.
+
+Webhook хранится только на VM в `/home/twinlab/.pd_bot_backup.env`:
+
+```dotenv
+DB_BACKUP_WEBHOOK_URL=https://discord.com/api/webhooks/...
+```
+
+Файл должен иметь права `600`, скрипт — `700`. Значение webhook нельзя добавлять в
+репозиторий или печатать в диагностике.
+
+### Проверка последней копии без остановки бота
+
+Проверка работает с отдельным временным файлом и не изменяет production-БД:
+
+```bash
+latest="$(find backups/db -maxdepth 1 -type f -name 'bot_data-*.db.gz' \
+  -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
+restored="$(mktemp /tmp/pd_bot_restore_check.XXXXXX.db)"
+gzip -t "$latest"
+gzip -dc "$latest" > "$restored"
+sqlite3 "$restored" 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
+rm -f -- "$restored"
+```
+
+Ожидаемый результат `integrity_check` — `ok`, а `foreign_key_check` не должен
+возвращать строк. Полное восстановление production-БД выполняется только при
+остановленном bot-контейнере и после сохранения отдельной копии текущей базы.
