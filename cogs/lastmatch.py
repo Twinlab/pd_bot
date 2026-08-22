@@ -37,6 +37,22 @@ class LastMatchCog(commands.Cog):
         # если LinksCog ещё не загружен. LinksDataManager stateless — берём напрямую.
         self.links_manager = LinksDataManager()
 
+    async def send_last_match(
+        self,
+        ctx: commands.Context,
+        member: discord.Member | None = None,
+    ) -> None:
+        """Загружает привязки и отправляет карточку последнего матча."""
+        target_user = member if member else ctx.author
+        try:
+            user_links_list = await self.links_manager.get_links(target_user.id)
+        except Exception as e:
+            await safe_send_error(ctx, "Ошибка при получении привязанных аккаунтов.")
+            logger.error(f"Ошибка при вызове links_manager.get_links: {e}", exc_info=True)
+            return
+
+        await handle_lastmatch(ctx, user_links_list, member)
+
     @commands.hybrid_command(description="Показать информацию о последнем матче Dota 2")
     @app_commands.describe(member="Чей матч показать (по умолчанию — твой)")
     @command_error_handler
@@ -46,18 +62,8 @@ class LastMatchCog(commands.Cog):
         Для указанного пользователя (или автора команды).
         Требует предварительной привязки Steam ID через команду /link.
         """
-        target_user = member if member else ctx.author
-        user_id = target_user.id
-
-        try:
-            user_links_list = await self.links_manager.get_links(user_id)
-        except Exception as e:
-            await safe_send_error(ctx, "Ошибка при получении привязанных аккаунтов.")
-            logger.error(f"Ошибка при вызове links_manager.get_links: {e}", exc_info=True)
-            return
-
         await ctx.defer()
-        await handle_lastmatch(ctx, user_links_list, member)
+        await self.send_last_match(ctx, member)
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""

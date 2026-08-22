@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
+from typing import Any, Protocol, cast
 
 import discord
 from discord import app_commands
@@ -11,9 +11,37 @@ from discord.ext import commands
 
 from utils.activity.helpers import is_application
 from utils.error_handler import command_error_handler, safe_send_error
-from utils.profile import ProfilePeriod, ProfileStatsBuilder, ProfileView
+from utils.profile import (
+    ProfileMatchGame,
+    ProfilePeriod,
+    ProfileStatsBuilder,
+    ProfileView,
+)
 
 logger = logging.getLogger("bot.cogs.profile")
+
+
+class _LastMatchSender(Protocol):
+    async def send_last_match(
+        self,
+        ctx: commands.Context,
+        member: discord.Member | None = None,
+    ) -> None: ...
+
+
+class _EphemeralInteractionContext:
+    """Минимальный Context-адаптер для существующих рендереров матчей."""
+
+    def __init__(self, bot: commands.Bot, interaction: discord.Interaction) -> None:
+        self.bot = bot
+        self.author = interaction.user
+        self._interaction = interaction
+
+    async def send(self, content: str | None = None, **kwargs: Any) -> Any:
+        """Отправляет результат только нажавшему кнопку пользователю."""
+        kwargs["ephemeral"] = True
+        kwargs["wait"] = True
+        return await self._interaction.followup.send(content, **kwargs)
 
 
 class ProfileCog(commands.Cog):
@@ -64,7 +92,30 @@ class ProfileCog(commands.Cog):
             builder=self.builder,
             stats=stats,
             eligible_user_ids=eligible_user_ids,
+            match_callback=self._send_profile_match,
         )
+
+    async def _send_profile_match(
+        self,
+        interaction: discord.Interaction,
+        target: discord.Member,
+        game: ProfileMatchGame,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        cog_name = "LastMatchCog" if game == "dota" else "CsLastMatchCog"
+        sender = cast(_LastMatchSender | None, self.bot.get_cog(cog_name))
+        if sender is None:
+            await interaction.followup.send(
+                "Просмотр матчей сейчас недоступен.",
+                ephemeral=True,
+            )
+            return
+
+        context = cast(
+            commands.Context,
+            _EphemeralInteractionContext(self.bot, interaction),
+        )
+        await sender.send_last_match(context, target)
 
     async def send_from_context(
         self,

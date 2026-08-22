@@ -8,12 +8,13 @@ from .builder import (
     ProfileStats,
     ProfileStatsBuilder,
 )
-from .views import ProfileView
+from .views import ProfileMatchGame, ProfileView
 
 __all__ = [
     "FaceitAccount",
     "ProfileAccounts",
     "ProfileMoment",
+    "ProfileMatchGame",
     "ProfilePeriod",
     "ProfileStats",
     "ProfileStatsBuilder",

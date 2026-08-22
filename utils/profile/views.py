@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import date, datetime
 from typing import Literal
 from urllib.parse import quote
@@ -13,6 +14,7 @@ from discord import ButtonStyle, Interaction, ui
 
 from config import get_settings
 from utils.activity.helpers import format_time_short
+from utils.error_handler import get_incident_error_message, new_incident_id
 from utils.time_utils import MOSCOW_TZ
 
 from .builder import (
@@ -27,6 +29,8 @@ from .builder import (
 logger = logging.getLogger("bot.utils.profile_views")
 
 ProfileTab = Literal["overview", "games", "moments", "accounts"]
+ProfileMatchGame = Literal["dota", "cs"]
+ProfileMatchCallback = Callable[[Interaction, discord.Member, ProfileMatchGame], Awaitable[None]]
 PROFILE_TIMEOUT_SECONDS = 900
 GAMES_PER_PAGE = 5
 MOMENTS_LIMIT = 3
@@ -142,6 +146,18 @@ class _GamesPager(ui.ActionRow["ProfileView"]):
         await self.view.change_games_page(interaction, 1)
 
 
+class _ProfileMatchActions(ui.ActionRow["ProfileView"]):
+    """Быстрые действия с последними матчами владельца профиля."""
+
+    @ui.button(label="Последний матч Dota 2", custom_id="profile_match:dota")
+    async def dota(self, interaction: Interaction, _button: ui.Button) -> None:
+        await self.view.show_last_match(interaction, "dota")
+
+    @ui.button(label="Последний матч CS2", custom_id="profile_match:cs")
+    async def cs(self, interaction: Interaction, _button: ui.Button) -> None:
+        await self.view.show_last_match(interaction, "cs")
+
+
 class ProfilePeriodModal(ui.Modal, title="Выбрать период"):
     """Модалка выбора произвольного месяца."""
 
@@ -206,11 +222,13 @@ class ProfileView(ui.LayoutView):
         builder: ProfileStatsBuilder,
         stats: ProfileStats,
         eligible_user_ids: set[int],
+        match_callback: ProfileMatchCallback | None = None,
     ) -> None:
         super().__init__(timeout=PROFILE_TIMEOUT_SECONDS)
         self.target = target
         self.builder = builder
         self.eligible_user_ids = eligible_user_ids
+        self.match_callback = match_callback
         self.period = stats.period
         self.active_tab: ProfileTab = "overview"
         self.games_page = 0
@@ -219,6 +237,7 @@ class ProfileView(ui.LayoutView):
         self._moments_cache: dict[ProfilePeriod, list[ProfileMoment]] = {}
         self._accounts: ProfileAccounts | None = None
         self._interaction_lock = asyncio.Lock()
+        self._active_match_requests: set[int] = set()
         self._render()
 
     def _current_game(self) -> str | None:
@@ -417,6 +436,9 @@ class ProfileView(ui.LayoutView):
             self._add_accounts(container, self._accounts or ProfileAccounts())
 
         container.add_item(ui.Separator())
+        if self.match_callback is not None:
+            container.add_item(_ProfileMatchActions())
+            container.add_item(ui.Separator())
         container.add_item(_ProfileTabs(self.active_tab))
         if self.active_tab != "accounts":
             container.add_item(_ProfilePeriods(self.period))
@@ -460,6 +482,32 @@ class ProfileView(ui.LayoutView):
             self._render()
             await interaction.edit_original_response(view=self)
 
+    async def show_last_match(
+        self,
+        interaction: Interaction,
+        game: ProfileMatchGame,
+    ) -> None:
+        """Отправляет приватную карточку последнего матча владельца профиля."""
+        if self.match_callback is None:
+            await interaction.response.send_message(
+                "Просмотр матчей сейчас недоступен.",
+                ephemeral=True,
+            )
+            return
+        user_id = interaction.user.id
+        if user_id in self._active_match_requests:
+            await interaction.response.send_message(
+                "Последний матч уже загружается.",
+                ephemeral=True,
+            )
+            return
+
+        self._active_match_requests.add(user_id)
+        try:
+            await self.match_callback(interaction, self.target, game)
+        finally:
+            self._active_match_requests.discard(user_id)
+
     async def on_timeout(self) -> None:
         """Отключает интерактивные кнопки, сохраняя внешние ссылки."""
         for child in self.walk_children():
@@ -478,11 +526,19 @@ class ProfileView(ui.LayoutView):
         item: ui.Item[ProfileView],
     ) -> None:
         """Логирует ошибку компонента и отвечает только инициатору."""
+        incident_id = new_incident_id()
         logger.error(
-            f"Ошибка ProfileView в компоненте {item}: {error}",
+            f"Ошибка ProfileView в компоненте {item} [{incident_id}]: {error}",
             exc_info=(type(error), error, error.__traceback__),
+            extra={
+                "context": {
+                    "incident_id": incident_id,
+                    "profile_user_id": self.target.id,
+                    "interaction_user_id": interaction.user.id,
+                }
+            },
         )
-        message = "Не удалось обновить профиль. Попробуйте ещё раз."
+        message = get_incident_error_message(incident_id)
         if interaction.response.is_done():
             await interaction.followup.send(message, ephemeral=True)
         else:

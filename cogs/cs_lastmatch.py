@@ -26,6 +26,22 @@ class CsLastMatchCog(commands.Cog):
         self.bot: commands.Bot = bot
         self.links_manager = CsLinksDataManager()
 
+    async def send_last_match(
+        self,
+        ctx: commands.Context,
+        member: discord.Member | None = None,
+    ) -> None:
+        """Загружает привязки и отправляет карточку последнего матча."""
+        target_user = member if member else ctx.author
+        try:
+            links = await self.links_manager.get_links(target_user.id)
+        except Exception as e:
+            await safe_send_error(ctx, "Ошибка при получении привязанных аккаунтов.")
+            logger.error(f"Ошибка при вызове cs links_manager.get_links: {e}", exc_info=True)
+            return
+
+        await handle_cs_lastmatch(ctx, links, member)
+
     @commands.hybrid_command(description="Показать информацию о последнем матче CS2 (FACEIT)")
     @app_commands.describe(member="Чей матч показать (по умолчанию — твой)")
     @command_error_handler
@@ -37,18 +53,8 @@ class CsLastMatchCog(commands.Cog):
         Для указанного пользователя (или автора команды). Требует привязки
         аккаунта FACEIT через команду `/cslink`.
         """
-        target_user = member if member else ctx.author
-        user_id = target_user.id
-
-        try:
-            links = await self.links_manager.get_links(user_id)
-        except Exception as e:
-            await safe_send_error(ctx, "Ошибка при получении привязанных аккаунтов.")
-            logger.error(f"Ошибка при вызове cs links_manager.get_links: {e}", exc_info=True)
-            return
-
         await ctx.defer()
-        await handle_cs_lastmatch(ctx, links, member)
+        await self.send_last_match(ctx, member)
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""
