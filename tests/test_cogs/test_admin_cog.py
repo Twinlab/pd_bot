@@ -347,6 +347,13 @@ class TestKickCommand:
 class TestRestartCommand:
     """Тесты для команды restart."""
 
+    def test_restart_is_hidden_from_regular_members(self, admin_cog: AdminCog) -> None:
+        permissions = admin_cog.restart.app_command.default_permissions
+
+        assert permissions is not None
+        assert permissions.administrator is True
+        assert admin_cog.restart.app_command.guild_only is True
+
     @pytest.mark.asyncio
     async def test_restart_successful_prefix(self, admin_cog: AdminCog, mock_context: commands.Context, mock_bot: commands.Bot):
         """Тест успешного перезапуска как префиксной команды."""

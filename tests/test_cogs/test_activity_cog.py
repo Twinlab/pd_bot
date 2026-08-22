@@ -1054,31 +1054,10 @@ class TestCommandsEdgeCases:
                 call_args = mock_context.send.call_args
                 assert "[ТЕСТ]" in call_args[1]["content"]
 
-    @pytest.mark.asyncio
-    async def test_mystats_command_invalid_month(self, mock_bot, mock_context, mock_member):
-        """Тест команды mystats_command с неверным месяцем."""
-        # Патчим tasks.loop, чтобы избежать проблем с циклом событий
-        with patch("discord.ext.tasks.loop", return_value=MagicMock()):
-            # Создаем экземпляр ActivityTracker
-            activity_tracker = ActivityTracker(mock_bot)
+def test_legacy_profile_aliases_are_not_registered() -> None:
+    registered = {command.name for command in ActivityTracker.__cog_commands__}
 
-            # Настраиваем mock_context
-            mock_context.author = mock_member
-
-            # Вызываем метод с неверным месяцем
-            await activity_tracker.mystats_command.callback(
-                activity_tracker,
-                mock_context,
-                None,
-                13,
-                None,  # Месяц 13 - неверный
-            )
-
-            # Ошибка уходит через safe_send_error → ctx.send(embed=...)
-            mock_context.send.assert_called_once()
-            assert (
-                "Неверный номер месяца" in mock_context.send.call_args.kwargs["embed"].description
-            )
+    assert registered.isdisjoint({"mystats", "mystatsall"})
 
 
 # Локальный cog_command_error удалён — обработка ошибок централизована

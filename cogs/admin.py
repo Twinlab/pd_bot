@@ -293,6 +293,8 @@ class AdminCog(commands.Cog):
     @commands.hybrid_command(
         name="restart", description="Перезапускает бота (только для владельца)"
     )
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
     @commands.is_owner()
     @command_error_handler
     async def restart(self, ctx: commands.Context) -> None:

@@ -6,9 +6,8 @@ import discord
 import pytest
 from discord.ext import commands
 
-from cogs.activity import ActivityTracker
 from cogs.profile import ProfileCog, setup
-from utils.profile import ProfilePeriod, ProfileStats
+from utils.profile import ProfileStats
 
 
 @pytest.fixture
@@ -94,41 +93,6 @@ async def test_profile_match_button_handles_missing_cog(
         "Просмотр матчей сейчас недоступен.",
         ephemeral=True,
     )
-
-
-@pytest.mark.asyncio
-async def test_mystats_alias_delegates_to_profile(mock_bot, mock_context, mock_member) -> None:
-    tracker = ActivityTracker.__new__(ActivityTracker)
-    tracker.bot = mock_bot
-    profile_cog = ProfileCog.__new__(ProfileCog)
-    profile_cog.send_from_context = AsyncMock()
-    mock_bot.get_cog.return_value = profile_cog
-    mock_context.author = mock_member
-
-    await tracker.mystats_command.callback(
-        tracker,
-        mock_context,
-        month=6,
-        year=2025,
-    )
-
-    period = profile_cog.send_from_context.await_args.args[2]
-    assert period == ProfilePeriod("month", 2025, 6)
-
-
-@pytest.mark.asyncio
-async def test_mystatsall_alias_delegates_to_profile(mock_bot, mock_context, mock_member) -> None:
-    tracker = ActivityTracker.__new__(ActivityTracker)
-    tracker.bot = mock_bot
-    profile_cog = ProfileCog.__new__(ProfileCog)
-    profile_cog.send_from_context = AsyncMock()
-    mock_bot.get_cog.return_value = profile_cog
-    mock_context.author = mock_member
-
-    await tracker.mystatsall_command.callback(tracker, mock_context)
-
-    period = profile_cog.send_from_context.await_args.args[2]
-    assert period == ProfilePeriod.all_time()
 
 
 @pytest.mark.asyncio

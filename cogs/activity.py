@@ -15,7 +15,6 @@
 import asyncio
 import logging
 from datetime import UTC, date, datetime, time
-from typing import Protocol, cast
 
 import discord
 from discord import app_commands
@@ -33,21 +32,9 @@ from utils.activity.reports import (
 from utils.activity.views import ActivityView
 from utils.activity_data_manager import ActivityDataManager
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
-from utils.profile import ProfilePeriod
 from utils.time_utils import MOSCOW_TZ, moscow_today, split_interval_by_local_date
 
 logger: logging.Logger = logging.getLogger("bot.cogs.activity")
-
-
-class _ProfileSender(Protocol):
-    """Минимальный интерфейс нового профиля для старых команд-алиасов."""
-
-    async def send_from_context(
-        self,
-        ctx: commands.Context,
-        target: discord.Member,
-        period: ProfilePeriod,
-    ) -> None: ...
 
 
 class ActivityTracker(commands.Cog):
@@ -97,13 +84,6 @@ class ActivityTracker(commands.Cog):
             )
         except Exception as e:
             logger.error(f"Не удалось запустить фоновые задачи ActivityTracker: {e}", exc_info=True)
-
-    def _profile_cog(self) -> _ProfileSender:
-        """Возвращает загруженный модуль единого профиля."""
-        profile_cog = self.bot.get_cog("ProfileCog")
-        if not isinstance(profile_cog, commands.Cog):
-            raise RuntimeError("ProfileCog не загружен")
-        return cast(_ProfileSender, profile_cog)
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -576,68 +556,6 @@ class ActivityTracker(commands.Cog):
             content=f"{message_content}\n{view.get_current_content()}", view=view
         )
         view.message = message  # Сохраняем для таймаута
-
-    @commands.hybrid_command(  # type: ignore[arg-type]
-        name="mystats", description="Открыть профиль пользователя за выбранный месяц."
-    )
-    @app_commands.guild_only()
-    @commands.guild_only()
-    @app_commands.describe(
-        user="Пользователь, чью статистику показать (по умолчанию - вы).",
-        month="Месяц (число от 1 до 12, по умолчанию - текущий).",
-        year="Год (по умолчанию - текущий).",
-    )
-    @command_error_handler
-    async def mystats_command(
-        self,
-        ctx: commands.Context,
-        user: discord.Member | None = None,
-        month: int | None = None,
-        year: int | None = None,
-    ) -> None:
-        """Открывает единый профиль за указанный месяц."""
-        target_user = user if user else ctx.author
-        logger.info(
-            f"Команда /mystats вызвана {ctx.author} для {target_user} (Месяц: {month}, Год: {year})"
-        )
-
-        today = moscow_today()
-
-        target_year = year if year is not None else today.year
-        if month is not None:
-            if not 1 <= month <= 12:
-                await safe_send_error(ctx, "Неверный номер месяца. Укажите число от 1 до 12.")
-                return
-            target_month = month
-        else:
-            target_month = today.month
-
-        await self._profile_cog().send_from_context(
-            ctx,
-            cast(discord.Member, target_user),
-            ProfilePeriod("month", target_year, target_month),
-        )
-
-    @commands.hybrid_command(  # type: ignore[arg-type]
-        name="mystatsall",
-        description="Открыть профиль пользователя за всё время.",
-    )
-    @app_commands.guild_only()
-    @commands.guild_only()
-    @app_commands.describe(user="Пользователь, чью статистику показать (по умолчанию - вы).")
-    @command_error_handler
-    async def mystatsall_command(
-        self, ctx: commands.Context, user: discord.Member | None = None
-    ) -> None:
-        """Открывает единый профиль за всё доступное время."""
-        target_user = user if user else ctx.author
-        logger.info(f"Команда /mystatsall вызвана {ctx.author} для {target_user}")
-
-        await self._profile_cog().send_from_context(
-            ctx,
-            cast(discord.Member, target_user),
-            ProfilePeriod.all_time(),
-        )
 
     # --- Команды для ручного запуска отчетов ---
 
