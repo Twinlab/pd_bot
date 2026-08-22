@@ -8,18 +8,14 @@ import re
 import sys
 import time
 import traceback
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import datetime
-from functools import wraps
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any
 
 import colorlog
 
 from utils.time_utils import MOSCOW_TZ
-
-# Типы для аннотаций
-F = TypeVar("F", bound=Callable[..., Any])
 
 # Настройка логгера для модуля
 logger = logging.getLogger("bot.utils.logging_utils")
@@ -116,8 +112,10 @@ def _redacted_record(record: logging.LogRecord) -> logging.LogRecord:
     return clone
 
 
-def _moscow_time(timestamp: float) -> time.struct_time:
+def _moscow_time(timestamp: float | None) -> time.struct_time:
     """Преобразует timestamp для текстовых formatter'ов в московское время."""
+    if timestamp is None:
+        timestamp = time.time()
     return datetime.fromtimestamp(timestamp, MOSCOW_TZ).timetuple()
 
 
@@ -320,39 +318,3 @@ def setup_logging(
     logger.info(f"Операционная система: {os.name} {sys.platform}")
 
     return log_path
-
-
-def with_context(logger: logging.Logger, context: dict[str, Any]) -> Callable[[F], F]:
-    """
-    Декоратор для добавления контекста к логам внутри функции.
-
-    Args:
-        logger: Логгер для использования.
-        context: Словарь с контекстной информацией.
-
-    Returns:
-        Декорированная функция.
-    """
-
-    def decorator(func: F) -> F:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Создаем фильтр для добавления контекста
-            class ContextFilter(logging.Filter):
-                def filter(self, record: logging.LogRecord) -> bool:
-                    record.context = context  # type: ignore
-                    return True
-
-            # Добавляем фильтр к логгеру
-            context_filter = ContextFilter()
-            logger.addFilter(context_filter)
-
-            try:
-                return func(*args, **kwargs)
-            finally:
-                # Удаляем фильтр после выполнения функции
-                logger.removeFilter(context_filter)
-
-        return cast(F, wrapper)
-
-    return decorator

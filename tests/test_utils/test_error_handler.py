@@ -164,15 +164,19 @@ class TestCommandErrorHandler:
         ctx_mock.message = MagicMock()
 
         # Патчим функцию safe_send_error
-        with patch("utils.error_handler.safe_send_error") as mock_safe_send_error, patch(
-            "utils.error_handler.logger"
+        with (
+            patch("utils.error_handler.safe_send_error") as mock_safe_send_error,
+            patch("utils.error_handler.logger"),
+            patch("utils.error_handler.new_incident_id", return_value="ABC123"),
         ):
             # Вызываем декорированную функцию
             await decorated(self_mock, ctx_mock)
 
             # Проверяем, что safe_send_error вызвана с правильными аргументами
             mock_safe_send_error.assert_called_once()
-            assert "Original Error" in mock_safe_send_error.call_args[0][1]
+            message = mock_safe_send_error.call_args.args[1]
+            assert "Original Error" not in message
+            assert "ABC123" in message
 
     @pytest.mark.asyncio
     async def test_command_error_handler_swallows_unknown_exception(self):
@@ -200,6 +204,7 @@ class TestCommandErrorHandler:
         with (
             patch("utils.error_handler.safe_send_error") as mock_safe_send_error,
             patch("utils.error_handler.logger") as mock_logger,
+            patch("utils.error_handler.new_incident_id", return_value="DEAD01"),
         ):
             result = await decorated(self_mock, ctx_mock)
 
@@ -208,6 +213,8 @@ class TestCommandErrorHandler:
         # Юзер всё равно получил уведомление, лог со стеком тоже есть.
         mock_safe_send_error.assert_called_once()
         mock_logger.error.assert_called_once()
+        assert "DEAD01" in mock_safe_send_error.call_args.args[1]
+        assert mock_logger.error.call_args.kwargs["extra"]["context"]["incident_id"] == "DEAD01"
 
     @pytest.mark.asyncio
     async def test_command_error_handler_propagates_system_exit(self):
@@ -277,13 +284,20 @@ class TestHandleAppCommandError:
     async def test_unknown_error_logged_with_stack(self, mock_interaction):
         """Незнакомая ошибка логируется со стеком и тоже уходит юзеру."""
         error = app_commands.CommandInvokeError(MagicMock(), ValueError("boom"))
-        with patch("utils.error_handler.logger") as mock_logger:
+        with (
+            patch("utils.error_handler.logger") as mock_logger,
+            patch("utils.error_handler.new_incident_id", return_value="CAFE42"),
+        ):
             await handle_app_command_error(mock_interaction, error)
 
         mock_logger.error.assert_called_once()
         exc_info = mock_logger.error.call_args.kwargs["exc_info"]
         assert exc_info == (type(error), error, error.__traceback__)
+        assert mock_logger.error.call_args.kwargs["extra"]["context"]["incident_id"] == "CAFE42"
         mock_interaction.response.send_message.assert_awaited_once()
+        embed = mock_interaction.response.send_message.await_args.kwargs["embed"]
+        assert "CAFE42" in embed.description
+        assert "boom" not in embed.description
 
     @pytest.mark.asyncio
     async def test_uses_followup_when_response_done(self, mock_interaction):

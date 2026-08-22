@@ -13,7 +13,9 @@
 
 import asyncio
 import logging
+import signal
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,10 @@ log_path = setup_logging(
 
 # Получаем логгер для текущего модуля
 logger: logging.Logger = logging.getLogger("bot.main")
+
+BOT_CLOSE_TIMEOUT_SECONDS = 3.0
+RESOURCE_CLOSE_TIMEOUT_SECONDS = 2.0
+DATABASE_CLOSE_TIMEOUT_SECONDS = 2.0
 
 # Настройка интентов бота
 intents: Intents = Intents.default()
@@ -196,6 +202,86 @@ async def load_cogs() -> None:
         raise
 
 
+async def _run_cleanup_step(
+    resource_name: str,
+    cleanup: Callable[[], Awaitable[None]],
+    timeout_seconds: float,
+) -> bool:
+    """Закрывает один ресурс за ограниченное время и логирует результат."""
+    started_at = asyncio.get_running_loop().time()
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            await cleanup()
+    except TimeoutError:
+        logger.error(
+            "Таймаут %.1f с при закрытии ресурса %s",
+            timeout_seconds,
+            resource_name,
+        )
+        return False
+    except Exception:
+        logger.exception("Ошибка при закрытии ресурса %s", resource_name)
+        return False
+
+    elapsed = asyncio.get_running_loop().time() - started_at
+    logger.info("Ресурс %s закрыт за %.2f с", resource_name, elapsed)
+    return True
+
+
+async def _shutdown_resources(database_initialized: bool) -> None:
+    """Параллельно закрывает сетевые клиенты, затем независимо закрывает БД."""
+    from utils.cs_api import close_session as close_cs_session
+    from utils.deathbattle_utils import close_session as close_deathbattle_session
+    from utils.dota_api import close_session as close_dota_session
+    from utils.match_card import close_session as close_match_card_session
+    from utils.music import close_nodes
+
+    cleanup_steps: tuple[tuple[str, Callable[[], Awaitable[None]]], ...] = (
+        ("Dota API", close_dota_session),
+        ("CS API", close_cs_session),
+        ("deathbattle API", close_deathbattle_session),
+        ("match-card HTTP", close_match_card_session),
+        ("Lavalink", close_nodes),
+    )
+    await asyncio.gather(
+        *(
+            _run_cleanup_step(name, cleanup, RESOURCE_CLOSE_TIMEOUT_SECONDS)
+            for name, cleanup in cleanup_steps
+        )
+    )
+
+    if database_initialized:
+        await _run_cleanup_step(
+            "базы данных",
+            close_database,
+            DATABASE_CLOSE_TIMEOUT_SECONDS,
+        )
+
+
+def _install_shutdown_handlers(task: asyncio.Task[Any]) -> list[signal.Signals]:
+    """Отменяет main-задачу по SIGINT/SIGTERM, чтобы выполнить блок finally."""
+    loop = asyncio.get_running_loop()
+    installed: list[signal.Signals] = []
+
+    def request_shutdown(received_signal: signal.Signals) -> None:
+        if task.done() or task.cancelling():
+            return
+        logger.info("Получен %s, начинаю корректное завершение", received_signal.name)
+        task.cancel()
+
+    for handled_signal in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(
+                handled_signal,
+                request_shutdown,
+                handled_signal,
+            )
+        except (NotImplementedError, RuntimeError):
+            continue
+        installed.append(handled_signal)
+    return installed
+
+
 async def main() -> None:
     """
     Основная асинхронная функция для инициализации и запуска бота.
@@ -210,6 +296,8 @@ async def main() -> None:
         Exception: При ошибке запуска бота, ошибка логируется и программа завершается.
     """
     database_initialized = False
+    current_task = asyncio.current_task()
+    installed_signals = _install_shutdown_handlers(current_task) if current_task else []
     try:
         logger.info(f"Используется файл базы данных: {DB_PATH}")
         await initialize_database()
@@ -217,43 +305,29 @@ async def main() -> None:
         await prune_expired_cache()
         await load_cogs()
         await bot.start(settings.bot_token)
+    except asyncio.CancelledError:
+        logger.info("Основная задача остановлена по сигналу завершения")
     except Exception:
         logger.exception("Не удалось запустить бота")
         raise
     finally:
+        loop = asyncio.get_running_loop()
+        shutdown_started_at = loop.time()
         try:
             if not bot.is_closed():
-                await bot.close()
-        except Exception:
-            logger.exception("Ошибка при закрытии Discord-клиента")
-
-        from utils.cs_api import close_session as close_cs_session
-        from utils.deathbattle_utils import close_session as close_deathbattle_session
-        from utils.dota_api import close_session as close_dota_session
-        from utils.match_card import close_session as close_match_card_session
-        from utils.music import close_nodes
-
-        cleanup_steps = [
-            ("Dota API", close_dota_session()),
-            ("CS API", close_cs_session()),
-            ("deathbattle API", close_deathbattle_session()),
-            ("match-card HTTP", close_match_card_session()),
-            ("Lavalink", close_nodes()),
-        ]
-        if database_initialized:
-            cleanup_steps.append(("база данных", close_database()))
-
-        results = await asyncio.gather(
-            *(cleanup for _, cleanup in cleanup_steps),
-            return_exceptions=True,
-        )
-        for (resource_name, _), result in zip(cleanup_steps, results, strict=True):
-            if isinstance(result, BaseException):
-                logger.error(
-                    "Ошибка при закрытии ресурса %s",
-                    resource_name,
-                    exc_info=(type(result), result, result.__traceback__),
+                await _run_cleanup_step(
+                    "Discord-клиента",
+                    bot.close,
+                    BOT_CLOSE_TIMEOUT_SECONDS,
                 )
+            await _shutdown_resources(database_initialized)
+        finally:
+            for handled_signal in installed_signals:
+                loop.remove_signal_handler(handled_signal)
+            logger.info(
+                "Корректное завершение заняло %.2f с",
+                loop.time() - shutdown_started_at,
+            )
 
 
 if __name__ == "__main__":

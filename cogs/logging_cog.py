@@ -18,10 +18,17 @@ from datetime import datetime
 import discord
 from discord.ext import commands, tasks
 
+from utils.logging_utils import redact_secrets
+
 logger = logging.getLogger("bot.cogs.logging_cog")  # Иерархическое имя логгера
 
 _CODE_BLOCK_PREFIX = "```\n"
 _CODE_BLOCK_SUFFIX = "\n```"
+_LEVEL_PREFIX = {
+    "WARNING": "⚠️ ",
+    "ERROR": "❌ ",
+    "CRITICAL": "🚨 ",
+}
 
 
 class LoggingCog(commands.Cog):
@@ -105,6 +112,7 @@ class LoggingCog(commands.Cog):
             return
 
         try:
+            await self._send_session_header()
             lines, position = await asyncio.to_thread(self._read_full_log)
             buffer = ""
             for line in lines:
@@ -132,6 +140,19 @@ class LoggingCog(commands.Cog):
         except Exception as e:
             logger.error(f"[LogCog] Ошибка при отправке лога: {e}", exc_info=True)
             # Не запускаем tail, если была ошибка с основным логом
+
+    async def _send_session_header(self) -> None:
+        """Отделяет лог текущего запуска временем и названием окружения."""
+        if self.log_channel is None:
+            return
+        environment_setting = getattr(self.bot.settings, "environment", "unknown")
+        environment = getattr(environment_setting, "value", environment_setting)
+        environment_text = discord.utils.escape_markdown(str(environment))
+        started_at = int(datetime.now().timestamp())
+        await self.log_channel.send(
+            "## 🟢 Новый запуск PD Bot\n"
+            f"Время: <t:{started_at}:F> · окружение: `{environment_text}`"
+        )
 
     @tasks.loop(seconds=5)  # Default value, will be changed in __init__
     async def tail_log_file(self) -> None:
@@ -218,7 +239,8 @@ class LoggingCog(commands.Cog):
                 function = log_data.get("function", "")
 
                 # Форматируем сообщение
-                formatted = f"{timestamp_str}{level:<7} {logger_name:<12} - {message}"
+                prefix = _LEVEL_PREFIX.get(level, "")
+                formatted = f"{prefix}{timestamp_str}{level:<7} {logger_name:<12} - {message}"
 
                 # Добавляем информацию о модуле и функции только если они не дублируют logger_name
                 if module and function and module != logger_name.lower():
@@ -250,6 +272,18 @@ class LoggingCog(commands.Cog):
             return log_line
 
     @staticmethod
+    def _is_routine_self_log(log_line: str) -> bool:
+        """Убирает из Discord только служебные INFO/DEBUG самого log-tail."""
+        try:
+            log_data = json.loads(log_line)
+        except (json.JSONDecodeError, TypeError):
+            return False
+        return log_data.get("logger") == "bot.cogs.logging_cog" and log_data.get("level") in {
+            "DEBUG",
+            "INFO",
+        }
+
+    @staticmethod
     def _split_log_text(text: str, limit: int) -> list[str]:
         """Делит текст на части, предпочитая границы строк."""
         chunks: list[str] = []
@@ -276,9 +310,13 @@ class LoggingCog(commands.Cog):
 
         try:
             lines = message.strip().split("\n")
-            formatted_lines = [self.format_json_log(line) for line in lines if line.strip()]
+            formatted_lines = [
+                self.format_json_log(redact_secrets(line))
+                for line in lines
+                if line.strip() and not self._is_routine_self_log(line)
+            ]
 
-            formatted_message = "\n".join(formatted_lines)
+            formatted_message = redact_secrets("\n".join(formatted_lines))
 
             if formatted_message:
                 wrapper_length = len(_CODE_BLOCK_PREFIX) + len(_CODE_BLOCK_SUFFIX)

@@ -2,6 +2,7 @@
 
 import functools
 import logging
+import secrets
 from collections.abc import Callable
 from typing import Any, cast
 
@@ -43,6 +44,54 @@ ERROR_MESSAGES: dict[type, str] = {
     ConnectionError: "Ошибка подключения: {error}",
 }
 
+_EXPECTED_USER_ERRORS = (
+    commands.MissingRequiredArgument,
+    commands.BadArgument,
+    commands.MissingPermissions,
+    commands.BotMissingPermissions,
+    commands.CommandOnCooldown,
+    commands.NotOwner,
+    commands.MemberNotFound,
+    commands.ChannelNotFound,
+    commands.RoleNotFound,
+    commands.CommandNotFound,
+    app_commands.CheckFailure,
+    app_commands.CommandOnCooldown,
+    app_commands.TransformerError,
+    app_commands.CommandNotFound,
+)
+
+
+def _unwrap_error(error: Exception) -> Exception:
+    if isinstance(
+        error,
+        (
+            commands.CommandInvokeError,
+            commands.HybridCommandError,
+            app_commands.CommandInvokeError,
+        ),
+    ):
+        return error.original
+    return error
+
+
+def is_expected_user_error(error: Exception) -> bool:
+    """Проверяет, является ли ошибка ожидаемым отказом ввода или прав."""
+    return isinstance(_unwrap_error(error), _EXPECTED_USER_ERRORS)
+
+
+def new_incident_id() -> str:
+    """Создаёт короткий идентификатор для связи сообщения с traceback."""
+    return secrets.token_hex(3).upper()
+
+
+def get_incident_error_message(incident_id: str) -> str:
+    """Возвращает безопасное сообщение о внутренней ошибке с кодом инцидента."""
+    return (
+        "Произошла непредвиденная ошибка. "
+        f"Код инцидента: `{incident_id}`. Передай его администратору."
+    )
+
 
 def command_error_handler[F: Callable[..., Any]](func: F) -> F:
     """Декоратор: ловит исключения внутри тела команды, логирует и отвечает пользователю.
@@ -67,27 +116,35 @@ def command_error_handler[F: Callable[..., Any]](func: F) -> F:
         except (SystemExit, KeyboardInterrupt):
             raise
         except Exception as error:
+            incident_id = None if is_expected_user_error(error) else new_incident_id()
+            command_name = ctx.command.name if ctx.command else "unknown"
+            context = {
+                "command": command_name,
+                "author": f"{ctx.author} ({ctx.author.id})",
+                "guild": f"{ctx.guild} ({ctx.guild.id})" if ctx.guild else "DM",
+                "channel": f"{ctx.channel} ({ctx.channel.id})",
+                "user_message_content": (
+                    ctx.message.content if hasattr(ctx, "message") and ctx.message else "No message"
+                ),
+            }
+            if incident_id is not None:
+                context["incident_id"] = incident_id
             logger.error(
-                f"Ошибка в команде {ctx.command}: {error}",
+                f"Ошибка в команде {ctx.command} [{incident_id or 'expected'}]: {error}",
                 exc_info=True,
-                extra={
-                    "command": ctx.command.name if ctx.command else "unknown",
-                    "author": f"{ctx.author} ({ctx.author.id})",
-                    "guild": f"{ctx.guild} ({ctx.guild.id})" if ctx.guild else "DM",
-                    "channel": f"{ctx.channel} ({ctx.channel.id})",
-                    "user_message_content": (
-                        ctx.message.content
-                        if hasattr(ctx, "message") and ctx.message
-                        else "No message"
-                    ),
-                },
+                extra={"context": context},
             )
 
-            await safe_send_error(ctx, get_error_message(error))
+            message = (
+                get_error_message(error)
+                if incident_id is None
+                else get_incident_error_message(incident_id)
+            )
+            await safe_send_error(ctx, message)
 
             if hasattr(self.bot, "metrics"):
                 self.bot.metrics.record_error(
-                    command_name=ctx.command.name if ctx.command else "unknown",
+                    command_name=command_name,
                     error_type=type(error).__name__,
                     user_id=ctx.author.id,
                 )
@@ -108,15 +165,7 @@ def get_error_message(error: Exception) -> str:
         Сообщение об ошибке.
     """
     # Если это ошибка вызова команды, получаем оригинальную ошибку
-    if isinstance(
-        error,
-        (
-            commands.CommandInvokeError,
-            commands.HybridCommandError,
-            app_commands.CommandInvokeError,
-        ),
-    ):
-        error = error.original
+    error = _unwrap_error(error)
 
     # Ищем сообщение в словаре ERROR_MESSAGES
     for error_type, message_template in ERROR_MESSAGES.items():
@@ -193,16 +242,31 @@ async def handle_app_command_error(
     эфемерный embed с дружелюбным текстом из :data:`ERROR_MESSAGES`. Отвечаем
     через ``followup``, если интеракция уже была отвечена/отложена.
     """
+    incident_id: str | None = None
     if not isinstance(error, _KNOWN_APP_ERRORS):
+        incident_id = new_incident_id()
         command_name = interaction.command.name if interaction.command else "unknown"
         logger.error(
-            f"Необработанная ошибка в slash-команде '{command_name}': {error}",
+            f"Необработанная ошибка в slash-команде '{command_name}' [{incident_id}]: {error}",
             exc_info=(type(error), error, error.__traceback__),
+            extra={
+                "context": {
+                    "incident_id": incident_id,
+                    "command": command_name,
+                    "user_id": interaction.user.id,
+                    "guild_id": interaction.guild_id,
+                    "channel_id": interaction.channel_id,
+                }
+            },
         )
 
     embed = discord.Embed(
         title="❌ Ошибка",
-        description=get_error_message(error),
+        description=(
+            get_error_message(error)
+            if incident_id is None
+            else get_incident_error_message(incident_id)
+        ),
         color=colors.ERROR,
     )
     try:

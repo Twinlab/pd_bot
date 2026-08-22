@@ -931,7 +931,8 @@ class TestCogCommandErrorHandling:
         mock_interaction.response.send_message.assert_called_once()
         embed = mock_interaction.response.send_message.call_args.kwargs["embed"]
         assert embed.title == "❌ Ошибка"
-        assert "Original error detail" in embed.description
+        assert "Original error detail" not in embed.description
+        assert "Код инцидента" in embed.description
 
         # Случай, когда interaction.response.is_done() == True — через followup.
         mock_interaction.response.send_message.reset_mock()

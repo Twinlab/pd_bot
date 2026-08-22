@@ -18,7 +18,6 @@ from utils.logging_utils import (
     redact_log_value,
     redact_secrets,
     setup_logging,
-    with_context,
 )
 
 
@@ -160,6 +159,11 @@ class TestSecretRedaction:
         assert "query-secret" not in result
         assert "bearer-secret" not in result
         assert "user:pass" not in result
+
+    def test_keeps_benign_ids_and_urls(self):
+        value = "user_id=123456789012345678 https://example.com/path?mode=public"
+
+        assert redact_secrets(value) == value
 
     def test_redacts_sensitive_mapping_keys_recursively(self):
         result = redact_log_value(
@@ -365,70 +369,3 @@ class TestCleanupOldLogs:
 
         assert removed == 0
         assert old.exists()
-
-
-class TestWithContext:
-    """Тесты для декоратора with_context."""
-
-    @pytest.mark.asyncio
-    async def test_with_context(self):
-        """Тест добавления контекста к логам."""
-        # Создаем логгер
-        logger = logging.getLogger("test_logger")
-
-        # Создаем контекст
-        context = {"user_id": 123, "guild_id": 456}
-
-        # Создаем функцию для декорирования
-        async def test_function():
-            logger.info("Test message")
-            return "result"
-
-        # Патчим логгер
-        with patch.object(logger, "addFilter") as mock_add_filter, patch.object(
-            logger, "removeFilter"
-        ) as mock_remove_filter:
-            # Декорируем функцию
-            decorated = with_context(logger, context)(test_function)
-
-            # Вызываем декорированную функцию
-            result = await decorated()
-
-            # Проверяем результат
-            assert result == "result"
-            mock_add_filter.assert_called_once()
-            mock_remove_filter.assert_called_once()
-
-            # Проверяем, что фильтр добавляет контекст
-            filter_obj = mock_add_filter.call_args[0][0]
-            record = MagicMock()
-            filter_obj.filter(record)
-            assert record.context == context
-
-    @pytest.mark.asyncio
-    async def test_with_context_exception(self):
-        """Тест обработки исключений."""
-        # Создаем логгер
-        logger = logging.getLogger("test_logger")
-
-        # Создаем контекст
-        context = {"user_id": 123, "guild_id": 456}
-
-        # Создаем функцию, которая вызывает исключение
-        async def test_function():
-            raise ValueError("Test exception")
-
-        # Патчим логгер
-        with patch.object(logger, "addFilter") as mock_add_filter, patch.object(
-            logger, "removeFilter"
-        ) as mock_remove_filter:
-            # Декорируем функцию
-            decorated = with_context(logger, context)(test_function)
-
-            # Вызываем декорированную функцию и проверяем, что исключение проброшено
-            with pytest.raises(ValueError, match="Test exception"):
-                await decorated()
-
-            # Проверяем, что фильтр был добавлен и удален
-            mock_add_filter.assert_called_once()
-            mock_remove_filter.assert_called_once()

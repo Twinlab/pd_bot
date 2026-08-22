@@ -117,10 +117,16 @@ class TestOnCommandError:
         with (
             patch("handlers.events.logger") as mock_logger,
             patch("handlers.events.safe_send_error", AsyncMock()) as mock_send,
+            patch("handlers.events.new_incident_id", return_value="BADC0D"),
         ):
             await events.on_command_error(mock_context, Exception("Test error"))
             mock_logger.error.assert_called_once()
             mock_send.assert_awaited_once()
+            assert "BADC0D" in mock_send.await_args.args[1]
+            assert (
+                mock_logger.error.call_args.kwargs["extra"]["context"]["incident_id"]
+                == "BADC0D"
+            )
 
 
 class TestSetup:

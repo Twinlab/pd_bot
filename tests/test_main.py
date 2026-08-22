@@ -213,3 +213,93 @@ class TestMainWithNewConfig:
 
                     # Проверяем, что ошибка была залогирована
                     mock_logger.exception.assert_called_once_with("Не удалось запустить бота")
+
+
+class TestGracefulShutdown:
+    """Ограниченное по времени завершение процесса и ресурсов."""
+
+    @pytest.mark.asyncio
+    async def test_cleanup_step_times_out_without_raising(self) -> None:
+        import main as main_module
+
+        blocker = asyncio.Event()
+
+        async def never_finishes() -> None:
+            await blocker.wait()
+
+        with patch("main.logger") as mock_logger:
+            result = await main_module._run_cleanup_step("test", never_finishes, 0.01)
+
+        assert result is False
+        mock_logger.error.assert_called_once_with(
+            "Таймаут %.1f с при закрытии ресурса %s",
+            0.01,
+            "test",
+        )
+
+    @pytest.mark.asyncio
+    async def test_cleanup_step_logs_exception_and_continues(self) -> None:
+        import main as main_module
+
+        async def fails() -> None:
+            raise RuntimeError("boom")
+
+        with patch("main.logger") as mock_logger:
+            result = await main_module._run_cleanup_step("test", fails, 1.0)
+
+        assert result is False
+        mock_logger.exception.assert_called_once_with(
+            "Ошибка при закрытии ресурса %s",
+            "test",
+        )
+
+    @pytest.mark.asyncio
+    async def test_database_closes_even_when_network_cleanup_times_out(self) -> None:
+        import main as main_module
+
+        blocker = asyncio.Event()
+
+        async def never_finishes() -> None:
+            await blocker.wait()
+
+        close_dota = AsyncMock(side_effect=never_finishes)
+        close_cs = AsyncMock()
+        close_deathbattle = AsyncMock()
+        close_match_card = AsyncMock()
+        close_nodes = AsyncMock()
+        close_database = AsyncMock()
+
+        with (
+            patch("utils.dota_api.close_session", close_dota),
+            patch("utils.cs_api.close_session", close_cs),
+            patch("utils.deathbattle_utils.close_session", close_deathbattle),
+            patch("utils.match_card.close_session", close_match_card),
+            patch("utils.music.close_nodes", close_nodes),
+            patch("main.close_database", close_database),
+            patch("main.RESOURCE_CLOSE_TIMEOUT_SECONDS", 0.01),
+        ):
+            await main_module._shutdown_resources(database_initialized=True)
+
+        close_dota.assert_awaited_once()
+        close_cs.assert_awaited_once()
+        close_deathbattle.assert_awaited_once()
+        close_match_card.assert_awaited_once()
+        close_nodes.assert_awaited_once()
+        close_database.assert_awaited_once()
+
+    def test_signal_handler_requests_task_cancellation(self) -> None:
+        import main as main_module
+
+        task = MagicMock(spec=asyncio.Task)
+        task.done.return_value = False
+        task.cancelling.return_value = 0
+        loop = MagicMock()
+
+        with patch("main.asyncio.get_running_loop", return_value=loop):
+            installed = main_module._install_shutdown_handlers(task)
+
+        assert installed == [main_module.signal.SIGINT, main_module.signal.SIGTERM]
+        first_call = loop.add_signal_handler.call_args_list[0]
+        callback = first_call.args[1]
+        callback(*first_call.args[2:])
+        task.cancel.assert_called_once_with()

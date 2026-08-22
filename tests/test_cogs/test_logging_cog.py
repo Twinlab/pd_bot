@@ -230,6 +230,9 @@ class TestSendFullLogAndStartTail:
         # Проверяем, что задача tail запущена
         logging_cog.tail_log_file.start.assert_called_once()
         assert logging_cog._tail_task_started is True
+        header = mock_text_channel.send.await_args.args[0]
+        assert "Новый запуск PD Bot" in header
+        assert "окружение" in header
 
     @pytest.mark.asyncio
     @patch("os.path.exists", return_value=True)
@@ -447,6 +450,7 @@ class TestFormatJsonLog:
         assert not formatted.startswith("[]")
         assert "ERROR   " in formatted # Проверяем наличие уровня и выравнивания
         assert "             - Something went wrong" in formatted # Проверяем сообщение и имя логгера по умолчанию (пустое)
+        assert formatted.startswith("❌ ")
 
     def test_format_json_log_logger_name_short(self, logging_cog: LoggingCog):
         """Тест форматирования, когда имя логгера короткое (без точек)."""
@@ -500,6 +504,46 @@ class TestSendLogMessage:
         mock_text_channel.send.assert_not_called() # Не должно ничего отправляться
 
     @pytest.mark.asyncio
+    async def test_send_log_message_redacts_plain_text_secret(
+        self, logging_cog: LoggingCog, mock_text_channel: discord.TextChannel
+    ):
+        """Даже старый plain-text лог очищается перед отправкой в Discord."""
+        logging_cog.log_channel = mock_text_channel
+
+        await logging_cog.send_log_message("token=discord-stream-secret")
+
+        content = mock_text_channel.send.await_args.args[0]
+        assert "discord-stream-secret" not in content
+        assert "[REDACTED]" in content
+
+    @pytest.mark.asyncio
+    async def test_send_log_message_skips_routine_self_noise_but_keeps_errors(
+        self, logging_cog: LoggingCog, mock_text_channel: discord.TextChannel
+    ):
+        """Tail не пересылает свои INFO, но не скрывает собственные ошибки."""
+        logging_cog.log_channel = mock_text_channel
+        routine = json.dumps(
+            {
+                "level": "INFO",
+                "logger": "bot.cogs.logging_cog",
+                "message": "tail запущен",
+            }
+        )
+        failure = json.dumps(
+            {
+                "level": "ERROR",
+                "logger": "bot.cogs.logging_cog",
+                "message": "tail упал",
+            }
+        )
+
+        await logging_cog.send_log_message(f"{routine}\n{failure}")
+
+        content = mock_text_channel.send.await_args.args[0]
+        assert "tail запущен" not in content
+        assert "tail упал" in content
+
+    @pytest.mark.asyncio
     async def test_send_log_message_splits_single_oversized_line(
         self, logging_cog: LoggingCog, mock_text_channel: discord.TextChannel
     ):
@@ -515,6 +559,21 @@ class TestSendLogMessage:
         assert "".join(message.removeprefix("```\n").removesuffix("\n```") for message in sent_messages) == (
             "x" * (max_length * 2)
         )
+
+    @pytest.mark.asyncio
+    async def test_long_secret_is_redacted_before_chunking(
+        self, logging_cog: LoggingCog, mock_text_channel: discord.TextChannel
+    ):
+        logging_cog.log_channel = mock_text_channel
+        max_length = logging_cog.bot.settings.limits.max_message_length
+        secret = "super-secret-value"
+
+        await logging_cog.send_log_message(f"token={secret} " + "x" * (max_length * 2))
+
+        sent_messages = [call.args[0] for call in mock_text_channel.send.await_args_list]
+        assert len(sent_messages) >= 2
+        assert all(secret not in message for message in sent_messages)
+        assert all(len(message) <= max_length for message in sent_messages)
 
     @pytest.mark.asyncio
     async def test_send_log_message_splits_after_json_formatting(

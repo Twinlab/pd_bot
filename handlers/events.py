@@ -12,7 +12,12 @@ import logging
 import discord
 from discord.ext import commands
 
-from utils.error_handler import get_error_message, safe_send_error
+from utils.error_handler import (
+    get_error_message,
+    get_incident_error_message,
+    new_incident_id,
+    safe_send_error,
+)
 
 logger = logging.getLogger("bot.handlers.events")
 
@@ -108,13 +113,30 @@ class Events(commands.Cog):
 
         # Неизвестные программные баги логируем со стеком — пользователю
         # уйдёт обобщённое «непредвиденная ошибка» из get_error_message.
+        incident_id: str | None = None
         if not any(isinstance(error, etype) for etype in _KNOWN_PREFIX_ERRORS):
+            incident_id = new_incident_id()
             logger.error(
-                f"Необработанная ошибка в префиксной команде '{ctx.command}': {error}",
+                f"Необработанная ошибка в префиксной команде '{ctx.command}' "
+                f"[{incident_id}]: {error}",
                 exc_info=(type(error), error, error.__traceback__),
+                extra={
+                    "context": {
+                        "incident_id": incident_id,
+                        "command": str(ctx.command or "unknown"),
+                        "user_id": ctx.author.id,
+                        "guild_id": ctx.guild.id if ctx.guild else None,
+                        "channel_id": ctx.channel.id,
+                    }
+                },
             )
 
-        await safe_send_error(ctx, get_error_message(error))
+        message = (
+            get_error_message(error)
+            if incident_id is None
+            else get_incident_error_message(incident_id)
+        )
+        await safe_send_error(ctx, message)
 
 
 async def setup(bot: commands.Bot) -> None:
