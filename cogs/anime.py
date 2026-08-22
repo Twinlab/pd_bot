@@ -123,19 +123,19 @@ class AnimeCog(commands.Cog):
             logger.error("Канал для публикации аниме не настроен или не найден.")
             return
 
-        morning_time = time(
+        self._morning_time = time(
             hour=settings.anime.schedule.morning_hour,
             minute=settings.anime.schedule.morning_minute,
             tzinfo=UTC,
         )
-        evening_time = time(
+        self._evening_time = time(
             hour=settings.anime.schedule.evening_hour,
             minute=settings.anime.schedule.evening_minute,
             tzinfo=UTC,
         )
 
-        self.morning_post.change_interval(time=morning_time)
-        self.evening_post.change_interval(time=evening_time)
+        self.morning_post.change_interval(time=self._morning_time)
+        self.evening_post.change_interval(time=self._evening_time)
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -144,8 +144,8 @@ class AnimeCog(commands.Cog):
             return
 
         scheduled_posts = (
-            ("morning_post", self.morning_post, "10:00 UTC"),
-            ("evening_post", self.evening_post, "18:00 UTC"),
+            ("morning_post", self.morning_post, self._morning_time),
+            ("evening_post", self.evening_post, self._evening_time),
         )
         for task_name, scheduled_post, scheduled_time in scheduled_posts:
             if scheduled_post.is_running():
@@ -154,7 +154,7 @@ class AnimeCog(commands.Cog):
             logger.info(
                 "Задача %s публикации аниме запущена; расписание: %s.",
                 task_name,
-                scheduled_time,
+                scheduled_time.strftime("%H:%M %Z"),
             )
 
     def _get_session(self) -> aiohttp.ClientSession:
@@ -529,7 +529,7 @@ class AnimeCog(commands.Cog):
         logger.info("Задача evening_post готова к запуску.")
 
     @morning_post.error
-    async def on_morning_post_error(self, error: Exception) -> None:
+    async def on_morning_post_error(self, error: BaseException) -> None:
         """Логирует остановку утренней задачи публикации."""
         logger.error(
             "Утренняя задача публикации аниме остановлена: %s",
@@ -538,7 +538,7 @@ class AnimeCog(commands.Cog):
         )
 
     @evening_post.error
-    async def on_evening_post_error(self, error: Exception) -> None:
+    async def on_evening_post_error(self, error: BaseException) -> None:
         """Логирует остановку вечерней задачи публикации."""
         logger.error(
             "Вечерняя задача публикации аниме остановлена: %s",

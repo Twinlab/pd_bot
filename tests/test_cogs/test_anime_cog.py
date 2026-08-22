@@ -112,13 +112,19 @@ class TestAnimeCogInit:
     @pytest.mark.asyncio
     async def test_on_ready_starts_scheduled_posts_once(self, mock_bot):
         """Задачи запускаются после готовности бота и не дублируются при reconnect."""
+        settings = create_mock_settings()
+        settings.anime.schedule.morning_hour = 9
+        settings.anime.schedule.morning_minute = 30
+        settings.anime.schedule.evening_hour = 21
+        settings.anime.schedule.evening_minute = 45
         mock_morning_task = MagicMock()
         mock_morning_task.is_running.side_effect = [False, True]
         mock_evening_task = MagicMock()
         mock_evening_task.is_running.side_effect = [False, True]
 
         with (
-            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch("cogs.anime.get_settings", return_value=settings),
+            patch("cogs.anime.logger") as mock_logger,
             patch.object(AnimeCog, "morning_post", mock_morning_task),
             patch.object(AnimeCog, "evening_post", mock_evening_task),
         ):
@@ -128,6 +134,8 @@ class TestAnimeCogInit:
 
         mock_morning_task.start.assert_called_once_with()
         mock_evening_task.start.assert_called_once_with()
+        schedules = {call.args[2] for call in mock_logger.info.call_args_list}
+        assert schedules == {"09:30 UTC", "21:45 UTC"}
 
 
 class TestAnimeCacheDatabase:
