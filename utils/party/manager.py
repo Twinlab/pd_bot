@@ -65,6 +65,8 @@ class Party:
         created_at: Момент создания пати.
         deadline: Момент, в который сбор должен закрыться.
         image_url: Ссылка на картинку-вложение (или None).
+        finish_when_full: Запускать ли подтверждение и закрывать сбор досрочно
+            после заполнения основного состава.
         joined_order: ID юзеров в порядке нажатия «Готов» (FIFO для ready/bench).
         declined_order: ID юзеров, нажавших «Не готов».
         dm_messages: ``user_id -> discord.Message`` — DM-сообщение каждого
@@ -92,6 +94,7 @@ class Party:
     created_at: datetime
     deadline: datetime
     image_url: str | None = None
+    finish_when_full: bool = False
     joined_order: list[int] = field(default_factory=list)
     declined_order: list[int] = field(default_factory=list)
     dm_messages: dict[int, discord.Message] = field(default_factory=dict)
@@ -159,6 +162,7 @@ class PartyManager:
         created_at: datetime,
         deadline: datetime,
         image_url: str | None = None,
+        finish_when_full: bool = False,
     ) -> Party:
         """Создаёт новую :class:`Party`. Инициатор сразу в ``joined_order``."""
         party = Party(
@@ -173,6 +177,7 @@ class PartyManager:
             created_at=created_at,
             deadline=deadline,
             image_url=image_url,
+            finish_when_full=finish_when_full,
             joined_order=[initiator_id],
         )
         self._active[party.id] = party
@@ -244,6 +249,8 @@ class PartyManager:
         async with self._get_lock():
             party = self._active.get(party_id)
             if party is None or party.finalized:
+                return None
+            if not party.finish_when_full:
                 return None
             if party.phase is PartyPhase.READY_CHECK:
                 return None

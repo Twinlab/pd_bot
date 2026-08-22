@@ -108,6 +108,33 @@ class TestBuildPartyContainer:
         unix = int(party.deadline.timestamp())
         assert f"<t:{unix}:R>" in joined_text(view)
 
+    def test_finish_mode_is_visible(self) -> None:
+        """Карточка явно показывает, ждёт ли сбор дедлайна."""
+        waiting = _party(finish_when_full=False)
+        early = _party(finish_when_full=True)
+
+        waiting_view = _as_view(
+            build_party_container(
+                waiting,
+                role_name="Гремлины",
+                initiator=None,
+                member_resolver=_resolver,
+                initiator_emoji="👑",
+            )
+        )
+        early_view = _as_view(
+            build_party_container(
+                early,
+                role_name="Гремлины",
+                initiator=None,
+                member_resolver=_resolver,
+                initiator_emoji="👑",
+            )
+        )
+
+        assert "по дедлайну" in joined_text(waiting_view)
+        assert "после набора и подтверждения" in joined_text(early_view)
+
     def test_comment_and_image_rendered(self) -> None:
         """Комментарий попадает в текст, картинка — в MediaGallery."""
         party = _party(comment="идём ранкед", image_url="https://example.com/pic.png")

@@ -196,6 +196,11 @@ def build_party_container(
         description_parts.append(f"**Комментарий:** {party.comment}")
     if in_check:
         description_parts.append("Все из основы — жмите **«Подтверждаю»**!")
+    description_parts.append(
+        "**Завершение:** после набора и подтверждения состава"
+        if party.finish_when_full
+        else "**Завершение:** по дедлайну"
+    )
     deadline_unix = int(party.deadline.timestamp())
     description_parts.append(
         f"Закрыт <t:{deadline_unix}:R>" if finalized else f"Закрытие <t:{deadline_unix}:R>"

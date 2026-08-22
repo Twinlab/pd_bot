@@ -1,5 +1,6 @@
 """Тесты для PartyCog (кнопочная версия)."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -89,7 +90,14 @@ def make_member(user_id: int, *, can_dm: bool = True, is_bot: bool = False) -> M
     return m
 
 
-def _make_party(cog: PartyCog, *, count: int = 2, comment: str = "x", initiator_id: int = 100):
+def _make_party(
+    cog: PartyCog,
+    *,
+    count: int = 2,
+    comment: str = "x",
+    initiator_id: int = 100,
+    finish_when_full: bool = True,
+):
     """Хелпер: создаёт пати в менеджере с дефолтами."""
     return cog.manager.create(
         guild_id=1,
@@ -101,6 +109,7 @@ def _make_party(cog: PartyCog, *, count: int = 2, comment: str = "x", initiator_
         comment=comment,
         created_at=datetime.now(UTC),
         deadline=datetime.now(UTC) + timedelta(minutes=15),
+        finish_when_full=finish_when_full,
     )
 
 
@@ -389,6 +398,40 @@ class TestFinalize:
     """Тесты _finalize."""
 
     @pytest.mark.asyncio
+    async def test_deadline_finalizes_full_party_without_early_finish(
+        self, cog: PartyCog
+    ) -> None:
+        """Полный обычный сбор всё равно закрывается своим дедлайном."""
+        party = _make_party(cog, count=2, finish_when_full=False)
+        await cog.manager.mark_ready(party.id, user_id=200)
+        cog._finalize = AsyncMock()  # type: ignore[method-assign]
+
+        with patch("cogs.party.asyncio.sleep", new=AsyncMock()):
+            await cog._finalize_after(party, 60)
+
+        cog._finalize.assert_awaited_once_with(party)
+
+    @pytest.mark.asyncio
+    async def test_early_finalize_cancels_remaining_party_tasks(
+        self, cog: PartyCog, bot: MagicMock
+    ) -> None:
+        party = _make_party(cog)
+        bot.get_guild.return_value = None
+        cog._disable_dm_buttons = AsyncMock()  # type: ignore[method-assign]
+        cog._refresh_public_embed = AsyncMock()  # type: ignore[method-assign]
+        deadline_task = MagicMock(spec=asyncio.Task)
+        check_task = MagicMock(spec=asyncio.Task)
+        cog._timers[party.id] = deadline_task
+        cog._check_timers[party.id] = check_task
+
+        await cog._finalize(party)
+
+        deadline_task.cancel.assert_called_once_with()
+        check_task.cancel.assert_called_once_with()
+        assert party.id not in cog._timers
+        assert party.id not in cog._check_timers
+
+    @pytest.mark.asyncio
     async def test_pings_ready_users(
         self, cog: PartyCog, bot: MagicMock, patched_settings: BotSettings
     ) -> None:
@@ -534,6 +577,33 @@ class TestReadyCheck:
 
         assert party.phase is PartyPhase.COLLECTING
         cog._start_check_loop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_maybe_start_waits_for_deadline_when_not_requested(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Полный состав сам по себе не закрывает обычный сбор."""
+        cog._start_check_loop = MagicMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=2, finish_when_full=False)
+        await cog.manager.mark_ready(party.id, user_id=200)
+
+        await cog._maybe_start_ready_check(party)
+
+        assert party.phase is PartyPhase.COLLECTING
+        cog._start_check_loop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_single_member_party_can_start_ready_check_immediately(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        cog._start_check_loop = MagicMock()  # type: ignore[method-assign]
+        party = _make_party(cog, count=1, finish_when_full=True)
+
+        await cog._maybe_start_ready_check(party)
+
+        assert party.phase is PartyPhase.READY_CHECK
+        assert party.confirmed == [party.initiator_id]
+        cog._start_check_loop.assert_called_once_with(party)
 
     @pytest.mark.asyncio
     async def test_nudge_user_sends_ping_message(
@@ -761,6 +831,13 @@ class TestPartySetupModal:
         role = MagicMock(spec=discord.Role, id=42, name="Гремлины", mention="<@&42>")
         return PartySetupModal(cog=cog, initiator=initiator, roles=[role], image_url=None)
 
+    def test_early_finish_defaults_to_deadline(self, cog: PartyCog) -> None:
+        modal = self._make_modal(cog)
+
+        defaults = {option.value: option.default for option in modal._finish_select.options}
+
+        assert defaults == {"false": True, "true": False}
+
     @pytest.mark.asyncio
     async def test_valid_submit_shows_publish_view(
         self, cog: PartyCog, patched_settings: BotSettings
@@ -771,6 +848,7 @@ class TestPartySetupModal:
         modal._duration_input = MagicMock(value=" 30 ")  # type: ignore[assignment]
         modal._size_input = MagicMock(value="5")  # type: ignore[assignment]
         modal._comment_input = MagicMock(value="  го  ")  # type: ignore[assignment]
+        modal._finish_select = MagicMock(values=["true"])  # type: ignore[assignment]
 
         interaction = MagicMock(spec=discord.Interaction)
         interaction.response = MagicMock()
@@ -783,7 +861,13 @@ class TestPartySetupModal:
         assert kwargs["ephemeral"] is True
         view = kwargs["view"]
         assert isinstance(view, PartyPublishView)
-        assert view._draft == _PartyDraft(role_id=42, minutes=30, count=5, comment="го")
+        assert view._draft == _PartyDraft(
+            role_id=42,
+            minutes=30,
+            count=5,
+            comment="го",
+            finish_when_full=True,
+        )
 
     @pytest.mark.asyncio
     async def test_non_numeric_minutes_rejected(
@@ -877,7 +961,13 @@ class TestPartyPublishView:
         initiator = MagicMock(spec=discord.Member, id=100)
         initiator.guild = MagicMock(spec=discord.Guild, id=1)
         role = MagicMock(spec=discord.Role, id=42, name="Гремлины", mention="<@&42>")
-        draft = _PartyDraft(role_id=42, minutes=30, count=3, comment="го")
+        draft = _PartyDraft(
+            role_id=42,
+            minutes=30,
+            count=3,
+            comment="го",
+            finish_when_full=True,
+        )
         return PartyPublishView(
             cog=cog, initiator=initiator, roles=[role], image_url=None, draft=draft
         )
@@ -903,6 +993,7 @@ class TestPartyPublishView:
         ca = cog._create_and_broadcast.await_args.kwargs
         assert ca["count"] == 3
         assert ca["duration"] == timedelta(minutes=30)
+        assert ca["finish_when_full"] is True
 
     @pytest.mark.asyncio
     async def test_edit_reopens_modal(self, cog: PartyCog, patched_settings: BotSettings) -> None:
@@ -918,6 +1009,8 @@ class TestPartyPublishView:
         interaction.response.send_modal.assert_awaited_once()
         modal = interaction.response.send_modal.await_args.args[0]
         assert isinstance(modal, PartySetupModal)
+        defaults = {option.value: option.default for option in modal._finish_select.options}
+        assert defaults == {"false": False, "true": True}
 
     @pytest.mark.asyncio
     async def test_cancel_closes_preview(
@@ -962,6 +1055,7 @@ class TestCreateAndBroadcast:
         cog._refresh_all_embeds = AsyncMock()  # type: ignore[method-assign]
         cog._send_dms = AsyncMock(return_value=0)  # type: ignore[method-assign]
         cog._finalize_after = AsyncMock()  # type: ignore[method-assign]
+        cog._maybe_start_ready_check = AsyncMock()  # type: ignore[method-assign]
 
         guild = MagicMock(spec=discord.Guild, id=1)
         public = MagicMock(spec=discord.Message)
@@ -983,12 +1077,15 @@ class TestCreateAndBroadcast:
             count=2,
             comment="c",
             image_url=None,
+            finish_when_full=False,
         )
 
         assert party is not None
+        assert party.finish_when_full is False
         assert cog.manager.get(party.id) is party
         channel.send.assert_awaited_once()
         cog._send_dms.assert_awaited_once()
+        cog._maybe_start_ready_check.assert_awaited_once_with(party)
         assert party.id in cog._timers
 
         cog._timers[party.id].cancel()

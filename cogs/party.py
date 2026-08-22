@@ -255,7 +255,7 @@ class PartyCog(commands.Cog):
     async def _maybe_start_ready_check(self, party: Party) -> None:
         """Запускает чек готовности, когда основа набралась (если включён)."""
         settings = get_settings()
-        if not settings.party.enable_ready_check:
+        if not party.finish_when_full or not settings.party.enable_ready_check:
             return
         window = timedelta(seconds=settings.party.confirm_window_seconds)
         started = await self.manager.start_ready_check(
@@ -383,7 +383,9 @@ class PartyCog(commands.Cog):
         # Сначала снимаем кнопки в DM (с серым embed-ом), потом обновляем публичный.
         await self._disable_dm_buttons(cancelled)
         await self._refresh_public_embed(cancelled)
-        self._timers.pop(party.id, None)
+        deadline_task = self._timers.pop(party.id, None)
+        if deadline_task is not None and deadline_task is not asyncio.current_task():
+            deadline_task.cancel()
         check_task = self._check_timers.pop(party.id, None)
         # Отменяем sweep, только если финал пришёл не из него самого.
         if check_task is not None and check_task is not asyncio.current_task():
@@ -414,6 +416,7 @@ class PartyCog(commands.Cog):
         count: int,
         comment: str,
         image_url: str | None,
+        finish_when_full: bool,
     ) -> discord.ui.Container:
         """Строит CV2-контейнер-превью сбора (как он будет выглядеть после публикации)."""
         now = datetime.now(UTC)
@@ -429,6 +432,7 @@ class PartyCog(commands.Cog):
             created_at=now,
             deadline=now + duration,
             image_url=image_url,
+            finish_when_full=finish_when_full,
             joined_order=[initiator.id],
         )
         settings = get_settings()
@@ -455,6 +459,7 @@ class PartyCog(commands.Cog):
         count: int,
         comment: str,
         image_url: str | None,
+        finish_when_full: bool,
     ) -> Party | None:
         """Публикует сбор в канал, рассылает DM и заводит таймер финализации.
 
@@ -489,6 +494,7 @@ class PartyCog(commands.Cog):
             created_at=now,
             deadline=deadline,
             image_url=image_url,
+            finish_when_full=finish_when_full,
         )
 
         await self._refresh_public_embed(party)
@@ -499,7 +505,8 @@ class PartyCog(commands.Cog):
         await self._refresh_all_embeds(party)
         logger.info(
             f"Создано пати {party.id} (роль {role.id}, нужно {count}, "
-            f"дедлайн {deadline.isoformat()}): DM доставлено {delivered}"
+            f"дедлайн {deadline.isoformat()}, finish_when_full={finish_when_full}): "
+            f"DM доставлено {delivered}"
         )
 
         seconds = max(1, int(duration.total_seconds()))
@@ -508,6 +515,7 @@ class PartyCog(commands.Cog):
         )
         self._timers[party.id] = task
         self._last_party[initiator.id] = now
+        await self._maybe_start_ready_check(party)
         return party
 
     @app_commands.command(

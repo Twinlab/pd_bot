@@ -29,6 +29,7 @@ def party(manager: PartyManager) -> Party:
         comment="идём ранкед",
         created_at=now,
         deadline=now + timedelta(minutes=15),
+        finish_when_full=True,
     )
 
 
@@ -43,6 +44,23 @@ class TestCreate:
         """В declined_order пусто на старте."""
         assert party.declined_order == []
         assert party.declined == []
+
+    def test_early_finish_is_opt_in(self, manager: PartyManager) -> None:
+        """Без явного флага полный состав продолжает ждать дедлайна."""
+        now = datetime.now(UTC)
+        party = manager.create(
+            guild_id=1,
+            channel_id=10,
+            public_message_id=1000,
+            role_id=42,
+            initiator_id=100,
+            count=1,
+            comment="",
+            created_at=now,
+            deadline=now + timedelta(minutes=15),
+        )
+
+        assert party.finish_when_full is False
 
     def test_party_id_is_unique(self, manager: PartyManager) -> None:
         """Каждое пати получает уникальный uuid."""
@@ -258,6 +276,20 @@ class TestStartReadyCheck:
         """Если основа не набрана — чек не стартует."""
         await manager.mark_ready(party.id, user_id=200)  # только 2 из 3
         result = await manager.start_ready_check(party.id, now=datetime.now(UTC), window=WINDOW)
+        assert result is None
+        assert party.phase is PartyPhase.COLLECTING
+
+    async def test_returns_none_without_early_finish(
+        self, manager: PartyManager, party: Party
+    ) -> None:
+        """Менеджер не запускает подтверждение в обход настройки сбора."""
+        party.finish_when_full = False
+        await _fill_main(manager, party)
+
+        result = await manager.start_ready_check(
+            party.id, now=datetime.now(UTC), window=WINDOW
+        )
+
         assert result is None
         assert party.phase is PartyPhase.COLLECTING
 

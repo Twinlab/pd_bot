@@ -4,7 +4,7 @@
   (фаза сбора). Контент и кнопки живут в одном ``LayoutView``.
 * :class:`PartyConfirmView` — карточка + кнопка «Подтверждаю» в DM (фаза чека).
 * :class:`PartySetupModal` — единая модалка ``/party`` (Modal v2): роль + время +
-  состав + коммент в одном окне.
+  состав + коммент + режим завершения в одном окне.
 * :class:`PartyPublishView` — превью сбора с кнопками «Опубликовать / Изменить /
   Отмена» (CV2).
 
@@ -173,13 +173,15 @@ class _PartyDraft:
     minutes: int
     count: int
     comment: str
+    finish_when_full: bool = False
 
 
 class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
-    """Единая модалка сбора (Modal v2): роль + время + состав + коммент.
+    """Единая модалка сбора: роль, время, состав, комментарий и завершение.
 
     Заменяет трёхшаговый мастер: роль — ``Select``, время и состав — ``TextInput``
-    (ручной ввод числа, валидируется по лимитам), комментарий — ``TextInput``.
+    (ручной ввод числа, валидируется по лимитам), комментарий — ``TextInput``,
+    режим завершения — ``Select``.
     """
 
     def __init__(
@@ -229,6 +231,23 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             placeholder="Что собираем, во сколько, условия…",
             default=(defaults.comment if defaults else None) or None,
         )
+        self._finish_select: discord.ui.Select[PartySetupModal] = discord.ui.Select(
+            required=True,
+            options=[
+                discord.SelectOption(
+                    label="Ждать дедлайна",
+                    value="false",
+                    description="Сбор продолжится, даже когда основной состав заполнен",
+                    default=defaults is None or not defaults.finish_when_full,
+                ),
+                discord.SelectOption(
+                    label="Завершить после набора",
+                    value="true",
+                    description="Запустить подтверждение после заполнения состава",
+                    default=defaults is not None and defaults.finish_when_full,
+                ),
+            ],
+        )
 
         self.add_item(
             discord.ui.Label(
@@ -254,6 +273,13 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
                 text="Комментарий",
                 description="Что собираем, во сколько, условия",
                 component=self._comment_input,
+            )
+        )
+        self.add_item(
+            discord.ui.Label(
+                text="Досрочное завершение",
+                description="Нужно ли закрыть сбор сразу после набора состава",
+                component=self._finish_select,
             )
         )
 
@@ -289,6 +315,7 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             minutes=minutes,
             count=count,
             comment=(self._comment_input.value or "").strip(),
+            finish_when_full=self._finish_select.values[0] == "true",
         )
         if self._roles.get(draft.role_id) is None:
             await interaction.response.send_message("Роль не найдена.", ephemeral=True)
@@ -349,6 +376,7 @@ class PartyPublishView(discord.ui.LayoutView):
             count=draft.count,
             comment=draft.comment,
             image_url=image_url,
+            finish_when_full=draft.finish_when_full,
         )
         container.add_item(_PublishRow())
         self.add_item(container)
@@ -384,6 +412,7 @@ class PartyPublishView(discord.ui.LayoutView):
             count=self._draft.count,
             comment=self._draft.comment,
             image_url=self._image_url,
+            finish_when_full=self._draft.finish_when_full,
         )
 
     async def handle_edit(self, interaction: discord.Interaction) -> None:
