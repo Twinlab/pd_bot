@@ -1,20 +1,246 @@
 """Тесты Components V2-представления профиля."""
 
+import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
 
 from utils.profile import (
-    FaceitAccount,
-    ProfileAccounts,
     ProfileMoment,
     ProfilePeriod,
     ProfileStats,
     ProfileStatsBuilder,
     ProfileView,
 )
+from utils.profile.account_views import (
+    AccountConfirmView,
+    AccountLinkModal,
+    AccountRemoveView,
+    account_choices,
+)
+from utils.profile.accounts import ProfileAccountService, ResolvedAccount
+from utils.profile.builder import FaceitAccount, ProfileAccounts
+from utils.profile_accounts_data_manager import AccountLinkError
+
+
+def _account_view(*, viewer_id=1, accounts=None):
+    view = _view(match_callback=AsyncMock())
+    view.viewer_id = viewer_id
+    view.account_service = MagicMock(spec=ProfileAccountService)
+    view.account_service.settings = SimpleNamespace(limits=SimpleNamespace(links_max_per_user=5))
+    view.account_service.resolve = AsyncMock(
+        return_value=ResolvedAccount(
+            "dota", "123", "Player", "https://steamcommunity.com/profiles/76561197960265851"
+        )
+    )
+    view.account_service.save = AsyncMock()
+    view.account_service.remove = AsyncMock()
+    view._accounts = accounts or ProfileAccounts()
+    view.builder.build_accounts = AsyncMock(return_value=view._accounts)
+    view.active_tab = "accounts"
+    view.message = MagicMock(edit=AsyncMock())
+    view._render()
+    return view
+
+
+def _account_interaction(mock_interaction):
+    mock_interaction.user.id = 1
+    mock_interaction.response.edit_message = AsyncMock()
+    mock_interaction.response.send_modal = AsyncMock()
+    return mock_interaction
+
+
+@pytest.mark.parametrize("full", [False, True])
+def test_account_sections_serialize_with_owner_controls_and_limits(full):
+    accounts = (
+        ProfileAccounts(
+            dota_ids=tuple(range(1, 6)),
+            faceit=tuple(FaceitAccount(str(i), f"Player{i}") for i in range(5)),
+        )
+        if full
+        else ProfileAccounts()
+    )
+    view = _account_view(accounts=accounts)
+    buttons = [
+        item
+        for item in view.walk_children()
+        if isinstance(item, discord.ui.Button)
+        and (item.custom_id or "").startswith("profile_account:add:")
+    ]
+    assert len(buttons) == 2
+    assert all(button.disabled == full for button in buttons)
+    assert view.total_children_count <= 40
+    assert "/link" not in str(view.to_components())
+    assert "/cslink" not in str(view.to_components())
+
+
+def test_foreign_profile_has_no_account_controls():
+    view = _account_view(viewer_id=2, accounts=ProfileAccounts(dota_ids=(123,)))
+    payload = str(view.to_components())
+    assert "stratz.com/players/123" in payload
+    assert "profile_account:" not in payload
+
+
+async def test_add_button_opens_single_field_modal(mock_interaction):
+    view = _account_view()
+    interaction = _account_interaction(mock_interaction)
+    button = next(
+        item
+        for item in view.walk_children()
+        if getattr(item, "custom_id", "") == "profile_account:add:dota"
+    )
+    await button.callback(interaction)
+    modal = interaction.response.send_modal.await_args.args[0]
+    assert isinstance(modal, AccountLinkModal)
+    assert len(modal.children) == 1
+
+
+@pytest.mark.parametrize("public", [False, True])
+async def test_public_profile_navigation_does_not_grant_link_management(mock_interaction, public):
+    view = _account_view()
+    view.public = public
+    interaction = _account_interaction(mock_interaction)
+    interaction.user.id = 2
+    button = next(
+        item
+        for item in view.walk_children()
+        if getattr(item, "custom_id", "") == "profile_account:add:dota"
+    )
+    with patch("utils.profile.views.safe_send", new_callable=AsyncMock):
+        assert await view.interaction_check(interaction) is public
+        await button.callback(interaction)
+    interaction.response.send_modal.assert_not_awaited()
+    view.account_service.save.assert_not_awaited()
+
+
+async def test_modal_previews_account_without_saving(mock_interaction):
+    view = _account_view()
+    interaction = _account_interaction(mock_interaction)
+    modal = AccountLinkModal(view, "dota")
+    modal.account_input._value = "123"
+    await modal.on_submit(interaction)
+    view.account_service.resolve.assert_awaited_once_with("123", "dota")
+    view.account_service.save.assert_not_awaited()
+    preview = interaction.followup.send.await_args.kwargs["view"]
+    assert isinstance(preview, AccountConfirmView)
+    assert interaction.followup.send.await_args.kwargs["ephemeral"] is True
+
+
+async def test_modal_error_never_opens_confirmation(mock_interaction):
+    view = _account_view()
+    view.account_service.resolve.side_effect = AccountLinkError("Аккаунт не найден")
+    interaction = _account_interaction(mock_interaction)
+    with patch("utils.profile.account_views.safe_send", new_callable=AsyncMock) as send:
+        await AccountLinkModal(view, "cs").on_submit(interaction)
+    send.assert_awaited_once_with(interaction, "Аккаунт не найден", ephemeral=True)
+    view.account_service.save.assert_not_awaited()
+    interaction.followup.send.assert_not_awaited()
+
+
+async def test_double_confirmation_saves_once_and_refreshes_original(mock_interaction):
+    view = _account_view()
+    interaction = _account_interaction(mock_interaction)
+    account = view.account_service.resolve.return_value
+    view.builder.build_accounts.return_value = ProfileAccounts(
+        dota_ids=(123,), dota_names={123: "Player"}
+    )
+    dialog = AccountConfirmView(view, account)
+    await asyncio.gather(dialog.confirm(interaction), dialog.confirm(interaction))
+    view.account_service.save.assert_awaited_once_with(1, account)
+    view.message.edit.assert_awaited_once_with(view=view)
+    assert "Player" in str(view.to_components())
+    assert dialog.is_finished()
+
+
+async def test_cancel_leaves_existing_links_untouched(mock_interaction):
+    view = _account_view()
+    interaction = _account_interaction(mock_interaction)
+    dialog = AccountConfirmView(view, view.account_service.resolve.return_value)
+    await dialog.cancel(interaction)
+    await dialog.confirm(interaction)
+    view.account_service.save.assert_not_awaited()
+    view.account_service.remove.assert_not_awaited()
+
+
+async def test_remove_select_requires_confirmation_for_exact_account(mock_interaction):
+    view = _account_view(
+        accounts=ProfileAccounts(dota_ids=(123,), faceit=(FaceitAccount("faceit-id", "Nickname"),))
+    )
+    interaction = _account_interaction(mock_interaction)
+    dialog = AccountRemoveView(view, account_choices(view._accounts))
+    select = next(item for item in dialog.walk_children() if isinstance(item, discord.ui.Select))
+    select._values = ["1"]
+    await select.callback(interaction)
+    view.account_service.remove.assert_not_awaited()
+    confirmation = interaction.response.edit_message.await_args.kwargs["view"]
+    assert confirmation.remove is True
+    assert confirmation.account.identifier == "faceit-id"
+    await confirmation.confirm(interaction)
+    view.account_service.remove.assert_awaited_once_with(1, confirmation.account)
+
+
+@pytest.mark.parametrize("expired", [False, True])
+async def test_foreign_or_expired_confirmation_cannot_change_links(mock_interaction, expired):
+    view = _account_view()
+    interaction = _account_interaction(mock_interaction)
+    if expired:
+        view.stop()
+    else:
+        interaction.user.id = 2
+    dialog = AccountConfirmView(view, view.account_service.resolve.return_value)
+    with patch("utils.profile.views.safe_send", new_callable=AsyncMock) as send:
+        await dialog.confirm(interaction)
+        await AccountLinkModal(view, "dota").on_submit(interaction)
+    assert send.await_count == 2
+    view.account_service.resolve.assert_not_awaited()
+    view.account_service.save.assert_not_awaited()
+
+
+async def test_duplicate_confirmation_keeps_profile_and_explains_error(mock_interaction):
+    view = _account_view()
+    interaction = _account_interaction(mock_interaction)
+    view.account_service.save.side_effect = AccountLinkError("Этот аккаунт уже привязан")
+    dialog = AccountConfirmView(view, view.account_service.resolve.return_value)
+    with patch("utils.profile.account_views.safe_send", new_callable=AsyncMock) as send:
+        await dialog.confirm(interaction)
+    send.assert_awaited_once()
+    view.message.edit.assert_not_awaited()
+
+
+async def test_refresh_reads_new_links_after_other_panel_changes():
+    view = _account_view(accounts=ProfileAccounts(dota_ids=(123,)))
+    view.builder.build_accounts.return_value = ProfileAccounts(
+        faceit=(FaceitAccount("new", "NewName"),)
+    )
+    await view.refresh_accounts()
+    payload = str(view.to_components())
+    assert "NewName" in payload
+    assert "stratz.com/players/123" not in payload
+
+
+async def test_expired_dialog_cannot_save_even_while_profile_is_open(mock_interaction):
+    view = _account_view()
+    interaction = _account_interaction(mock_interaction)
+    dialog = AccountConfirmView(view, view.account_service.resolve.return_value)
+    await dialog.on_timeout()
+    with patch("utils.profile.account_views.safe_send", new_callable=AsyncMock) as send:
+        await dialog.confirm(interaction)
+    send.assert_awaited_once()
+    view.account_service.save.assert_not_awaited()
+
+
+async def test_confirmation_timeout_disables_mutating_buttons():
+    view = _account_view()
+    dialog = AccountConfirmView(view, view.account_service.resolve.return_value)
+    dialog.message = MagicMock(edit=AsyncMock())
+    await dialog.on_timeout()
+    for item in dialog.walk_children():
+        if isinstance(item, discord.ui.Button):
+            assert item.disabled is (item.url is None)
+    view.account_service.save.assert_not_awaited()
 
 
 def _member() -> MagicMock:

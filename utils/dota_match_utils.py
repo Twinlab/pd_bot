@@ -231,7 +231,7 @@ async def handle_lastmatch(
             if member
             else "Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2."
         )
-        await ctx.send(f"{message} Используйте команду `/link PLAYER_ID`.")
+        await ctx.send(f"{message} Откройте `/profile` → «Аккаунты» для привязки.")
         return
 
     # Создаем словарь в формате, который ожидает get_match_data

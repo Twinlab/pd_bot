@@ -19,6 +19,8 @@ from utils.top_reactions_data_manager import (
 )
 from utils.user_stats_data_manager import UserStatsDataManager, UserTotals
 
+from .accounts import cached_dota_names
+
 ProfileScope = Literal["month", "year", "all"]
 
 MONTH_NAMES_RU = {
@@ -112,6 +114,7 @@ class ProfileAccounts:
 
     dota_ids: tuple[int, ...] = ()
     faceit: tuple[FaceitAccount, ...] = ()
+    dota_names: dict[int, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -326,6 +329,7 @@ class ProfileStatsBuilder:
         )
         return ProfileAccounts(
             dota_ids=tuple(dota_ids),
+            dota_names=await cached_dota_names(dota_ids),
             faceit=tuple(
                 FaceitAccount(player_id=link.faceit_player_id, nickname=link.nickname)
                 for link in faceit_links

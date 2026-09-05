@@ -2,7 +2,7 @@
 
 Команда ``/cslastmatch`` получает данные о последнем матче CS2 пользователя через
 FACEIT Data API и показывает их в виде Components V2 контейнера. Требует
-предварительной привязки аккаунта FACEIT через ``/cslink``.
+предварительной привязки аккаунта FACEIT в ``/profile`` → «Аккаунты».
 """
 
 import logging
@@ -51,7 +51,7 @@ class CsLastMatchCog(commands.Cog):
         """Показывает информацию о последнем матче CS2.
 
         Для указанного пользователя (или автора команды). Требует привязки
-        аккаунта FACEIT через команду `/cslink`.
+        аккаунта FACEIT в `/profile` → «Аккаунты».
         """
         await ctx.defer()
         await self.send_last_match(ctx, member)

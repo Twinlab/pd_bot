@@ -6,8 +6,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from datetime import date, datetime
-from typing import Literal
-from urllib.parse import quote
+from typing import Any, Literal
 
 import discord
 from discord import ButtonStyle, Interaction, ui
@@ -15,9 +14,11 @@ from discord import ButtonStyle, Interaction, ui
 from config import get_settings
 from utils.activity.helpers import format_time_short
 from utils.channel_permissions import public_message_channel_ids
-from utils.error_handler import get_incident_error_message, new_incident_id
+from utils.error_handler import get_incident_error_message, new_incident_id, safe_send
 from utils.time_utils import MOSCOW_TZ
 
+from .account_views import add_account_sections
+from .accounts import ProfileAccountService
 from .builder import (
     MONTH_NAMES_RU,
     ProfileAccounts,
@@ -224,12 +225,18 @@ class ProfileView(ui.LayoutView):
         stats: ProfileStats,
         eligible_user_ids: set[int],
         match_callback: ProfileMatchCallback | None = None,
+        viewer_id: int | None = None,
+        account_service: ProfileAccountService | None = None,
+        public: bool = False,
     ) -> None:
         super().__init__(timeout=PROFILE_TIMEOUT_SECONDS)
         self.target = target
         self.builder = builder
         self.eligible_user_ids = eligible_user_ids
         self.match_callback = match_callback
+        self.viewer_id = viewer_id
+        self.account_service = account_service
+        self.public = public
         self.period = stats.period
         self.active_tab: ProfileTab = "overview"
         self.games_page = 0
@@ -240,6 +247,44 @@ class ProfileView(ui.LayoutView):
         self._interaction_lock = asyncio.Lock()
         self._active_match_requests: set[int] = set()
         self._render()
+
+    @property
+    def can_manage_accounts(self) -> bool:
+        """Доступно ли управление аккаунтами в этом экземпляре профиля."""
+        return self.account_service is not None and self.viewer_id == self.target.id
+
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        """Разрешает общую навигацию публичного профиля и личную — приватного."""
+        if self.public or self.viewer_id is None or interaction.user.id == self.viewer_id:
+            return True
+        await safe_send(interaction, "Откройте собственную панель через /profile.", ephemeral=True)
+        return False
+
+    async def check_account_owner(self, interaction: Interaction) -> bool:
+        """Проверяет владельца непосредственно перед формой и изменением привязки."""
+        if self.is_finished():
+            await safe_send(
+                interaction, "Панель устарела. Откройте /profile заново.", ephemeral=True
+            )
+            return False
+        if not self.can_manage_accounts or interaction.user.id != self.target.id:
+            await safe_send(
+                interaction, "Можно менять только собственные привязки.", ephemeral=True
+            )
+            return False
+        return True
+
+    async def refresh_accounts(self) -> None:
+        """Заново читает привязки и обновляет исходное сообщение профиля."""
+        async with self._interaction_lock:
+            self._accounts = await self.builder.build_accounts(self.target.id)
+            self.active_tab = "accounts"
+            self._render()
+            if self.message is not None and not self.is_finished():
+                try:
+                    await self.message.edit(view=self)
+                except discord.HTTPException:
+                    logger.debug("Исходное сообщение профиля больше недоступно для обновления.")
 
     def _current_game(self) -> str | None:
         for activity in self.target.activities:
@@ -392,34 +437,6 @@ class ProfileView(ui.LayoutView):
                 )
             )
 
-    @staticmethod
-    def _add_accounts(container: ui.Container, accounts: ProfileAccounts) -> None:
-        if accounts.dota_ids:
-            dota_lines = [
-                f"• [{player_id}](https://stratz.com/players/{player_id})"
-                for player_id in accounts.dota_ids
-            ]
-            container.add_item(ui.TextDisplay("### Dota 2\n" + "\n".join(dota_lines)))
-        else:
-            container.add_item(
-                ui.TextDisplay("### Dota 2\n*Аккаунты не привязаны — используйте `/link`.*")
-            )
-
-        container.add_item(ui.Separator())
-        if accounts.faceit:
-            faceit_lines = [
-                f"• [{_safe_text(account.nickname, limit=80)}]"
-                f"(https://www.faceit.com/en/players/{quote(account.nickname, safe='')})"
-                for account in accounts.faceit
-            ]
-            container.add_item(ui.TextDisplay("### Counter-Strike 2\n" + "\n".join(faceit_lines)))
-        else:
-            container.add_item(
-                ui.TextDisplay(
-                    "### Counter-Strike 2\n*FACEIT не привязан — используйте `/cslink`.*"
-                )
-            )
-
     def _render(self) -> None:
         self.clear_items()
         stats = self._stats_cache.get(self.period)
@@ -434,7 +451,7 @@ class ProfileView(ui.LayoutView):
         elif self.active_tab == "moments":
             self._add_moments(container, self._moments_cache.get(self.period, []))
         elif self.active_tab == "accounts":
-            self._add_accounts(container, self._accounts or ProfileAccounts())
+            add_account_sections(container, self._accounts or ProfileAccounts(), self)
 
         container.add_item(ui.Separator())
         if self.match_callback is not None:
@@ -524,7 +541,7 @@ class ProfileView(ui.LayoutView):
         self,
         interaction: Interaction,
         error: Exception,
-        item: ui.Item[ProfileView],
+        item: ui.Item[Any],
     ) -> None:
         """Логирует ошибку компонента и отвечает только инициатору."""
         incident_id = new_incident_id()

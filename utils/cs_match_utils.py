@@ -334,7 +334,7 @@ async def handle_cs_lastmatch(
             if member
             else "Сначала привяжите аккаунт FACEIT."
         )
-        await ctx.send(f"{message} Используйте команду `/cslink <ник>`.")
+        await ctx.send(f"{message} Откройте `/profile` → «Аккаунты» для привязки.")
         return
 
     recent_count = ctx.bot.settings.cs.recent_matches_count

@@ -17,6 +17,7 @@ from utils.profile import (
     ProfileStatsBuilder,
     ProfileView,
 )
+from utils.profile.accounts import ProfileAccountService
 
 logger = logging.getLogger("bot.cogs.profile")
 
@@ -50,6 +51,7 @@ class ProfileCog(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
         self.builder = ProfileStatsBuilder()
+        self.account_service = ProfileAccountService(bot.settings)
         self.profile_menu = app_commands.ContextMenu(
             name="Профиль",
             callback=self.profile_context_menu,
@@ -59,6 +61,7 @@ class ProfileCog(commands.Cog):
     async def cog_unload(self) -> None:
         """Удаляет контекстное меню при выгрузке кога."""
         self.bot.tree.remove_command(self.profile_menu.name, type=self.profile_menu.type)
+        await self.account_service.close()
 
     @staticmethod
     def _current_game(member: discord.Member) -> str | None:
@@ -78,6 +81,8 @@ class ProfileCog(commands.Cog):
         *,
         target: discord.Member,
         period: ProfilePeriod,
+        viewer_id: int | None = None,
+        public: bool = False,
     ) -> ProfileView:
         """Собирает начальное состояние профиля."""
         eligible_user_ids = self._eligible_user_ids(target.guild)
@@ -93,6 +98,9 @@ class ProfileCog(commands.Cog):
             stats=stats,
             eligible_user_ids=eligible_user_ids,
             match_callback=self._send_profile_match,
+            viewer_id=viewer_id,
+            account_service=self.account_service,
+            public=public,
         )
 
     async def _send_profile_match(
@@ -117,21 +125,6 @@ class ProfileCog(commands.Cog):
         )
         await sender.send_last_match(context, target)
 
-    async def send_from_context(
-        self,
-        ctx: commands.Context,
-        target: discord.Member,
-        period: ProfilePeriod,
-    ) -> None:
-        """Отправляет публичный профиль из hybrid-команды."""
-        await ctx.defer()
-        view = await self.build_view(
-            target=target,
-            period=period,
-        )
-        message = await ctx.send(view=view)
-        view.message = message
-
     async def send_from_interaction(
         self,
         interaction: discord.Interaction,
@@ -140,11 +133,13 @@ class ProfileCog(commands.Cog):
         *,
         ephemeral: bool,
     ) -> None:
-        """Отправляет профиль из контекстного меню."""
+        """Отправляет профиль с выбранной видимостью."""
         await interaction.response.defer(ephemeral=ephemeral)
         view = await self.build_view(
             target=target,
             period=period,
+            viewer_id=interaction.user.id,
+            public=not ephemeral,
         )
         message = await interaction.followup.send(
             view=view,
@@ -153,25 +148,26 @@ class ProfileCog(commands.Cog):
         )
         view.message = cast(discord.Message, message)
 
-    @commands.hybrid_command(
+    @app_commands.command(
         name="profile",
         description="Показать интерактивный профиль участника.",
     )
     @app_commands.guild_only()
-    @commands.guild_only()
     @app_commands.describe(user="Чей профиль показать (по умолчанию — ваш).")
     @command_error_handler
     async def profile(
         self,
-        ctx: commands.Context,
+        interaction: discord.Interaction,
         user: discord.Member | None = None,
     ) -> None:
         """Открывает профиль за текущий месяц."""
-        target = user or ctx.author
+        target = user or interaction.user
         if not isinstance(target, discord.Member):
-            await safe_send_error(ctx, "Профиль доступен только участникам сервера.")
+            await safe_send_error(interaction, "Профиль доступен только участникам сервера.")
             return
-        await self.send_from_context(ctx, target, ProfilePeriod.current_month())
+        await self.send_from_interaction(
+            interaction, target, ProfilePeriod.current_month(), ephemeral=False
+        )
 
     @app_commands.guild_only()
     async def profile_context_menu(

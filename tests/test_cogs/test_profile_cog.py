@@ -1,5 +1,6 @@
 """Тесты команды единого профиля."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -7,7 +8,17 @@ import pytest
 from discord.ext import commands
 
 from cogs.profile import ProfileCog, setup
-from utils.profile import ProfileStats
+
+
+async def test_profile_registers_as_app_command_without_prefix():
+    bot = commands.Bot(command_prefix="!", intents=discord.Intents.none())
+    bot.settings = SimpleNamespace(steam_api_key=None, faceit_api_key=None)
+    cog = ProfileCog(bot)
+    await bot.add_cog(cog)
+    assert bot.tree.get_command("profile") is not None
+    assert bot.get_command("profile") is None
+    assert bot.tree.get_command("profile").guild_only
+    await bot.remove_cog("ProfileCog")
 
 
 @pytest.fixture
@@ -17,16 +28,46 @@ def profile_cog(mock_bot) -> ProfileCog:
 
 
 @pytest.mark.asyncio
-async def test_profile_command_opens_current_month(profile_cog, mock_context, mock_member) -> None:
-    mock_context.author = mock_member
-    profile_cog.send_from_context = AsyncMock()
+async def test_profile_command_opens_current_month(
+    profile_cog, mock_interaction, mock_member
+) -> None:
+    profile_cog.send_from_interaction = AsyncMock()
 
-    await profile_cog.profile.callback(profile_cog, mock_context)
+    await profile_cog.profile.callback(profile_cog, mock_interaction)
 
-    args = profile_cog.send_from_context.await_args.args
-    assert args[0] is mock_context
+    args = profile_cog.send_from_interaction.await_args.args
+    assert args[0] is mock_interaction
     assert args[1] is mock_member
     assert args[2].scope == "month"
+    assert profile_cog.send_from_interaction.await_args.kwargs["ephemeral"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("ephemeral", [False, True])
+async def test_profile_message_and_navigation_share_visibility(
+    profile_cog, mock_interaction, mock_member, ephemeral
+) -> None:
+    from utils.profile import ProfilePeriod
+
+    view = MagicMock()
+    profile_cog.build_view = AsyncMock(return_value=view)
+    period = ProfilePeriod.current_month()
+
+    await profile_cog.send_from_interaction(
+        mock_interaction, mock_member, period, ephemeral=ephemeral
+    )
+
+    mock_interaction.response.defer.assert_awaited_once_with(ephemeral=ephemeral)
+    profile_cog.build_view.assert_awaited_once_with(
+        target=mock_member,
+        period=period,
+        viewer_id=mock_interaction.user.id,
+        public=not ephemeral,
+    )
+    mock_interaction.followup.send.assert_awaited_once_with(
+        view=view, ephemeral=ephemeral, wait=True
+    )
+    assert view.message is mock_interaction.followup.send.return_value
 
 
 @pytest.mark.asyncio
@@ -76,9 +117,7 @@ async def test_profile_match_button_sends_ephemeral_match(
 
 
 @pytest.mark.asyncio
-async def test_profile_match_button_handles_missing_cog(
-    profile_cog, mock_bot, mock_member
-) -> None:
+async def test_profile_match_button_handles_missing_cog(profile_cog, mock_bot, mock_member) -> None:
     mock_bot.get_cog.return_value = None
     interaction = MagicMock(spec=discord.Interaction)
     interaction.response = MagicMock()

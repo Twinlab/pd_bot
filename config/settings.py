@@ -34,6 +34,7 @@ class ChannelConfig(BaseModel):
         twitch: ID канала для уведомлений Twitch.
         activity_reports: ID канала для отчетов активности.
         role_reactions_default: ID канала по умолчанию для ролей (опционально).
+        announcements: ID канала для объявлений об обновлениях (опционально).
     """
 
     logging: int = 0
@@ -41,6 +42,7 @@ class ChannelConfig(BaseModel):
     twitch: int = 0
     activity_reports: int = 0
     role_reactions_default: int | None = None
+    announcements: int | None = Field(default=None, gt=0)
 
 
 class TimeoutConfig(BaseModel):
@@ -613,7 +615,7 @@ class Messages(BaseModel):
     }
     info: dict[str, str] = {
         "no_linked_accounts": (
-            "У вас нет привязанных аккаунтов Dota 2. Используйте `/link PLAYER_ID`."
+            "У вас нет привязанных аккаунтов Dota 2. Откройте `/profile` → «Аккаунты»."
         ),
         "queue_empty": "ℹ️ Очередь пуста",
         "nothing_playing": "⏹️ Ничего не играет",
@@ -642,6 +644,7 @@ class BotSettings(BaseSettings):
     bot_token: str = Field(default="test_token_here", alias="BOT_TOKEN")
     stratz_api_key: str = Field(default="test_stratz_key_here", alias="STRATZ_API_KEY")
     faceit_api_key: str | None = Field(default=None, alias="FACEIT_API_KEY")
+    steam_api_key: str | None = Field(default=None, alias="STEAM_API_KEY")
     prefix: str = Field(default="!", alias="BOT_PREFIX")
     environment: Environment = Field(default=Environment.PRODUCTION, alias="BOT_ENVIRONMENT")
 

@@ -13,9 +13,21 @@ import importlib
 import pkgutil
 from collections import defaultdict
 
+from discord import app_commands
 from discord.ext import commands
 
 import cogs as cogs_pkg
+
+
+def test_account_commands_are_replaced_by_profile():
+    retired = {"link", "unlink", "links", "cslink", "csunlink", "cslinks"}
+    for cog in _all_cog_classes():
+        for command in (*cog.__cog_commands__, *cog.__cog_app_commands__):
+            assert command.name not in retired
+            assert not retired.intersection(getattr(command, "aliases", []))
+    from cogs.profile import ProfileCog
+
+    assert isinstance(ProfileCog.profile, app_commands.Command)
 
 
 def _all_cog_classes() -> list[type[commands.Cog]]:

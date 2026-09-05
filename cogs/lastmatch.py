@@ -6,7 +6,7 @@
 - Отображение статистики матча в виде эмбеда Discord
 - Поддержку просмотра статистики как для себя, так и для других пользователей
 
-Для работы требуется предварительная привязка Steam ID через команду /link.
+Для работы требуется привязка аккаунта во вкладке «Аккаунты» команды /profile.
 """
 
 import logging
@@ -32,9 +32,6 @@ class LastMatchCog(commands.Cog):
             bot: Экземпляр бота discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
-        # Раньше брали менеджер через bot.get_cog("LinksCog").links_manager —
-        # это создавало неявную зависимость от порядка загрузки когов и падало,
-        # если LinksCog ещё не загружен. LinksDataManager stateless — берём напрямую.
         self.links_manager = LinksDataManager()
 
     async def send_last_match(
@@ -60,7 +57,7 @@ class LastMatchCog(commands.Cog):
         """Показывает информацию о последнем матче Dota 2.
 
         Для указанного пользователя (или автора команды).
-        Требует предварительной привязки Steam ID через команду /link.
+        Требует привязки аккаунта во вкладке «Аккаунты» команды /profile.
         """
         await ctx.defer()
         await self.send_last_match(ctx, member)

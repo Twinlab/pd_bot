@@ -174,7 +174,7 @@ class TestHandleLastmatch:
 
         expected_message = (
             "Сначала привяжите ваш аккаунт Discord к аккаунту Dota 2. "
-            "Используйте команду `/link PLAYER_ID`."
+            "Откройте `/profile` → «Аккаунты» для привязки."
         )
         self.mock_ctx.send.assert_called_once_with(expected_message)
 
@@ -190,7 +190,7 @@ class TestHandleLastmatch:
 
         expected_message = (
             "Пользователь <@789012> не привязал свой аккаунт Dota 2. "
-            "Используйте команду `/link PLAYER_ID`."
+            "Откройте `/profile` → «Аккаунты» для привязки."
         )
         self.mock_ctx.send.assert_called_once_with(expected_message)
 

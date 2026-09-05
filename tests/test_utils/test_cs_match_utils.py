@@ -290,7 +290,8 @@ class TestHandleCsLastmatch:
         ctx = self._ctx()
         await handle_cs_lastmatch(ctx, [], None)
         ctx.send.assert_awaited_once()
-        assert "cslink" in ctx.send.call_args[0][0]
+        assert "/profile" in ctx.send.call_args[0][0]
+        assert "Аккаунты" in ctx.send.call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_no_data(self):
