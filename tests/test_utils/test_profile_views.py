@@ -49,6 +49,40 @@ def _view(*, match_callback: AsyncMock | None = None) -> ProfileView:
     )
 
 
+@pytest.mark.asyncio
+async def test_moments_recheck_channel_permissions_after_previous_visit() -> None:
+    view = _view()
+    guild = MagicMock(spec=discord.Guild)
+    channel = MagicMock(spec=discord.TextChannel)
+    channel.id = 20
+    channel.overwrites = {}
+    channel.permissions_for.return_value = discord.Permissions(
+        view_channel=True, read_message_history=True
+    )
+    guild.channels = [channel]
+    guild.threads = []
+    view.target.guild = guild
+    moment = ProfileMoment("Публичный момент", "https://discord.com/channels/1/20/30", 7)
+
+    async def build_moments(**kwargs):
+        return [moment] if 20 in kwargs["allowed_channel_ids"] else []
+
+    view.builder.build_moments = AsyncMock(side_effect=build_moments)
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.response.defer = AsyncMock()
+    interaction.edit_original_response = AsyncMock()
+
+    await view.show_tab(interaction, "moments")
+    assert "Публичный момент" in str(view.to_components())
+
+    channel.permissions_for.return_value.view_channel = False
+    await view.show_tab(interaction, "moments")
+
+    assert "Публичный момент" not in str(view.to_components())
+    assert view.builder.build_moments.await_count == 2
+    assert view.builder.build_moments.await_args.kwargs["allowed_channel_ids"] == set()
+
+
 def test_profile_view_serializes_without_wrapped_or_unsafe_mentions() -> None:
     """Начальная карточка остаётся в лимите и не раскрывает wrapped."""
     view = _view()

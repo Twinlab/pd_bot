@@ -163,7 +163,9 @@ class TestProfileStatsBuilder:
         period = ProfilePeriod("year", 2026)
 
         with patch("utils.profile.builder.get_settings", return_value=_settings()):
-            moments = await builder.build_moments(user_id=1, period=period, limit=3)
+            moments = await builder.build_moments(
+                user_id=1, period=period, allowed_channel_ids={20}, limit=3
+            )
 
         assert [(moment.content, moment.reactions) for moment in moments] == [("Лучший момент", 7)]
         reactions.get_leaderboard.assert_awaited_once_with(
@@ -172,6 +174,7 @@ class TestProfileStatsBuilder:
             year=2026,
             month=None,
             author_id=1,
+            allowed_channel_ids={20},
             excluded_message_ids={999},
             ignore_self_reactions=True,
             timezone=MOSCOW_TZ,

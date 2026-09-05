@@ -66,6 +66,7 @@ class ActivityTracker(commands.Cog):
 
         # {user_id: (game_name, start_time_utc)}
         self.current_activities: dict[int, tuple[str, datetime]] = {}
+        self._pending_activity: dict[tuple[int, str, date], int] = {}
         self._activity_lock = asyncio.Lock()
 
         self.scan_scheduled = False
@@ -180,7 +181,7 @@ class ActivityTracker(commands.Cog):
         if user_id not in self.current_activities:
             return
 
-        game_name, start_time = self.current_activities[user_id]
+        game_name, start_time = self.current_activities.pop(user_id)
         now_utc = datetime.now(UTC)
         elapsed_seconds = int((now_utc - start_time).total_seconds())
 
@@ -194,7 +195,7 @@ class ActivityTracker(commands.Cog):
                 f"Пользователь {member.name} ({user_id}) покинул сервер. "
                 f"Сохраняем сессию {game_name} ({elapsed_seconds} сек) в БД."
             )
-            await self._save_activity_interval(user_id, game_name, start_time, now_utc)
+            self._queue_activity_interval(user_id, game_name, start_time, now_utc)
         else:
             logger.info(
                 f"Пользователь {member.name} ({user_id}) покинул сервер. "
@@ -202,23 +203,40 @@ class ActivityTracker(commands.Cog):
                 f"(вне допустимого диапазона)."
             )
 
-        self.current_activities.pop(user_id, None)
+        await self._flush_pending_activity()
 
-    async def _save_activity_interval(
+    def _queue_activity_interval(
         self,
         user_id: int,
         game_name: str,
         started_at: datetime,
         ended_at: datetime,
     ) -> None:
-        """Сохраняет игровой интервал в правильные московские даты."""
+        """Фиксирует интервал для записи под общим lock, не продлевая его при сбое БД."""
         for target_date, seconds in split_interval_by_local_date(started_at, ended_at):
-            await self.data_manager.update_activity(
-                user_id,
-                game_name,
-                seconds,
-                target_date=target_date,
-            )
+            key = (user_id, game_name, target_date)
+            self._pending_activity[key] = self._pending_activity.get(key, 0) + seconds
+
+    async def _flush_pending_activity(self) -> None:
+        """Записывает накопленные интервалы; неудачные записи остаются для повтора."""
+        for key, seconds in list(self._pending_activity.items()):
+            user_id, game_name, target_date = key
+            try:
+                await self.data_manager.update_activity(
+                    user_id,
+                    game_name,
+                    seconds,
+                    target_date=target_date,
+                )
+            except Exception:
+                logger.exception(
+                    "Не удалось сохранить активность %s (%s) за %s; интервал оставлен для повтора",
+                    user_id,
+                    game_name,
+                    target_date,
+                )
+                return
+            del self._pending_activity[key]
 
     async def update_current_activities(self, final_save: bool = False) -> None:
         """Обновляет статистику для текущих активных сессий, записывая данные в БД.
@@ -231,6 +249,7 @@ class ActivityTracker(commands.Cog):
         """
         async with self._activity_lock:
             await self._update_current_activities(final_save=final_save)
+            await self._flush_pending_activity()
 
     async def _update_current_activities(self, *, final_save: bool) -> None:
         """Сохраняет активные сессии; вызывается только под ``_activity_lock``."""
@@ -253,23 +272,7 @@ class ActivityTracker(commands.Cog):
             is_stale = guild is not None and guild.get_member(user_id) is None
 
             if elapsed_seconds >= min_record_threshold and elapsed_seconds < max_record_threshold:
-                try:
-                    await self._save_activity_interval(
-                        user_id,
-                        game_name,
-                        start_time,
-                        now_utc,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "Не удалось сохранить активность %s (%s): %s; "
-                        "начало сессии оставлено для повтора",
-                        user_id,
-                        game_name,
-                        e,
-                        exc_info=True,
-                    )
-                    continue
+                self._queue_activity_interval(user_id, game_name, start_time, now_utc)
 
                 if is_stale:
                     self.current_activities.pop(user_id, None)
@@ -351,7 +354,7 @@ class ActivityTracker(commands.Cog):
                     user_id in self.current_activities
                     and self.current_activities[user_id][0] == before_game
                 ):
-                    start_time = self.current_activities[user_id][1]
+                    _, start_time = self.current_activities.pop(user_id)
                     elapsed_seconds = int((now_utc - start_time).total_seconds())
 
                     # Записываем в БД, если время сессии достаточное
@@ -362,7 +365,7 @@ class ActivityTracker(commands.Cog):
                             f"Завершилась сессия {user_id} - {before_game} "
                             f"({elapsed_seconds} сек). Запись в БД..."
                         )
-                        await self._save_activity_interval(
+                        self._queue_activity_interval(
                             user_id,
                             before_game,
                             start_time,
@@ -374,7 +377,6 @@ class ActivityTracker(commands.Cog):
                             f"({elapsed_seconds} сек), пропуск записи."
                         )
 
-                    self.current_activities.pop(user_id, None)
                     logger.debug(f"Сессия {user_id} - {before_game} удалена из памяти.")
 
             # --- Обработка начала новой игры ---
@@ -388,6 +390,8 @@ class ActivityTracker(commands.Cog):
                 ):
                     self.current_activities[user_id] = (after_game, now_utc)
                     logger.debug(f"Началась новая сессия: {user_id} - {after_game}")
+
+            await self._flush_pending_activity()
 
         except Exception as e:
             logger.error(

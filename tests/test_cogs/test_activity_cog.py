@@ -63,22 +63,100 @@ class TestActivityTrackerInit:
             mock_update.assert_called_once_with(final_save=True)
 
 
+class TestFailedActivityWrites:
+    @pytest.mark.parametrize("event", ["stop", "switch", "leave"])
+    async def test_closed_session_is_not_extended_while_database_is_unavailable(
+        self, mock_bot, event: str
+    ):
+        with patch("discord.ext.tasks.Loop.start"):
+            tracker = ActivityTracker(mock_bot)
+        start = datetime(2026, 9, 5, 12, 0, tzinfo=UTC)
+        ended = start + timedelta(minutes=5)
+        retried = start + timedelta(minutes=15)
+        tracker.current_activities[123] = ("Dota 2", start)
+        before = MagicMock(spec=discord.Member)
+        before.id = 123
+        before.bot = False
+        before.activities = [discord.Game("Dota 2")]
+        after = MagicMock(spec=discord.Member)
+        after.id = 123
+        after.bot = False
+        after.activities = [discord.Game("Counter-Strike 2")] if event == "switch" else []
+
+        with (
+            patch("cogs.activity.datetime") as clock,
+            patch("cogs.activity.is_application", return_value=False),
+            patch.object(
+                tracker.data_manager,
+                "update_activity",
+                new=AsyncMock(side_effect=[RuntimeError("Database unavailable"), None, None]),
+            ) as save,
+        ):
+            clock.now.return_value = ended
+            if event == "leave":
+                await tracker.on_member_remove(before)
+            else:
+                await tracker.on_presence_update(before, after)
+
+            assert tracker._pending_activity == {(123, "Dota 2", start.date()): 300}
+            if event == "switch":
+                assert tracker.current_activities[123] == ("Counter-Strike 2", ended)
+            else:
+                assert 123 not in tracker.current_activities
+
+            clock.now.return_value = retried
+            await tracker.update_current_activities()
+
+        dota_writes = [call.args[2] for call in save.await_args_list if call.args[1] == "Dota 2"]
+        assert dota_writes == [300, 300]
+        assert tracker._pending_activity == {}
+        if event == "switch":
+            assert save.await_args.args == (123, "Counter-Strike 2", 600)
+
+    async def test_midnight_retry_does_not_repeat_already_saved_date(self):
+        tracker = ActivityTracker.__new__(ActivityTracker)
+        tracker._pending_activity = {}
+        tracker.data_manager = MagicMock()
+        tracker.data_manager.update_activity = AsyncMock(
+            side_effect=[None, RuntimeError("Database unavailable"), None]
+        )
+        tracker._queue_activity_interval(
+            123,
+            "Dota 2",
+            datetime(2026, 9, 5, 20, 59, tzinfo=UTC),
+            datetime(2026, 9, 5, 21, 1, tzinfo=UTC),
+        )
+
+        await tracker._flush_pending_activity()
+        assert tracker._pending_activity == {(123, "Dota 2", date(2026, 9, 6)): 60}
+        await tracker._flush_pending_activity()
+
+        assert tracker.data_manager.update_activity.await_args_list == [
+            ((123, "Dota 2", 60), {"target_date": date(2026, 9, 5)}),
+            ((123, "Dota 2", 60), {"target_date": date(2026, 9, 6)}),
+            ((123, "Dota 2", 60), {"target_date": date(2026, 9, 6)}),
+        ]
+        assert tracker._pending_activity == {}
+
+
 class TestActivityTracking:
     """Тесты для отслеживания активности."""
 
     @pytest.mark.asyncio
-    async def test_save_activity_interval_splits_moscow_midnight(self):
+    async def test_queue_activity_interval_splits_moscow_midnight(self):
         """Игровой интервал по обе стороны полуночи получает две даты."""
         tracker = ActivityTracker.__new__(ActivityTracker)
+        tracker._pending_activity = {}
         tracker.data_manager = MagicMock()
         tracker.data_manager.update_activity = AsyncMock()
 
-        await tracker._save_activity_interval(
+        tracker._queue_activity_interval(
             123,
             "Dota 2",
             datetime(2026, 7, 23, 20, 59, 58, tzinfo=UTC),
             datetime(2026, 7, 23, 21, 0, 3, tzinfo=UTC),
         )
+        await tracker._flush_pending_activity()
 
         assert tracker.data_manager.update_activity.await_args_list == [
             ((123, "Dota 2", 2), {"target_date": date(2026, 7, 23)}),
@@ -765,8 +843,11 @@ class TestUpdateCurrentActivitiesEdgeCases:
 
                 mock_update.assert_awaited_once()
 
-                # Проверяем, что время в памяти НЕ было обновлено из-за ошибки
-                assert activity_tracker.current_activities[user_id][1] == start_time
+                assert activity_tracker.current_activities[user_id][1] > start_time
+                assert (
+                    sum(activity_tracker._pending_activity.values())
+                    == mock_update.await_args.args[2]
+                )
 
     @pytest.mark.asyncio
     async def test_update_current_activities_serializes_concurrent_flushes(self, mock_bot):

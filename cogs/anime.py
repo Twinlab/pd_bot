@@ -12,6 +12,7 @@
 - Кеш хранится в памяти (deque) и в БД (таблица anime_cache); при старте подгружается из БД.
 """
 
+import asyncio
 import logging
 import random
 from collections import deque
@@ -118,6 +119,7 @@ class AnimeCog(commands.Cog):
         self.cache_size: int = settings.anime.cache_size
         self.post_cache: deque[int] = deque(maxlen=self.cache_size)
         self._cache_loaded: bool = False
+        self._post_lock = asyncio.Lock()
 
         if not self.channel_id:
             logger.error("Канал для публикации аниме не настроен или не найден.")
@@ -457,6 +459,11 @@ class AnimeCog(commands.Cog):
         Returns:
             ``True`` при успешной публикации, иначе ``False``.
         """
+        async with self._post_lock:
+            return await self._post_anime_image(rating=rating, tag=tag)
+
+    async def _post_anime_image(self, *, rating: str | None, tag: str | None) -> bool:
+        """Выбирает и публикует пост под общей блокировкой ручных и фоновых запросов."""
         try:
             if not await self._check_channel_exists():
                 return False

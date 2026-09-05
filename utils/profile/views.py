@@ -14,6 +14,7 @@ from discord import ButtonStyle, Interaction, ui
 
 from config import get_settings
 from utils.activity.helpers import format_time_short
+from utils.channel_permissions import public_message_channel_ids
 from utils.error_handler import get_incident_error_message, new_incident_id
 from utils.time_utils import MOSCOW_TZ
 
@@ -261,14 +262,14 @@ class ProfileView(ui.LayoutView):
         return stats
 
     async def _get_moments(self) -> list[ProfileMoment]:
-        moments = self._moments_cache.get(self.period)
-        if moments is None:
-            moments = await self.builder.build_moments(
-                user_id=self.target.id,
-                period=self.period,
-                limit=MOMENTS_LIMIT,
-            )
-            self._moments_cache[self.period] = moments
+        # Права могли измениться после предыдущего открытия вкладки.
+        moments = await self.builder.build_moments(
+            user_id=self.target.id,
+            period=self.period,
+            allowed_channel_ids=public_message_channel_ids(self.target.guild),
+            limit=MOMENTS_LIMIT,
+        )
+        self._moments_cache[self.period] = moments
         return moments
 
     async def _get_accounts(self) -> ProfileAccounts:

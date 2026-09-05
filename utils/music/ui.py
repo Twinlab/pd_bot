@@ -15,7 +15,6 @@ import wavelink
 from utils.error_handler import safe_send_error
 from utils.ui import colors
 
-from .config import logger
 from .embeds import (
     _footer_for_player,
     _requester_mention,
@@ -286,19 +285,16 @@ class NowPlayingView(discord.ui.LayoutView):
     async def _edit(self, interaction: discord.Interaction) -> None:
         """Перерисовывает now-playing сообщение под актуальное состояние."""
         self._render()
-        try:
+        if interaction.response.is_done():
+            await interaction.edit_original_response(view=self)
+        else:
             await interaction.response.edit_message(view=self)
-        except discord.InteractionResponded:
-            if self.player.now_playing_message is not None:
-                try:
-                    await self.player.now_playing_message.edit(view=self)
-                except discord.HTTPException:
-                    logger.debug("Не удалось обновить now-playing сообщение.")
 
     async def handle_pause(self, interaction: discord.Interaction) -> None:
         """Пауза / возобновление воспроизведения."""
         if not await self._validate(interaction):
             return
+        await interaction.response.defer()
         await self.player.pause(not self.player.paused)
         await self._edit(interaction)
 
@@ -306,18 +302,19 @@ class NowPlayingView(discord.ui.LayoutView):
         """Пропуск текущего трека (сообщение обновит ``on_wavelink_track_start``)."""
         if not await self._validate(interaction):
             return
-        await self.player.skip(force=True)
         await interaction.response.defer()
+        await self.player.skip(force=True)
 
     async def handle_stop(self, interaction: discord.Interaction) -> None:
         """Полная остановка: очистка очереди и отключение (только админ)."""
         if not await self._validate(interaction, admin_only=True, require_current_track=False):
             return
+        await interaction.response.defer()
         self.player.queue.clear()
         await self.player.disconnect()
         self.stop()
         try:
-            await interaction.response.edit_message(
+            await interaction.edit_original_response(
                 view=status_card(
                     "⏹️ Воспроизведение остановлено",
                     "Бот покинул голосовой канал, очередь очищена.",

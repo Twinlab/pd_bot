@@ -51,6 +51,35 @@ def mock_player(monkeypatch: pytest.MonkeyPatch) -> MusicPlayer:
     return player
 
 
+async def test_track_selection_acknowledges_before_enqueue(
+    cog: MusicCog, mock_player: MusicPlayer
+) -> None:
+    interaction = MagicMock(spec=discord.Interaction)
+    interaction.guild.voice_client = mock_player
+    interaction.response.defer = AsyncMock()
+    interaction.response.edit_message = AsyncMock()
+    interaction.edit_original_response = AsyncMock()
+    requester = MagicMock(spec=discord.Member)
+    track = MagicMock(spec=wavelink.Playable)
+    card = discord.ui.LayoutView()
+
+    async def enqueue(*args, **kwargs) -> int:
+        interaction.response.defer.assert_awaited_once()
+        interaction.edit_original_response.assert_not_awaited()
+        return 3
+
+    with (
+        patch.object(cog, "_enqueue", new=AsyncMock(side_effect=enqueue)) as enqueue_mock,
+        patch("cogs.music.added_to_queue_card", return_value=card) as build_card,
+    ):
+        await cog._enqueue_selected_track(interaction, track, requester)
+
+    enqueue_mock.assert_awaited_once_with(mock_player, track, requester)
+    build_card.assert_called_once_with(track, 3, mock_player)
+    interaction.edit_original_response.assert_awaited_once_with(view=card)
+    interaction.response.edit_message.assert_not_awaited()
+
+
 class TestParseSeek:
     @pytest.mark.parametrize(
         ("value", "expected"),

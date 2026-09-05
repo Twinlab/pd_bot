@@ -735,6 +735,38 @@ class TestMonthlyReportTask:
         cog._send_monthly_top_messages_report.assert_awaited_once_with(2024, 12)
 
 
+@pytest.mark.parametrize("entry_point", ["command", "monthly"])
+async def test_message_leaderboards_only_query_public_channels(
+    cog, mock_context, mock_guild, mock_text_channel, entry_point: str
+):
+    public = MagicMock(spec=discord.TextChannel)
+    public.id = 10
+    public.permissions_for.return_value = discord.Permissions(
+        view_channel=True, read_message_history=True
+    )
+    public.overwrites = {}
+    private = MagicMock(spec=discord.TextChannel)
+    private.id = 20
+    private.permissions_for.return_value = discord.Permissions(view_channel=False)
+    private.overwrites = {}
+    mock_guild.channels = [public, private]
+    mock_guild.threads = []
+    mock_context.guild = mock_guild
+    mock_context.interaction = None
+    mock_text_channel.guild = mock_guild
+    cog.bot.get_channel.return_value = mock_text_channel
+    cog._build_excluded_message_ids = AsyncMock(return_value=set())
+    cog._send_leaderboard = AsyncMock()
+
+    if entry_point == "command":
+        await cog.top_reactions.callback.__wrapped__(cog, mock_context)
+    else:
+        await cog._send_monthly_top_messages_report(2026, 8)
+
+    cog.manager.get_leaderboard.assert_awaited_once()
+    assert cog.manager.get_leaderboard.await_args.kwargs["allowed_channel_ids"] == {10}
+
+
 class TestSendMonthlyReport:
     """Юнит-тесты на _send_monthly_top_messages_report."""
 

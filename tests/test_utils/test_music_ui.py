@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import discord
+import pytest
 import wavelink
 
 from utils.music.player import MusicPlayer
@@ -216,6 +217,47 @@ class TestNowPlayingView:
         # Повторный рендер не плодит дубликаты кнопок управления.
         ids = [c.custom_id for c in view.walk_children() if isinstance(c, discord.ui.Button)]
         assert ids.count("music:pause_resume") == 1
+
+
+class TestMusicInteractions:
+    @pytest.mark.parametrize(
+        ("handler", "operation", "edits_card"),
+        [
+            ("handle_pause", "pause", True),
+            ("handle_skip", "skip", False),
+            ("handle_stop", "disconnect", True),
+        ],
+    )
+    async def test_acknowledges_before_network_operation(
+        self, handler: str, operation: str, edits_card: bool
+    ) -> None:
+        player = _cv2_player(current=_make_track())
+        player.now_playing_message = MagicMock()
+        player.now_playing_message.edit = AsyncMock()
+        view = NowPlayingView(player)
+        view._validate = AsyncMock(return_value=True)
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response.is_done.return_value = False
+        interaction.response.edit_message = AsyncMock()
+        interaction.edit_original_response = AsyncMock()
+
+        async def acknowledge() -> None:
+            interaction.response.is_done.return_value = True
+
+        async def network_operation(*args, **kwargs) -> None:
+            assert interaction.response.is_done()
+            interaction.response.defer.assert_awaited_once()
+
+        interaction.response.defer = AsyncMock(side_effect=acknowledge)
+        operation_mock = AsyncMock(side_effect=network_operation)
+        setattr(player, operation, operation_mock)
+
+        await getattr(view, handler)(interaction)
+
+        operation_mock.assert_awaited_once()
+        assert interaction.edit_original_response.await_count == int(edits_card)
+        interaction.response.edit_message.assert_not_awaited()
+        player.now_playing_message.edit.assert_not_awaited()
 
 
 class TestSearchLayoutView:

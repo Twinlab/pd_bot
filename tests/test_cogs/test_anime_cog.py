@@ -1,5 +1,6 @@
 """Тесты для кога AnimeCog."""
 
+import asyncio
 from datetime import UTC, time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -74,6 +75,66 @@ def create_mock_settings(channel_id=123456789):
     mock_settings.anime.schedule.evening_minute = 0
     mock_settings.get_discord_color = MagicMock(return_value=discord.Color.blue())
     return mock_settings
+
+
+class TestConcurrentPosts:
+    async def test_simultaneous_posts_choose_different_images(self, mock_bot, mock_text_channel):
+        mock_bot.get_channel.return_value = mock_text_channel
+        first_send_started = asyncio.Event()
+        allow_send = asyncio.Event()
+
+        async def slow_send(**kwargs):
+            first_send_started.set()
+            await allow_send.wait()
+
+        mock_text_channel.send.side_effect = slow_send
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch("cogs.anime.random.choice", side_effect=lambda candidates: candidates[0]),
+            patch("cogs.anime.AnimeCache.create", new=AsyncMock()) as save_post,
+        ):
+            cog = AnimeCog(mock_bot)
+            cog._cache_loaded = True
+            cog._fetch_danbooru_posts = AsyncMock(return_value=[make_post(111), make_post(222)])
+            first = asyncio.create_task(cog.post_anime_image())
+            try:
+                await asyncio.wait_for(first_send_started.wait(), timeout=2)
+                second = asyncio.create_task(cog.post_anime_image())
+                await asyncio.sleep(0)
+                selections_before_send = cog._fetch_danbooru_posts.await_count
+            finally:
+                allow_send.set()
+
+            assert await asyncio.wait_for(asyncio.gather(first, second), timeout=2) == [True, True]
+
+        assert selections_before_send == 1
+        assert mock_text_channel.send.await_count == 2
+        assert [call.kwargs["post_id"] for call in save_post.await_args_list] == [111, 222]
+        assert list(cog.post_cache) == [111, 222]
+
+    async def test_failed_send_releases_lock_and_keeps_image_available(
+        self, mock_bot, mock_text_channel
+    ):
+        mock_bot.get_channel.return_value = mock_text_channel
+        mock_text_channel.send.side_effect = [
+            discord.Forbidden(MagicMock(status=403), "Forbidden"),
+            MagicMock(),
+        ]
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch("cogs.anime.AnimeCache.create", new=AsyncMock()) as save_post,
+        ):
+            cog = AnimeCog(mock_bot)
+            cog._cache_loaded = True
+            cog._fetch_danbooru_posts = AsyncMock(return_value=[make_post(111)])
+
+            assert await cog.post_anime_image() is False
+            assert list(cog.post_cache) == []
+            save_post.assert_not_awaited()
+            assert await asyncio.wait_for(cog.post_anime_image(), timeout=2) is True
+
+        assert list(cog.post_cache) == [111]
+        save_post.assert_awaited_once()
 
 
 class TestAnimeCogInit:

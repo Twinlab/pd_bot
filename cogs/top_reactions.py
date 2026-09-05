@@ -19,6 +19,7 @@ from discord import ButtonStyle, Interaction, app_commands, ui
 from discord.ext import commands, tasks
 
 from config import get_settings
+from utils.channel_permissions import public_message_channel_ids
 from utils.error_handler import command_error_handler, safe_send_error
 from utils.role_reaction_data_manager import RoleReactionDataManager
 from utils.time_utils import MOSCOW_TZ
@@ -621,6 +622,7 @@ class TopReactionsCog(commands.Cog):
             limit=limit,
             year=year_arg,
             month=month_arg,
+            allowed_channel_ids=public_message_channel_ids(ctx.guild),
             excluded_message_ids=excluded_message_ids,
             excluded_user_ids=self._bot_user_ids(ctx.guild),
             ignore_self_reactions=get_settings().top_reactions.ignore_self_reactions,
@@ -745,6 +747,7 @@ class TopReactionsCog(commands.Cog):
             limit=settings.top_reactions.live_top,
             year=year,
             month=month,
+            allowed_channel_ids=public_message_channel_ids(guild),
             excluded_message_ids=excluded,
             excluded_user_ids=self._bot_user_ids(guild),
             ignore_self_reactions=settings.top_reactions.ignore_self_reactions,

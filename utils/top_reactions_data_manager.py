@@ -354,6 +354,7 @@ class TopReactionsDataManager:
         year: int | None = None,
         month: int | None = None,
         author_id: int | None = None,
+        allowed_channel_ids: set[int] | None = None,
         excluded_message_ids: set[int] | None = None,
         excluded_user_ids: set[int] | None = None,
         ignore_self_reactions: bool = False,
@@ -380,6 +381,8 @@ class TopReactionsDataManager:
                 выдача за весь год.
             month: Явный месяц 1–12. Без ``year`` берёт текущий год.
             author_id: Если задан, вернуть только сообщения этого автора.
+            allowed_channel_ids: Разрешённые каналы. Пустой набор запрещает все,
+                None оставляет выборку без ограничения по каналам.
             excluded_message_ids: Сообщения с этими id будут исключены из выдачи
                 (например, сообщение role-реакций). Может быть None или пустым.
             excluded_user_ids: ID, которых не учитываем ни как авторов, ни как
@@ -391,6 +394,9 @@ class TopReactionsDataManager:
         Returns:
             Список LeaderboardEntry, отсортированный по убыванию счётчика.
         """
+        if allowed_channel_ids is not None and not allowed_channel_ids:
+            return []
+
         try:
             start, end = resolve_period_range(
                 period,
@@ -414,6 +420,10 @@ class TopReactionsDataManager:
                 params.extend(excluded_user_ids)
 
             where_clauses = ["rm.is_deleted = 0"]
+            if allowed_channel_ids is not None:
+                placeholders = ",".join(["?"] * len(allowed_channel_ids))
+                where_clauses.append(f"rm.channel_id IN ({placeholders})")
+                params.extend(sorted(allowed_channel_ids))
             if start is not None and end is not None:
                 where_clauses.append("rm.posted_at >= ?")
                 where_clauses.append("rm.posted_at < ?")

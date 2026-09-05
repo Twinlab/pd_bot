@@ -382,8 +382,9 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
                 ephemeral=True,
             )
             return
+        await interaction.response.defer()
         position = await self._enqueue(player, track, requester)
-        await interaction.response.edit_message(view=added_to_queue_card(track, position, player))
+        await interaction.edit_original_response(view=added_to_queue_card(track, position, player))
 
     # ------------------------------------------------------------------
     # Commands

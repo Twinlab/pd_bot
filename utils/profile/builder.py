@@ -293,9 +293,10 @@ class ProfileStatsBuilder:
         *,
         user_id: int,
         period: ProfilePeriod,
+        allowed_channel_ids: set[int],
         limit: int = 3,
     ) -> list[ProfileMoment]:
-        """Возвращает самые популярные сообщения пользователя."""
+        """Возвращает популярные сообщения пользователя из разрешённых каналов."""
         settings = get_settings().top_reactions
         entries = await self.reactions_manager.get_leaderboard(
             period.reaction_period,
@@ -303,6 +304,7 @@ class ProfileStatsBuilder:
             year=period.year,
             month=period.month,
             author_id=user_id,
+            allowed_channel_ids=allowed_channel_ids,
             excluded_message_ids=set(settings.ignored_message_ids),
             ignore_self_reactions=settings.ignore_self_reactions,
             timezone=MOSCOW_TZ,

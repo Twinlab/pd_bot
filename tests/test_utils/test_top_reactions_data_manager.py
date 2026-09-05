@@ -366,6 +366,34 @@ class TestGetLeaderboard:
         assert result == []
 
     @pytest.mark.asyncio
+    async def test_channel_filter_is_applied_before_limit(self, db, manager):
+        for message_id, channel_id in [(1, 100), (2, 200)]:
+            await manager.upsert_message(
+                message_id=message_id,
+                channel_id=channel_id,
+                author_id=50,
+                content=f"channel {channel_id}",
+                jump_url=f"https://discord.com/channels/1/{channel_id}/{message_id}",
+                posted_at=datetime.now(UTC),
+            )
+            await manager.add_reactor(message_id=message_id, user_id=10, emoji="👍")
+        await manager.add_reactor(message_id=2, user_id=11, emoji="👍")
+        await manager.add_reactor(message_id=2, user_id=12, emoji="👍")
+
+        result = await manager.get_leaderboard(
+            "all", limit=1, author_id=50, allowed_channel_ids={100},
+            excluded_user_ids={999}, ignore_self_reactions=True,
+        )
+
+        assert [entry.message_id for entry in result] == [1]
+
+    @pytest.mark.asyncio
+    async def test_empty_allowed_channels_does_not_query_database(self, manager):
+        with patch("utils.top_reactions_data_manager.Tortoise.get_connection") as connection:
+            assert await manager.get_leaderboard("all", 10, allowed_channel_ids=set()) == []
+        connection.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_live_messages_sorted_by_reactor_count(self, db, manager):
         now = datetime.now(UTC)
         # msg1 — 1 реактор, msg2 — 3 реактора (даже с дублирующимся эмодзи у юзера 10)
