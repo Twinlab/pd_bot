@@ -34,6 +34,7 @@ from utils.ui import colors
 logger = logging.getLogger("bot.cogs.music")
 
 _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+_SEARCH_PREFIX_RE = re.compile(r"^[a-z][a-z0-9]*search:", re.IGNORECASE)
 _TIMESTAMP_RE = re.compile(r"^(?:(\d+):)?(\d{1,2}):(\d{2})$")
 
 
@@ -403,7 +404,7 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
 
         Поддерживает прямые ссылки на YouTube, Spotify, Apple Music, SoundCloud,
         Bandcamp, Twitch, Vimeo, а также текстовый поиск (по умолчанию через
-        YouTube Music). Для плейлистов добавляет все треки.
+        YouTube). Для плейлистов добавляет все треки.
         """
         await ctx.defer()
 
@@ -413,9 +414,12 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         if isinstance(ctx.channel, (discord.TextChannel, discord.Thread)):
             player.text_channel = ctx.channel
 
-        is_url = bool(_URL_RE.match(query.strip()))
+        query = query.strip()
+        is_url = bool(_URL_RE.match(query))
+        # Wavelink иначе добавляет свой префикс даже к явному scsearch:/ytmsearch:.
+        source = None if _SEARCH_PREFIX_RE.match(query) else wavelink.TrackSource.YouTube
         try:
-            results: wavelink.Search = await wavelink.Playable.search(query)
+            results: wavelink.Search = await wavelink.Playable.search(query, source=source)
         except wavelink.LavalinkLoadException as exc:
             await safe_send_error(ctx, f"Lavalink не смог загрузить запрос: `{exc}`")
             return

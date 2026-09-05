@@ -214,7 +214,7 @@ Advanced-статы (Entry/Clutch/Utility) показывают `—`, если 
 
 | Команда | Описание |
 |---------|----------|
-| `/play <query>` | URL (YouTube/Spotify/Apple Music/SoundCloud/Bandcamp/Twitch/Vimeo) или текстовый поиск (по умолчанию через YouTube Music) |
+| `/play <query>` | URL (YouTube/Spotify/Apple Music/SoundCloud/Bandcamp/Twitch/Vimeo) или текстовый поиск (по умолчанию через YouTube) |
 | `/skip` | Пропустить текущий трек (заказчик трека или админ) |
 | `/stop` | Остановить и покинуть канал (только админ) |
 | `/pause` | Пауза |
@@ -253,13 +253,16 @@ Advanced-статы (Entry/Clutch/Utility) показывают `—`, если 
 
 ### Поиск по тексту
 
-`/play Imagine Dragons Believer` → wavelink делает `ytmsearch:` запрос, возвращает топ-10. Бот показывает Select-меню — выбираете нужный трек, он встаёт в очередь.
+`/play Imagine Dragons Believer` → wavelink делает `ytsearch:` запрос. Бот показывает Select-меню с результатами в пределах `music.lavalink.search_limit` — выбираете нужный трек, он встаёт в очередь. Поиск YouTube Music доступен явно: его выдача может содержать записи, для которых YouTube не отдаёт аудиопоток с IP сервера.
 
 Альтернативные префиксы (продвинутое использование, можно передать в `/play`):
 
 - `spsearch:queen bohemian` — поиск в Spotify
 - `scsearch:queen bohemian` — поиск в SoundCloud
-- `ytsearch:queen bohemian` — обычный YouTube (по умолчанию используется YouTube Music)
+- `ytsearch:queen bohemian` — обычный YouTube (используется по умолчанию)
+- `ytmsearch:queen bohemian` — YouTube Music
+
+Явный префикс передаётся в Lavalink без дополнительного `ytsearch:`. Прямые ссылки также передаются без поискового префикса.
 
 ### Права доступа
 

@@ -9,14 +9,14 @@ server:
     enabled: false
 
 lavalink:
-  # Подгружаемые при старте плагины. Версии актуальны на июль 2026.
+  # Подгружаемые при старте плагины с закреплёнными версиями.
   # Lavalink скачивает jar-ы в /opt/Lavalink/plugins при первом запуске и кеширует на volume.
   plugins:
-    # YouTube источник через несколько InnerTube-клиентов — обход bot-detection.
-    # https://github.com/lavalink-devs/youtube-source
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
-      repository: "https://maven.lavalink.dev/releases"
-      snapshot: false
+    # После 1.18.2 YouTube отклонил Cobalt User-Agent клиента TV. Этот коммит
+    # содержит исправление TV и обрыва потоков без contentLength; см. отчёт диагностики.
+    - dependency: "dev.lavalink.youtube:youtube-plugin:f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3"
+      repository: "https://maven.lavalink.dev/snapshots"
+      snapshot: true
 
     # Spotify / Apple Music / Deezer / Yandex Music метаданные → стримы через YouTube.
     # https://github.com/topi314/LavaSrc

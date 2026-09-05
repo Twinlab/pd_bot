@@ -80,6 +80,37 @@ async def test_track_selection_acknowledges_before_enqueue(
     interaction.response.edit_message.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    ("query", "identifier"),
+    [
+        ("Rick Astley Never Gonna Give You Up", "ytsearch:Rick Astley Never Gonna Give You Up"),
+        ("Artist: Song", "ytsearch:Artist: Song"),
+        ("  scsearch:queen bohemian  ", "scsearch:queen bohemian"),
+        ("ytsearch:queen bohemian", "ytsearch:queen bohemian"),
+        ("ytmsearch:queen bohemian", "ytmsearch:queen bohemian"),
+        ("spsearch:queen bohemian", "spsearch:queen bohemian"),
+        (
+            "  https://www.youtube.com/watch?v=dQw4w9WgXcQ  ",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        ),
+    ],
+)
+async def test_play_routes_search_without_duplicate_prefix(
+    cog: MusicCog, mock_player: MusicPlayer, query: str, identifier: str
+) -> None:
+    """Проверяет запрос к Lavalink через настоящий преобразователь Wavelink."""
+    ctx = MagicMock(spec=commands.Context)
+    ctx.defer = AsyncMock()
+    with (
+        patch.object(cog, "_ensure_player", new=AsyncMock(return_value=mock_player)),
+        patch("wavelink.Pool.fetch_tracks", new=AsyncMock(return_value=[])) as fetch,
+        patch("cogs.music.safe_send_error", new=AsyncMock()),
+    ):
+        await MusicCog.play.callback(cog, ctx, query=query)
+
+    fetch.assert_awaited_once_with(identifier, node=None)
+
+
 class TestParseSeek:
     @pytest.mark.parametrize(
         ("value", "expected"),

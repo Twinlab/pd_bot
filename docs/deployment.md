@@ -165,6 +165,12 @@ docker compose exec lavalink sh -lc \
 `sourceManagers` — `youtube`. Lavalink при старте сам удаляет старую версию jar из
 persistent volume и скачивает объявленную.
 
+YouTube-плагин закреплён на коммите `f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3`
+из официального snapshots-репозитория. Версия plugin-модуля указывается без
+суффикса `-SNAPSHOT`. Релиз `1.18.2` не содержит августовское исправление
+User-Agent OAuth-клиента TV. Причины выбора, контрольные суммы и результаты
+проверок приведены в [отчёте диагностики музыки](music-diagnostics-2026-09-05.md).
+
 ### 4. Безопасный срез ошибок
 
 ```bash
@@ -182,6 +188,7 @@ docker compose logs --since=10m bot \
 | Фрагмент ошибки | Что проверять |
 |---|---|
 | `Sign in to confirm you're not a bot`, `403`, `429` | OAuth, репутацию IP и фактическое наличие proxy-переменных |
+| `TVHTML5` и `The page needs to be reloaded` | Версию youtube-plugin: в `1.18.2` остался отвергаемый YouTube User-Agent TV-клиента |
 | `RemoteCipher`, `resolve_url`, `read timeout` | Доступность `yt-cipher`, `YOUTUBE_REMOTE_CIPHER_URL`, таймауты |
 | `AllClientsFailedException` | Вложенные причины по каждому InnerTube-клиенту; это исходная ошибка YouTube |
 | В `/v4/info` нет `youtube` | Загрузку jar и версию `youtube-plugin` |
