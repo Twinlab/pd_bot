@@ -1,0 +1,1387 @@
+
+<!doctype html>
+<html lang="ru" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Многофункциональный Discord бот на Python">
+      
+      
+      
+      
+        <link rel="prev" href="../getting-started/">
+      
+      
+        <link rel="next" href="../commands/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Архитектура - PD Bot</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#pd-bot" class="md-skip">
+          Перейти к содержанию
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Верхний колонтитул">
+    <a href=".." title="PD Bot" class="md-header__button md-logo" aria-label="PD Bot" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PD Bot
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Архитектура
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Светлая тема"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Светлая тема" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Тёмная тема"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Тёмная тема" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Поиск" placeholder="Поиск" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Поиск">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Очистить" aria-label="Очистить" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Инициализация поиска
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/twinlab/pd_bot" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    twinlab/pd_bot
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Навигация" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PD Bot" class="md-nav__button md-logo" aria-label="PD Bot" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    PD Bot
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/twinlab/pd_bot" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    twinlab/pd_bot
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Главная
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Начало работы
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Общая структура проекта
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Общая структура проекта">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл запуска
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Завершение процесса
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в музыкальном модуле
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в модуле отслеживания активности
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в аниме-модуле
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quote" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в модуле Quote
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Привязки в профиле
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Объявления об обновлениях
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dota-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в модуле Dota 2
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Структура базы данных
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Взаимодействие компонентов системы
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл команды
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Система логирования
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Система логирования">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Особенности системы логирования
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Команды
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Деплой
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Стиль кода
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Общая структура проекта
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Общая структура проекта">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл запуска
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Завершение процесса
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в музыкальном модуле
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в модуле отслеживания активности
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в аниме-модуле
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quote" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в модуле Quote
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Привязки в профиле
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Объявления об обновлениях
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dota-2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поток данных в модуле Dota 2
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Структура базы данных
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Взаимодействие компонентов системы
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Жизненный цикл команды
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Система логирования
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Система логирования">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Особенности системы логирования
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="pd-bot">Архитектура PD Bot<a class="headerlink" href="#pd-bot" title="Permanent link">&para;</a></h1>
+<h2 id="_1">Общая структура проекта<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+    A[main.py] --&gt; B[Загрузка конфигурации]
+    A --&gt; C[Инициализация БД]
+    A --&gt; D[Загрузка когов]
+    A --&gt; E[Запуск бота]
+
+    D --&gt; F[Cogs]
+    F --&gt; F1[admin.py]
+    F --&gt; F2[activity.py]
+    F --&gt; F3[anime.py]
+    F --&gt; F4[fun.py - quote, deathbattle, snipe, etc.]
+    F --&gt; F6[lastmatch.py]
+    F --&gt; F8[logging_cog.py]
+    F --&gt; F9[music.py]
+    F --&gt; F10[role_reaction.py]
+    F --&gt; F11[twitch.py]
+    F --&gt; F12[top_reactions.py]
+    F --&gt; F13[user_stats.py]
+    F --&gt; F14[profile.py]
+    F --&gt; F15[party.py]
+    F --&gt; F16[help.py]
+
+    D --&gt; G[Handlers]
+    G --&gt; G1[events.py]
+    G --&gt; G2[message_handler.py]
+
+    B --&gt; H[config.py]
+    C --&gt; I[database.py]</code></pre>
+<h3 id="_2">Жизненный цикл запуска<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<p><code>main()</code> инициализирует БД и загружает коги/хендлеры <strong>до</strong> <code>bot.start()</code>, поэтому
+к моменту <code>MyBot.setup_hook</code> дерево app-команд уже заполнено. Синхронизация
+slash-команд (и контекст-меню) делается один раз за процесс именно в
+<code>setup_hook</code> — это канон discord.py и заменяет прежний ручной флаг в
+<code>Events.on_ready</code> (тот срабатывал на каждый reconnect). <code>on_ready</code> теперь только
+логирует готовность и ставит presence. Persistent-вью регистрируются в <code>cog_load</code>
+своих когов.</p>
+<p>Контекст-меню (ПКМ) живут внутри когов: создаются как <code>app_commands.ContextMenu</code>
+в <code>__init__</code> и добавляются в <code>bot.tree</code>, снимаются в <code>cog_unload</code>. Активно одно —
+«Профиль» (по юзеру, <code>cogs/profile.py</code>). «В цитаты» (по сообщению,
+<code>cogs/fun.py</code>) заморожено: колбэк/хелпер есть, но в дерево не регистрируются —
+ждём доработки до «скриншот-цитаты».</p>
+<p><code>/help</code> не хранит отдельный список команд: <code>HelpCog</code> читает актуальный
+<code>CommandTree</code> и группирует slash-команды вместе с контекстными действиями по
+подсистемам. Это не даёт справке расходиться с реально синхронизированным деревом.</p>
+<h3 id="_3">Завершение процесса<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<p><code>main()</code> устанавливает обработчики <code>SIGINT</code> и <code>SIGTERM</code>. Они отменяют основную
+задачу и переводят процесс в общий <code>finally</code>: Discord-клиент получает до 3 секунд,
+HTTP/Lavalink-клиенты закрываются параллельно с лимитом 2 секунды каждый, после
+чего БД закрывается отдельным шагом с лимитом 2 секунды. Зависание одного сетевого
+ресурса поэтому не мешает закрыть остальные ресурсы и SQLite.</p>
+<h2 id="_4">Поток данных в музыкальном модуле<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h2>
+<p>Музыка работает поверх <strong>Lavalink v4</strong> (отдельный JVM-контейнер) и Python-клиента <strong>wavelink 3.x</strong>. Бот ничего не транскодирует сам — он лишь отправляет команды Lavalink-ноде и слушает её события.</p>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant MusicCog
+    participant Wavelink as wavelink (Python)
+    participant Lavalink as Lavalink v4 (JVM)
+    participant YT as YouTube / Spotify / ...
+
+    User-&gt;&gt;MusicCog: /play &lt;запрос&gt;
+    MusicCog-&gt;&gt;MusicCog: _ensure_player() — connect to VC если нужно
+    MusicCog-&gt;&gt;Wavelink: Playable.search(query)
+    Wavelink-&gt;&gt;Lavalink: GET /v4/loadtracks?identifier=ytmsearch:...
+    Lavalink-&gt;&gt;YT: запрос через youtube-source / LavaSrc
+    YT--&gt;&gt;Lavalink: метаданные треков
+    Lavalink--&gt;&gt;Wavelink: Search (list[Playable] или Playlist)
+    Wavelink--&gt;&gt;MusicCog: результаты
+
+    alt URL — единственный трек
+        MusicCog-&gt;&gt;Wavelink: player.queue.put(track)
+        MusicCog-&gt;&gt;Wavelink: player.play(...)
+    else Текстовый поиск
+        MusicCog-&gt;&gt;User: SearchLayoutView с топ-N результатами
+        User-&gt;&gt;MusicCog: выбор трека
+        MusicCog-&gt;&gt;Wavelink: queue.put(track) + play()
+    end
+
+    Wavelink-&gt;&gt;Lavalink: POST /v4/sessions/.../players/.../play
+    Lavalink-&gt;&gt;YT: получает поток (opus)
+    Lavalink-&gt;&gt;Discord: отправляет аудио через Voice Gateway
+
+    Lavalink--&gt;&gt;Wavelink: TrackStartEvent
+    Wavelink--&gt;&gt;MusicCog: on_wavelink_track_start
+    MusicCog-&gt;&gt;User: NowPlayingView — CV2-карточка «Сейчас играет»</code></pre>
+<p>Ключевые компоненты:</p>
+<ul>
+<li><code>cogs/music.py</code> — все hybrid-команды + слушатели событий wavelink.</li>
+<li><code>utils/music/player.py::MusicPlayer</code> — subclass <code>wavelink.Player</code>; добавляет <code>text_channel</code>, <code>now_playing_message</code> и привязку «трек → заказчик» через <code>track.extras.requester_id</code>.</li>
+<li><code>utils/music/ui.py</code> — Components V2-представления <code>NowPlayingView</code>, <code>SearchLayoutView</code> и <code>QueueLayoutView</code>: контент и интерактив живут в одном <code>LayoutView</code> (контейнер + <code>Section</code>/<code>Thumbnail</code> + <code>ActionRow</code>-кнопки). Для <code>/nowplaying</code> используется статический <code>now_playing_static_view</code>.</li>
+<li><code>utils/music/embeds.py</code> — общие форматтеры и CV2-карточки <code>status_card</code>, <code>added_to_queue_card</code>, <code>added_playlist_card</code>.</li>
+<li><code>lavalink/application.yml</code> — конфиг JVM-сервиса с плагинами <code>youtube-source</code> и <code>LavaSrc</code>.</li>
+</ul>
+<p>Выбор трека и кнопки паузы, пропуска и остановки подтверждают interaction через
+<code>defer()</code> до сетевого вызова Lavalink. После выполнения действия карточка
+обновляется через <code>edit_original_response()</code>, чтобы задержка ноды не приводила
+к просроченному первому ответу Discord.</p>
+<h2 id="_5">Поток данных в модуле отслеживания активности<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant Discord
+    participant ActivityTracker
+    participant ActivityDataManager
+    participant Database
+
+    User-&gt;&gt;Discord: Изменение статуса игры
+    Discord-&gt;&gt;ActivityTracker: on_presence_update
+    ActivityTracker-&gt;&gt;ActivityTracker: Обновить текущие сессии
+
+    Note over ActivityTracker: Периодическое сохранение (periodic_save)
+    ActivityTracker-&gt;&gt;ActivityDataManager: save_activity_data
+    ActivityDataManager-&gt;&gt;Database: Запись в daily_activity
+
+    Note over ActivityTracker: Ежедневный отчет (00:00 МСК)
+    ActivityTracker-&gt;&gt;ActivityDataManager: generate_daily_report
+    ActivityDataManager-&gt;&gt;Database: Запрос данных за вчера
+    Database--&gt;&gt;ActivityDataManager: Данные активности
+    ActivityDataManager-&gt;&gt;Discord: Отправить отчет
+    ActivityDataManager-&gt;&gt;Database: Перенос daily -&gt; monthly
+
+    Note over ActivityTracker: Ежемесячный отчет (1-е число, 12:00 МСК)
+    ActivityTracker-&gt;&gt;ActivityDataManager: generate_monthly_report
+    ActivityDataManager-&gt;&gt;Database: Запрос данных за месяц
+    Database--&gt;&gt;ActivityDataManager: Данные активности
+    ActivityDataManager-&gt;&gt;Discord: Отправить отчет</code></pre>
+<p>Завершённые интервалы игровых сессий хранятся отдельно от текущих сессий в
+<code>ActivityTracker._pending_activity</code>, с разбивкой по московским датам. Выход из
+игры или смена игры сразу закрывает старую сессию в памяти. При ошибке БД
+следующее сохранение повторяет запись фиксированного числа секунд, даже если
+активных сессий уже нет. Успешно записанные даты удаляются из очереди отдельно,
+поэтому частичный сбой на границе суток не удваивает уже сохранённое время.
+Очередь находится в памяти процесса и не переживает аварийный перезапуск.</p>
+<h2 id="-">Поток данных в аниме-модуле<a class="headerlink" href="#-" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Scheduler
+    participant AnimeCog
+    participant DanbooruAPI
+    participant Database
+    participant Discord
+
+    Note over Scheduler: Утренняя/вечерняя публикация
+    Scheduler-&gt;&gt;AnimeCog: morning_post() / evening_post()
+    AnimeCog-&gt;&gt;AnimeCog: _load_cache_from_db()
+    AnimeCog-&gt;&gt;Database: load_anime_cache(cache_size)
+    Database--&gt;&gt;AnimeCog: Список ID постов
+
+    AnimeCog-&gt;&gt;DanbooruAPI: get_anime_image(rating, tag)
+    DanbooruAPI--&gt;&gt;AnimeCog: Список постов (url, score, метаданные)
+    AnimeCog-&gt;&gt;AnimeCog: Фильтр по score / рейтингу / excluded_tags
+
+    AnimeCog-&gt;&gt;AnimeCog: Выбор поста, которого нет в кеше
+    alt Найден свежий пост
+        AnimeCog-&gt;&gt;Discord: Отправить карточку с изображением
+        AnimeCog-&gt;&gt;AnimeCog: Добавить в кеш памяти
+        AnimeCog-&gt;&gt;Database: AnimeCache.create(post_id)
+    else Все в кеше / пусто
+        AnimeCog-&gt;&gt;DanbooruAPI: Повторный запрос / fallback
+    end</code></pre>
+<p>Ручная и плановая публикация используют общий <code>asyncio.Lock</code> на весь цикл
+выбора, отправки и обновления кеша. Следующая публикация выбирает изображение
+с учётом результата предыдущей. Если Discord отклонил отправку, изображение
+не попадает в кеш и остаётся доступным для повторной попытки.</p>
+<h2 id="quote">Поток данных в модуле Quote<a class="headerlink" href="#quote" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant FunCog
+    participant QuotesUtils
+    participant FileSystem
+    participant Discord
+
+    Note over User: Команда /quote без параметра
+    User-&gt;&gt;FunCog: /quote
+    FunCog-&gt;&gt;QuotesUtils: scan_quotes_folders()
+    QuotesUtils-&gt;&gt;FileSystem: Сканирование assets/quotes/
+    FileSystem--&gt;&gt;QuotesUtils: Список пользователей с цитатами
+    QuotesUtils--&gt;&gt;FunCog: Доступные пользователи
+    FunCog-&gt;&gt;FunCog: random.choice() - выбор случайного пользователя
+    FunCog-&gt;&gt;QuotesUtils: send_random_quote_image(user, embed=False)
+    QuotesUtils-&gt;&gt;FileSystem: Получение случайной цитаты
+    FileSystem--&gt;&gt;QuotesUtils: Файл изображения
+    QuotesUtils-&gt;&gt;Discord: Отправка только файла (без embed)
+    Discord--&gt;&gt;User: Показ случайной цитаты
+
+    Note over User: Команда /quote с параметром
+    User-&gt;&gt;FunCog: /quote username
+    FunCog-&gt;&gt;QuotesUtils: validate_folder_exists(username)
+    QuotesUtils-&gt;&gt;FileSystem: Проверка пользователя
+    FileSystem--&gt;&gt;QuotesUtils: Результат проверки
+    alt Пользователь существует
+        FunCog-&gt;&gt;QuotesUtils: send_random_quote_image(username, embed=False)
+        QuotesUtils-&gt;&gt;QuotesUtils: get_random_image_from_folder()
+        QuotesUtils-&gt;&gt;FileSystem: Получение случайной цитаты
+        FileSystem--&gt;&gt;QuotesUtils: Файл изображения
+        QuotesUtils-&gt;&gt;Discord: Отправка только файла (без embed)
+        Discord--&gt;&gt;User: Показ цитаты пользователя
+    else Пользователь не найден
+        FunCog-&gt;&gt;Discord: Отправка сообщения об ошибке
+        Discord--&gt;&gt;User: "Цитаты пользователя не найдены"
+    end</code></pre>
+<h2 id="_6">Привязки в профиле<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h2>
+<p><code>cogs/profile.py</code> открывает публичный <code>/profile</code> и личный профиль через ПКМ,
+владеет <code>ProfileAccountService</code>. Публичные вкладки могут переключать все участники;
+управление привязками разрешено только владельцу и использует личные диалоги.
+<code>utils/profile/account_views.py</code> отвечает за форму с одним полем, предпросмотр,
+выбор аккаунта и подтверждение отвязки. На каждом этапе проверяются владелец
+и срок действия исходной панели. HTTP-сессия Steam закрывается при выгрузке кога.</p>
+<p><code>utils/profile/accounts.py</code> разбирает только известные форматы Steam, Dota и FACEIT.
+Числовые Steam ID преобразуются локально, именные ссылки разрешаются через
+<code>ResolveVanityURL</code> с необязательным <code>STEAM_API_KEY</code>; FACEIT использует существующий API-клиент.
+Имена Dota кэшируются в <code>APICache</code>; открытие вкладки не вызывает внешние API.</p>
+<p><code>ProfileAccountsDataManager</code> записывает в существующие <code>links</code> и <code>cs_links</code>.
+Проверки лимита, дубликата и добавление выполняются в транзакции под блокировкой
+пользователя, общей для всех панелей процесса. Для отвязки обязательно задаются
+владелец и конкретный аккаунт. Модели и схема базы не меняются.</p>
+<h2 id="_7">Объявления об обновлениях<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h2>
+<p><code>cogs/announcements.py</code> запускает доставку после <code>on_ready</code> только в production.
+Повторный <code>on_ready</code> не создаёт вторую задачу. Текст и стабильный ID релиза берутся
+из <code>config/release_notes.yaml</code>, а канал — из <code>channels.announcements</code>.
+Пустой текст отключает публикацию; новая ревизия образа сама по себе анонс не создаёт.</p>
+<p><code>utils/release_announcements.py</code> сохраняет журнал всех объявленных ID в
+<code>data/release_announcements.json</code> на существующем Docker volume. Перед отправкой
+атомарно записывается намерение, после отправки — ID сообщения. Если подтверждение
+потерялось, бот ищет собственную CV2-карточку с подписью релиза в истории канала
+после начала попытки. Ошибка чтения истории или повреждённый журнал запрещают
+повторную отправку вслепую. Повторы после ошибок выполняются раз в пять минут.
+Сохранённые ID предотвращают повтор при откате на уже объявленный релиз.
+Схема SQLite не меняется. Новых команд или persistent-кнопок у объявления нет.</p>
+<h2 id="dota-2">Поток данных в модуле Dota 2<a class="headerlink" href="#dota-2" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant LastMatchCog
+    participant DotaAPI
+    participant LinksDataManager
+    participant Database
+
+    User-&gt;&gt;LastMatchCog: /lastmatch [member]
+    LastMatchCog-&gt;&gt;LinksDataManager: get_steam_ids(member)
+    LinksDataManager-&gt;&gt;Database: Запрос привязок
+    Database--&gt;&gt;LinksDataManager: Steam IDs
+    LinksDataManager--&gt;&gt;LastMatchCog: Steam IDs
+
+    LastMatchCog-&gt;&gt;DotaAPI: get_last_match(steam_ids)
+    DotaAPI--&gt;&gt;LastMatchCog: Данные матча
+    LastMatchCog-&gt;&gt;User: Отправить информацию о матче</code></pre>
+<h2 id="_8">Структура базы данных<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>erDiagram
+    links {
+        int discord_user_id
+        int steam_id
+    }
+
+    daily_activity {
+        int discord_user_id
+        string game_name
+        string date
+        int seconds_played_today
+    }
+
+    monthly_activity {
+        int discord_user_id
+        string game_name
+        int year
+        int month
+        int total_seconds_in_month
+    }
+
+    role_reactions {
+        int guild_id
+        int channel_id
+        int message_id
+        string emoji
+        int role_id
+        string description
+    }
+
+    twitch_streamers {
+        int guild_id
+        int channel_id
+        string twitch_username
+        string twitch_id
+        bool is_live
+        string last_stream_id
+        int last_notification_time
+    }
+
+    anime_cache {
+        int post_id PK
+        int added_at
+    }
+
+    api_cache {
+        string key PK
+        json data
+        float timestamp
+        int ttl
+    }
+
+    reacted_messages {
+        int message_id PK
+        int channel_id
+        int author_id
+        text content
+        text jump_url
+        datetime posted_at
+        int historical_reaction_count
+        bool is_deleted
+    }
+
+    message_reactors {
+        int id PK
+        int message_id
+        int user_id
+        text emoji
+        datetime reacted_at
+    }
+
+    daily_user_stats {
+        int discord_user_id
+        string date
+        int messages
+        int voice_seconds
+    }
+
+    monthly_user_stats {
+        int discord_user_id
+        int year
+        int month
+        int messages
+        int voice_seconds
+    }
+
+    links ||--o{ daily_activity : "tracks"
+    daily_activity ||--o{ monthly_activity : "aggregates to"
+    daily_user_stats ||--o{ monthly_user_stats : "aggregates to"
+    reacted_messages ||--o{ message_reactors : "uniqueReactors"</code></pre>
+<p>Таблицы <code>daily_user_stats</code> / <code>monthly_user_stats</code> ведёт <code>cogs/user_stats.py</code>
+(сообщения + «умное» голосовое время), а <code>wrapped/</code>-подсистема собирает из них,
+из игровой активности и из реакций красивые wrapped-сводки (matplotlib).</p>
+<h2 id="_9">Взаимодействие компонентов системы<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+    A[main.py] --&gt; B[Cogs]
+    A --&gt; C[Handlers]
+    A --&gt; D[Utils]
+
+    B --&gt; B1[admin.py]
+    B --&gt; B2[activity.py]
+    B --&gt; B3[anime.py]
+    B --&gt; B4[fun.py]
+    B --&gt; B6[lastmatch.py]
+    B --&gt; B8[logging_cog.py]
+    B --&gt; B9[music.py]
+    B --&gt; B10[role_reaction.py]
+    B --&gt; B11[twitch.py]
+    B --&gt; B12[top_reactions.py]
+    B --&gt; B13[user_stats.py]
+
+    C --&gt; C1[events.py]
+    C --&gt; C2[message_handler.py]
+
+    D --&gt; D1[database.py]
+    D --&gt; D2[error_handler.py]
+    D --&gt; D3[logging_utils.py]
+    D --&gt; D4[activity_data_manager.py]
+    D --&gt; D5[dota_api.py]
+    D --&gt; D6[music/]
+    D --&gt; D8[models.py]
+    D --&gt; D9[user_stats_data_manager.py]
+    D --&gt; D10[wrapped/ - voice, builder, render]
+    D --&gt; D11[match_card/ - PNG-карточки матчей Pillow]
+
+    D6 --&gt; D6_1[player.py - MusicPlayer/setup_node]
+    D6 --&gt; D6_2[ui.py - Views]
+    D6 --&gt; D6_3[embeds.py]
+    D6 --&gt; D6_4[config.py - logger/colors]
+
+    B2 --&gt; D4
+    B6 --&gt; D5
+    B9 --&gt; D6
+    B9 --&gt; WL[wavelink 3.x]
+    WL --&gt; LL[Lavalink v4 - JVM]
+    LL --&gt; G[YouTube / Spotify / SoundCloud / ...]
+
+    B1 --&gt; D2
+    B2 --&gt; D2
+    B3 --&gt; D2
+    B4 --&gt; D2
+    B6 --&gt; D2
+    B7 --&gt; D2
+    B9 --&gt; D2
+    B10 --&gt; D2
+    B11 --&gt; D2
+    B12 --&gt; D2
+
+    D1 --&gt; E[SQLite DB - Tortoise ORM]
+    D8 --&gt; E
+    D5 --&gt; F[Stratz API]
+
+    D --&gt; D7[quotes_utils.py]
+    B4 --&gt; D7</code></pre>
+<h2 id="_10">Жизненный цикл команды<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant Discord
+    participant Bot
+    participant CommandHandler
+    participant Cog
+    participant ErrorHandler
+
+    User-&gt;&gt;Discord: Отправка команды
+    Discord-&gt;&gt;Bot: on_message / on_interaction
+    Bot-&gt;&gt;CommandHandler: Парсинг и поиск команды
+    CommandHandler-&gt;&gt;Cog: Вызов метода команды
+
+    alt Успешное выполнение
+        Cog-&gt;&gt;User: Ответ на команду
+    else Ошибка
+        Cog-&gt;&gt;ErrorHandler: Перехват исключения
+        ErrorHandler-&gt;&gt;User: Сообщение об ошибке
+    end</code></pre>
+<h2 id="_11">Система логирования<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph TD
+    A[main.py] --&gt; B[setup_logging]
+    B --&gt; C[Файл логов]
+    B --&gt; D[Консоль]
+
+    E[Модули] --&gt; F[Логгеры]
+    F --&gt; G[Иерархия логгеров]
+
+    G --&gt; H[bot.main]
+    G --&gt; I[bot.cogs.*]
+    G --&gt; J[bot.utils.*]
+    G --&gt; K[bot.handlers.*]
+
+    I --&gt; I1[bot.cogs.music]
+    I --&gt; I2[bot.cogs.activity]
+    I --&gt; I3[bot.cogs.logging_cog]
+
+    J --&gt; J1[bot.utils.dota_api]
+    J --&gt; J2[bot.utils.music.*]
+
+    J2 --&gt; J2_1[bot.utils.music.player]
+    J2 --&gt; J2_2[bot.utils.music.ui]
+    J2 --&gt; J2_3[bot.utils.music.config]
+    J2 --&gt; J2_4[bot.utils.music.embeds]
+
+    C --&gt; L[LoggingCog]
+    L --&gt; M[Discord канал]</code></pre>
+<h3 id="_12">Особенности системы логирования<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Иерархическая структура</strong>: Все логгеры следуют единой иерархии, начиная с <code>bot</code></li>
+<li><strong>JSON-форматирование</strong>: Логи сохраняются в JSON-формате для удобного анализа</li>
+<li><strong>Цветной вывод в консоль</strong>: Разные уровни логирования отображаются разными цветами</li>
+<li><strong>Пересылка в Discord</strong>: Логи автоматически пересылаются в указанный Discord-канал</li>
+<li><strong>Граница запуска</strong>: Каждый новый процесс начинает Discord-tail отдельным заголовком
+  со временем и окружением; <code>WARNING</code>/<code>ERROR</code>/<code>CRITICAL</code> получают заметный префикс</li>
+<li><strong>Без рекурсивного шума</strong>: Служебные <code>INFO</code>/<code>DEBUG</code> самого <code>LoggingCog</code> не идут
+  обратно в Discord, но полностью сохраняются в файловом JSON-логе</li>
+<li><strong>Контекстное логирование</strong>: Возможность добавления контекста к группе логов</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  К началу
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0431\u0443\u0444\u0435\u0440", "clipboard.copy": "\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0432 \u0431\u0443\u0444\u0435\u0440", "search.result.more.one": "\u0415\u0449\u0451 1 \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.more.other": "\u0415\u0449\u0451 # \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.none": "\u0421\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e", "search.result.one": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e 1 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435", "search.result.other": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439: #", "search.result.placeholder": "\u041d\u0430\u0447\u043d\u0438\u0442\u0435 \u043f\u0435\u0447\u0430\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430", "search.result.term.missing": "\u041e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442", "select.version": "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0435\u0440\u0441\u0438\u044e"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

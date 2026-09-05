@@ -1,0 +1,1226 @@
+
+<!doctype html>
+<html lang="ru" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Многофункциональный Discord бот на Python">
+      
+      
+      
+      
+        <link rel="prev" href="../commands/">
+      
+      
+        <link rel="next" href="../style-guide/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Деплой - PD Bot</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#_1" class="md-skip">
+          Перейти к содержанию
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Верхний колонтитул">
+    <a href=".." title="PD Bot" class="md-header__button md-logo" aria-label="PD Bot" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PD Bot
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Деплой
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Светлая тема"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Светлая тема" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Тёмная тема"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Тёмная тема" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Поиск" placeholder="Поиск" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Поиск">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Очистить" aria-label="Очистить" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Инициализация поиска
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/twinlab/pd_bot" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    twinlab/pd_bot
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Навигация" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PD Bot" class="md-nav__button md-logo" aria-label="PD Bot" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    PD Bot
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/twinlab/pd_bot" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    twinlab/pd_bot
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Главная
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Начало работы
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Команды
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Деплой
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Деплой
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tldr-main" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TL;DR — что произойдёт при мердже в main
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Объявления о пользовательских изменениях
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cicd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Архитектура CI/CD
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Архитектура CI/CD">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#watchtower" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Что Watchtower умеет и не умеет
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Обновление инфраструктуры и музыкальных плагинов
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yt-cipher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сервис yt-cipher
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lavalink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Прокси для Lavalink
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Диагностика музыки на VM
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Диагностика музыки на VM">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-cipher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Состояние контейнеров и доступность cipher
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-oauth-lavalink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Наличие OAuth и прокси в окружении Lavalink
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Версии загруженных плагинов
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Безопасный срез ошибок
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Как читать результат
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#production-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Идентификация production-сборки
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-sqlite-vm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup SQLite на VM
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backup SQLite на VM">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Проверка последней копии без остановки бота
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Стиль кода
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#tldr-main" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TL;DR — что произойдёт при мердже в main
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Объявления о пользовательских изменениях
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cicd" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Архитектура CI/CD
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Архитектура CI/CD">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#watchtower" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Что Watchtower умеет и не умеет
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Обновление инфраструктуры и музыкальных плагинов
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#yt-cipher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сервис yt-cipher
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lavalink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Прокси для Lavalink
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#vm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Диагностика музыки на VM
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Диагностика музыки на VM">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-cipher" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Состояние контейнеров и доступность cipher
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-oauth-lavalink" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Наличие OAuth и прокси в окружении Lavalink
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Версии загруженных плагинов
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Безопасный срез ошибок
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Как читать результат
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#production-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Идентификация production-сборки
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#backup-sqlite-vm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Backup SQLite на VM
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Backup SQLite на VM">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Проверка последней копии без остановки бота
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="_1">Деплой<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
+<h2 id="tldr-main">TL;DR — что произойдёт при мердже в <code>main</code><a class="headerlink" href="#tldr-main" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>⚠️ <strong>Важно: одного мерджа в <code>main</code> недостаточно при структурных изменениях.</strong> Watchtower на VM обновляет только <code>image</code> существующих контейнеров — он <strong>не</strong> пуллит <code>docker-compose.yml</code> из git, <strong>не</strong> добавляет новые сервисы и <strong>не</strong> создаёт новые env-переменные. Если в PR появился новый сервис, env или volume — после мерджа нужно зайти на VM и выполнить <code>git pull &amp;&amp; docker compose up -d</code> руками.</p>
+</blockquote>
+<p>Что произойдёт автоматически:</p>
+<ol>
+<li>CI прогонит Ruff и pytest, соберёт новый <code>ghcr.io/twinlab/pd_bot:latest</code> и запушит в GHCR.</li>
+<li>Watchtower на VM через ≤60 секунд увидит новый image, остановит старый контейнер <code>pd_bot</code>, поднимет новый из того же <code>image</code>, с теми же volume/env/network что были на VM <strong>до</strong> этого момента.</li>
+<li>Новый бот загрузится и фоном подключится к существующему сервису <code>lavalink:2333</code>.</li>
+<li>При временной недоступности Lavalink остальные подсистемы продолжат работать, а музыкальные команды будут возвращать контролируемую ошибку до восстановления ноды.</li>
+</ol>
+<p>При остановке контейнера бот обрабатывает <code>SIGTERM</code>: закрытие Discord ограничено
+3 секундами, сетевые клиенты — 2 секундами параллельно, SQLite — отдельными
+2 секундами. Даже при зависшем клиенте штатное завершение занимает не более
+примерно 7 секунд и укладывается в стандартное окно остановки Docker.</p>
+<hr />
+<h2 id="_2">Объявления о пользовательских изменениях<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<p>При релизе с новыми возможностями или заметными исправлениями заполните
+<code>config/release_notes.yaml</code>:</p>
+<ul>
+<li><code>id</code> — новый уникальный ID объявления, например дата релиза. Использованные ID
+  нельзя переиспользовать: исправление текста при прежнем ID не отправит новый пост.</li>
+<li><code>title</code> — заголовок карточки.</li>
+<li><code>text</code> — авторский текст с Markdown, до 3500 символов. Для нескольких строк
+  используйте YAML-блок <code>text: |</code>. Пустое поле отключает отправку.</li>
+</ul>
+<p>Для технического обновления оставьте этот файл без изменений. Бот не составляет
+анонс из git-коммитов и не отправляет сообщения на каждый новый <code>BOT_REVISION</code>.
+После установки образа и подключения к Discord непустой новый анонс уйдёт
+в <code>channels.announcements</code>. Упоминания пользователей, ролей и <code>@everyone</code> отключены.
+В development/testing отправка отключена. Текст первого релиза предоставлен владельцем.</p>
+<p>Нужны права просмотра канала, отправки сообщений и чтения истории.
+При временном сбое бот повторяет попытку через пять минут. Если отправка оборвалась,
+сначала проверяется история, чтобы восстановить результат принятого Discord поста.
+Ошибки пишутся в лог <code>bot.cogs.announcements</code>.</p>
+<p>Журнал <code>data/release_announcements.json</code> живёт в уже подключённом <code>/app/data</code>.
+Сохраняйте его вместе с остальными данными при переносе и восстановлении VM:
+удаление журнала сбросит память об отправленных объявлениях. Миграция SQLite,
+новые секреты, volumes и ручной перезапуск Compose для этой функции не нужны.</p>
+<h2 id="cicd">Архитектура CI/CD<a class="headerlink" href="#cicd" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>graph LR
+    A[Push в main] --&gt; B[GitHub Actions: Ruff и pytest]
+    B --&gt; C[Сборка Docker-образа pd_bot]
+    C --&gt; D[Push в ghcr.io/twinlab/pd_bot:latest]
+    D --&gt; E[Watchtower на VM polls каждые 60s]
+    E --&gt; F[Обновление контейнера pd_bot]
+
+    subgraph "только image"
+        F
+    end
+
+    subgraph "вручную при изменении схемы"
+        G[git pull на VM]
+        H[Правка .env]
+        I[docker compose up -d]
+    end
+
+    G -.-&gt; I
+    H -.-&gt; I</code></pre>
+<p>GitHub Actions конфигурация: <code>.github/workflows/deploy.yml</code>. На VM достаточно одного <code>docker compose up -d</code>, чтобы запустить связку <code>bot + lavalink + yt-cipher + watchtower</code>. Watchtower автоматически обновляет бот с тегом <code>:latest</code> и <code>yt-cipher:master</code>; остальные инфраструктурные образы закреплены по версии и digest.</p>
+<h3 id="watchtower">Что Watchtower умеет и <strong>не</strong> умеет<a class="headerlink" href="#watchtower" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Умеет</th>
+<th>Не умеет</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Подтягивать новые <code>:latest</code> image-ы из GHCR</td>
+<td>Подтягивать новый <code>docker-compose.yml</code> из git</td>
+</tr>
+<tr>
+<td>Перезапускать контейнеры с label <code>com.centurylinklabs.watchtower.enable=true</code></td>
+<td>Создавать <strong>новые</strong> сервисы, появившиеся в compose-файле</td>
+</tr>
+<tr>
+<td>Удалять старые image-ы (<code>--cleanup</code>)</td>
+<td>Менять <code>env_file</code>, <code>environment</code>, <code>volumes</code>, <code>depends_on</code>, <code>networks</code> существующего сервиса</td>
+</tr>
+<tr>
+<td>Авторизоваться в GHCR через <code>REPO_USER</code>/<code>REPO_PASS</code></td>
+<td>Читать ваши новые секреты из репозитория</td>
+</tr>
+</tbody>
+</table>
+<p>Поэтому любое <strong>структурное</strong> изменение docker-compose (новый сервис, новые env, новые volume) требует ручного шага на VM.</p>
+<p>Отдельная gotcha: <code>lavalink/application.yml</code> — это volume-mount, поэтому после правок нужен <code>docker compose restart lavalink</code> руками (Watchtower не среагирует — образ не меняется).</p>
+<h3 id="_3">Обновление инфраструктуры и музыкальных плагинов<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<p>Python, Lavalink и Watchtower закреплены по версии и OCI digest. Плагины <code>youtube-source</code>
+и LavaSrc закреплены Maven-координатами в <code>lavalink/application.yml</code>. Они тоже требуют
+регулярного обновления, но обновляются отдельным PR вместе с проверкой совместимости
+конфига, версии Lavalink и воспроизведения.</p>
+<p><code>yt-cipher</code> — исключение: сервис отслеживает частые изменения <code>player.js</code>, поэтому
+использует <code>master</code> и автоматически обновляется Watchtower.</p>
+<p>Для закреплённых компонентов:</p>
+<ol>
+<li>Выбрать совместимую версию и прочитать release notes.</li>
+<li>Проверить manifest командой <code>docker buildx imagetools inspect &lt;image&gt;</code>.</li>
+<li>Обновить тег и digest в <code>Dockerfile</code> или <code>docker-compose.yml</code>.</li>
+<li>Прогнать тесты и Docker build.</li>
+<li>После мерджа выполнить на VM <code>git pull &amp;&amp; docker compose up -d</code>.</li>
+</ol>
+<p><code>LAVALINK_SERVER_PASSWORD</code> обязателен. Compose завершит проверку конфигурации ошибкой, если переменная отсутствует; известного fallback-пароля нет.</p>
+<hr />
+<h2 id="yt-cipher">Сервис <code>yt-cipher</code><a class="headerlink" href="#yt-cipher" title="Permanent link">&para;</a></h2>
+<p>Stateless-сервис <a href="https://github.com/kikkia/yt-cipher">kikkia/yt-cipher</a> — выносит signature-decoding (<code>/s/player/&lt;hash&gt;/...</code>) из плагина <code>youtube-source</code> в отдельный контейнер, потому что YouTube часто меняет обфускацию player.js и плагин за ней не успевает. Подключение — <code>plugins.youtube.remoteCipher</code> в <code>lavalink/application.yml</code>.</p>
+<p>В compose должна использоваться переменная <code>OVERRIDE_PLAYER_VARIANT=IAS</code>.
+Старое имя <code>OVERRIDE_SCRIPT_VARIANT</code> актуальный образ <code>yt-cipher</code> не читает.</p>
+<p>Адрес сервиса можно переопределить без правки YAML:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>YOUTUBE_REMOTE_CIPHER_URL=https://cipher.kikkia.dev/
+</code></pre></div>
+<p>По умолчанию используется локальный <code>http://yt-cipher:8001</code>. Публичный endpoint
+имеет ограничение 10 запросов/с и не гарантирует стопроцентную доступность, поэтому
+он нужен прежде всего как fallback или для конфигурации с внешним HTTP-прокси.</p>
+<hr />
+<h2 id="lavalink">Прокси для Lavalink<a class="headerlink" href="#lavalink" title="Permanent link">&para;</a></h2>
+<p><code>PROXY_URL</code> загружается Python-конфигом бота, но Lavalink и <code>youtube-source</code> эту
+переменную не разбирают. Для JVM-контейнера нужны штатные Spring Boot переменные:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>LAVALINK_SERVER_HTTP_CONFIG_PROXY_HOST=proxy.example.com
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>LAVALINK_SERVER_HTTP_CONFIG_PROXY_PORT=3128
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>LAVALINK_SERVER_HTTP_CONFIG_PROXY_USER=username
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>LAVALINK_SERVER_HTTP_CONFIG_PROXY_PASSWORD=password
+</code></pre></div>
+<p>Указывать нужно HTTP/HTTPS CONNECT-прокси: host без <code>http://</code>, порт отдельно.
+Если авторизации нет, переменные <code>USER</code> и <code>PASSWORD</code> следует полностью удалить,
+а не оставлять пустыми.</p>
+<p><code>httpConfig</code> применяется ко всем запросам HTTP-клиента YouTube-плагина, включая
+обращение к <code>remoteCipher</code>. Внешний прокси обычно не может разрешить внутреннее
+Docker-имя <code>yt-cipher</code>. В таком случае есть два варианта:</p>
+<ol>
+<li>Подключить прокси-контейнер к сети <code>pd_bot_net</code>, чтобы он видел <code>yt-cipher</code>.</li>
+<li>Задать <code>YOUTUBE_REMOTE_CIPHER_URL=https://cipher.kikkia.dev/</code>, чтобы cipher-запрос
+   тоже шёл через прокси на публично разрешимое имя.</li>
+</ol>
+<p>Не добавляйте значения прокси в <code>application.yml</code>: логин и пароль должны оставаться
+только в <code>.env</code> на VM.</p>
+<hr />
+<h2 id="vm">Диагностика музыки на VM<a class="headerlink" href="#vm" title="Permanent link">&para;</a></h2>
+<p>Проверки ниже не печатают значения секретов.</p>
+<h3 id="1-cipher">1. Состояние контейнеров и доступность cipher<a class="headerlink" href="#1-cipher" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>ps
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>lavalink<span class="w"> </span>sh<span class="w"> </span>-lc<span class="w"> </span><span class="s1">'nc -z yt-cipher 8001 &amp;&amp; echo "yt-cipher: reachable"'</span>
+</code></pre></div>
+<p>Если используется публичный <code>YOUTUBE_REMOTE_CIPHER_URL</code>, второй тест проверяет только
+локальный сервис и не является обязательным.</p>
+<h3 id="2-oauth-lavalink">2. Наличие OAuth и прокси в окружении Lavalink<a class="headerlink" href="#2-oauth-lavalink" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>lavalink<span class="w"> </span>sh<span class="w"> </span>-lc<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="s1">'test -n "$YOUTUBE_REFRESH_TOKEN" &amp;&amp; echo "oauth=set" || echo "oauth=missing";</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="s1">   test -n "$LAVALINK_SERVER_HTTP_CONFIG_PROXY_HOST" &amp;&amp; echo "proxy_host=set" || echo "proxy_host=missing";</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="s1">   test -n "$LAVALINK_SERVER_HTTP_CONFIG_PROXY_PORT" &amp;&amp; echo "proxy_port=set" || echo "proxy_port=missing"'</span>
+</code></pre></div>
+<p><code>oauth=missing</code> допустим только на время первого device-flow. Для постоянной работы
+нужен refresh token burner-аккаунта; основной Google-аккаунт использовать нельзя.</p>
+<h3 id="3">3. Версии загруженных плагинов<a class="headerlink" href="#3" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>lavalink<span class="w"> </span>sh<span class="w"> </span>-lc<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="s1">'wget -qO- --header="Authorization: $LAVALINK_SERVER_PASSWORD" \</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="s1">  http://127.0.0.1:2333/v4/info'</span>
+</code></pre></div>
+<p>В <code>plugins</code> должна быть версия <code>youtube-plugin</code> из <code>lavalink/application.yml</code>, а в
+<code>sourceManagers</code> — <code>youtube</code>. Lavalink при старте сам удаляет старую версию jar из
+persistent volume и скачивает объявленную.</p>
+<p>YouTube-плагин закреплён на коммите <code>f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3</code>
+из официального snapshots-репозитория. Версия plugin-модуля указывается без
+суффикса <code>-SNAPSHOT</code>. Релиз <code>1.18.2</code> не содержит августовское исправление
+User-Agent OAuth-клиента TV. Причины выбора, контрольные суммы и результаты
+проверок приведены в <a href="../music-diagnostics-2026-09-05/">отчёте диагностики музыки</a>.</p>
+<h3 id="4">4. Безопасный срез ошибок<a class="headerlink" href="#4" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>logs<span class="w"> </span>--since<span class="o">=</span>10m<span class="w"> </span>lavalink<span class="w"> </span>yt-cipher<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'AllClientsFailed|RemoteCipher|read timeout|Sign in|403|429|youtube-plugin'</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>docker<span class="w"> </span>compose<span class="w"> </span>logs<span class="w"> </span>--since<span class="o">=</span>10m<span class="w"> </span>bot<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s1">'VOICE_STATE_UPDATE|VOICE_SERVER_UPDATE|ChannelTimeout'</span>
+</code></pre></div>
+<p>Не публикуйте целиком OAuth device-flow лог: в нём может появиться refresh token.</p>
+<h3 id="_4">Как читать результат<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Фрагмент ошибки</th>
+<th>Что проверять</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Sign in to confirm you're not a bot</code>, <code>403</code>, <code>429</code></td>
+<td>OAuth, репутацию IP и фактическое наличие proxy-переменных</td>
+</tr>
+<tr>
+<td><code>TVHTML5</code> и <code>The page needs to be reloaded</code></td>
+<td>Версию youtube-plugin: в <code>1.18.2</code> остался отвергаемый YouTube User-Agent TV-клиента</td>
+</tr>
+<tr>
+<td><code>RemoteCipher</code>, <code>resolve_url</code>, <code>read timeout</code></td>
+<td>Доступность <code>yt-cipher</code>, <code>YOUTUBE_REMOTE_CIPHER_URL</code>, таймауты</td>
+</tr>
+<tr>
+<td><code>AllClientsFailedException</code></td>
+<td>Вложенные причины по каждому InnerTube-клиенту; это исходная ошибка YouTube</td>
+</tr>
+<tr>
+<td>В <code>/v4/info</code> нет <code>youtube</code></td>
+<td>Загрузку jar и версию <code>youtube-plugin</code></td>
+</tr>
+<tr>
+<td><code>ChannelTimeoutException</code>, без <code>PATCH /players</code> в Lavalink</td>
+<td>Порядок событий Discord Voice Gateway; <code>MusicPlayer</code> повторно собирает handshake после получения обеих частей</td>
+</tr>
+<tr>
+<td>Трек стартует без YouTube-ошибок, но аудио нет</td>
+<td>Discord Voice/DAVE и события voice gateway, а не источник YouTube</td>
+</tr>
+</tbody>
+</table>
+<p>После изменения <code>docker-compose.yml</code>, <code>application.yml</code> или <code>.env</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>git<span class="w"> </span>pull
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>pull<span class="w"> </span>bot<span class="w"> </span>yt-cipher
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--force-recreate<span class="w"> </span>yt-cipher<span class="w"> </span>lavalink<span class="w"> </span>bot
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a>docker<span class="w"> </span>compose<span class="w"> </span>ps
+</code></pre></div>
+<hr />
+<h2 id="production-">Идентификация production-сборки<a class="headerlink" href="#production-" title="Permanent link">&para;</a></h2>
+<p>CI передаёт полный <code>${{ github.sha }}</code> в Docker build-arg <code>APP_REVISION</code>. Runtime-образ
+сохраняет его в <code>BOT_REVISION</code>, а <code>main.py</code> пишет значение в стартовый лог:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>Версия сборки: &lt;git-sha&gt;
+</code></pre></div>
+<p>Локальная сборка без аргумента получает значение <code>development</code>. Это позволяет после
+обновления Watchtower сопоставить работающий контейнер с конкретным коммитом, не
+полагаясь только на изменяемый тег <code>latest</code>.</p>
+<h2 id="backup-sqlite-vm">Backup SQLite на VM<a class="headerlink" href="#backup-sqlite-vm" title="Permanent link">&para;</a></h2>
+<p>Production-база копируется независимо от bot-контейнера. Версия скрипта хранится в
+<code>ops/backup_db.sh</code>, на VM устанавливается как <code>/home/twinlab/backup_db.sh</code> и
+запускается cron ежедневно в 04:30 МСК:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>30 4 * * * /home/twinlab/backup_db.sh &gt;&gt; /home/twinlab/backup_db.log 2&gt;&amp;1
+</code></pre></div>
+<p>Скрипт:</p>
+<ul>
+<li>создаёт согласованный snapshot через SQLite <code>VACUUM INTO</code>, поэтому активный WAL не
+  требуется копировать отдельно;</li>
+<li>проверяет <code>integrity_check</code> и внешние ключи до сжатия;</li>
+<li>распаковывает архив во временный файл и повторно проверяет восстановленную БД;</li>
+<li>хранит 14 последних локальных копий;</li>
+<li>отправляет архив во внешнее хранилище через Discord webhook;</li>
+<li>сообщает в тот же webhook о неуспешном запуске, если URL доступен.</li>
+</ul>
+<p>Webhook хранится только на VM в <code>/home/twinlab/.pd_bot_backup.env</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>DB_BACKUP_WEBHOOK_URL=https://discord.com/api/webhooks/...
+</code></pre></div>
+<p>Файл должен иметь права <code>600</code>, скрипт — <code>700</code>. Значение webhook нельзя добавлять в
+репозиторий или печатать в диагностике.</p>
+<h3 id="_5">Проверка последней копии без остановки бота<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<p>Проверка работает с отдельным временным файлом и не изменяет production-БД:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nv">latest</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>find<span class="w"> </span>backups/db<span class="w"> </span>-maxdepth<span class="w"> </span><span class="m">1</span><span class="w"> </span>-type<span class="w"> </span>f<span class="w"> </span>-name<span class="w"> </span><span class="s1">'bot_data-*.db.gz'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="w">  </span>-printf<span class="w"> </span><span class="s1">'%T@ %p\n'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-nr<span class="w"> </span><span class="p">|</span><span class="w"> </span>head<span class="w"> </span>-1<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="s1">' '</span><span class="w"> </span>-f2-<span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a><span class="nv">restored</span><span class="o">=</span><span class="s2">"</span><span class="k">$(</span>mktemp<span class="w"> </span>/tmp/pd_bot_restore_check.XXXXXX.db<span class="k">)</span><span class="s2">"</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>gzip<span class="w"> </span>-t<span class="w"> </span><span class="s2">"</span><span class="nv">$latest</span><span class="s2">"</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>gzip<span class="w"> </span>-dc<span class="w"> </span><span class="s2">"</span><span class="nv">$latest</span><span class="s2">"</span><span class="w"> </span>&gt;<span class="w"> </span><span class="s2">"</span><span class="nv">$restored</span><span class="s2">"</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>sqlite3<span class="w"> </span><span class="s2">"</span><span class="nv">$restored</span><span class="s2">"</span><span class="w"> </span><span class="s1">'PRAGMA integrity_check; PRAGMA foreign_key_check;'</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a>rm<span class="w"> </span>-f<span class="w"> </span>--<span class="w"> </span><span class="s2">"</span><span class="nv">$restored</span><span class="s2">"</span>
+</code></pre></div>
+<p>Ожидаемый результат <code>integrity_check</code> — <code>ok</code>, а <code>foreign_key_check</code> не должен
+возвращать строк. Полное восстановление production-БД выполняется только при
+остановленном bot-контейнере и после сохранения отдельной копии текущей базы.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  К началу
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0431\u0443\u0444\u0435\u0440", "clipboard.copy": "\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0432 \u0431\u0443\u0444\u0435\u0440", "search.result.more.one": "\u0415\u0449\u0451 1 \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.more.other": "\u0415\u0449\u0451 # \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.none": "\u0421\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e", "search.result.one": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e 1 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435", "search.result.other": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439: #", "search.result.placeholder": "\u041d\u0430\u0447\u043d\u0438\u0442\u0435 \u043f\u0435\u0447\u0430\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430", "search.result.term.missing": "\u041e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442", "select.version": "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0435\u0440\u0441\u0438\u044e"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

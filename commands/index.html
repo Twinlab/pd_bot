@@ -1,0 +1,1888 @@
+
+<!doctype html>
+<html lang="ru" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Многофункциональный Discord бот на Python">
+      
+      
+      
+      
+        <link rel="prev" href="../architecture/">
+      
+      
+        <link rel="next" href="../deployment/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Команды - PD Bot</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#_1" class="md-skip">
+          Перейти к содержанию
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Верхний колонтитул">
+    <a href=".." title="PD Bot" class="md-header__button md-logo" aria-label="PD Bot" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            PD Bot
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Команды
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Светлая тема"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Светлая тема" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="deep-purple" data-md-color-accent="purple"  aria-label="Тёмная тема"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Тёмная тема" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Поиск" placeholder="Поиск" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Поиск">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Очистить" aria-label="Очистить" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Инициализация поиска
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/twinlab/pd_bot" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    twinlab/pd_bot
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Навигация" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="PD Bot" class="md-nav__button md-logo" aria-label="PD Bot" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    PD Bot
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/twinlab/pd_bot" title="Перейти к репозиторию" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    twinlab/pd_bot
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Главная
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Начало работы
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Архитектура
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Команды
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Команды
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#cogshelppy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Справка (cogs/help.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsadminpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Административные (cogs/admin.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsactivitypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Отслеживание активности (cogs/activity.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Отслеживание активности (cogs/activity.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Привязка игровых аккаунтов
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wrapped-cogsuser_statspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Активность сообщений/голоса и Wrapped (cogs/user_stats.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Активность сообщений/голоса и Wrapped (cogs/user_stats.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsanimepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Аниме (cogs/anime.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsfunpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Развлечения (cogs/fun.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Развлечения (cogs/fun.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quote" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Команда Quote
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dota-2-cogslastmatchpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dota 2 (cogs/lastmatch.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cs2-faceit-cogscs_lastmatchpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CS2 / FACEIT (cogs/cs_lastmatch.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsmusicpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Музыка (cogs/music.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Музыка (cogs/music.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#components-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Components V2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поддерживаемые источники
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поиск по тексту
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Права доступа
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#twitch-cogstwitchpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Twitch (cogs/twitch.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogspartypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сбор пати (cogs/party.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Сбор пати (cogs/party.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsrole_reactionpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Роли по кнопкам (cogs/role_reaction.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogstop_reactionspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Топ реакций (cogs/top_reactions.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Топ реакций (cogs/top_reactions.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Общие параметры периода
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Автоматический ежемесячный отчёт
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Деплой
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../style-guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Стиль кода
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Содержание">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Содержание
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#cogshelppy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Справка (cogs/help.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsadminpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Административные (cogs/admin.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsactivitypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Отслеживание активности (cogs/activity.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Отслеживание активности (cogs/activity.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Привязка игровых аккаунтов
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#wrapped-cogsuser_statspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Активность сообщений/голоса и Wrapped (cogs/user_stats.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Активность сообщений/голоса и Wrapped (cogs/user_stats.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsanimepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Аниме (cogs/anime.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsfunpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Развлечения (cogs/fun.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Развлечения (cogs/fun.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#quote" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Команда Quote
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dota-2-cogslastmatchpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dota 2 (cogs/lastmatch.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cs2-faceit-cogscs_lastmatchpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CS2 / FACEIT (cogs/cs_lastmatch.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsmusicpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Музыка (cogs/music.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Музыка (cogs/music.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#components-v2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Components V2
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поддерживаемые источники
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Поиск по тексту
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Права доступа
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#twitch-cogstwitchpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Twitch (cogs/twitch.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogspartypy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Сбор пати (cogs/party.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Сбор пати (cogs/party.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_8" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogsrole_reactionpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Роли по кнопкам (cogs/role_reaction.py)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cogstop_reactionspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Топ реакций (cogs/top_reactions.py)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Топ реакций (cogs/top_reactions.py)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_9" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Общие параметры периода
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_10" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Автоматический ежемесячный отчёт
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Настройка
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="_1">Команды<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h1>
+<h2 id="cogshelppy">Справка (<code>cogs/help.py</code>)<a class="headerlink" href="#cogshelppy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/help</code></td>
+<td>Приватный каталог реально зарегистрированных команд с переключателем категорий</td>
+</tr>
+</tbody>
+</table>
+<p>Список не дублируется вручную: <code>/help</code> читает текущее дерево команд бота, поэтому
+новые slash-команды и контекстные действия Discord появляются в нём автоматически.
+Сама <code>/help</code> из каталога исключается. Длинные разделы листаются кнопками, а команды
+с ограниченными правами помечаются значком <code>🔒</code>. Общий каталог показывает их всем,
+но Discord скрывает недоступные пользователю команды в системном slash-пикере.</p>
+<h2 id="cogsadminpy">Административные (<code>cogs/admin.py</code>)<a class="headerlink" href="#cogsadminpy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/clear [count] [user]</code></td>
+<td>Удаление сообщений (до 100, обходит 14-дневный лимит)</td>
+</tr>
+<tr>
+<td><code>/kick &lt;member&gt; [reason]</code></td>
+<td>Исключение пользователя с сервера</td>
+</tr>
+<tr>
+<td><code>/restart</code></td>
+<td>(Владелец) Перезапуск бота</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cogsactivitypy">Отслеживание активности (<code>cogs/activity.py</code>)<a class="headerlink" href="#cogsactivitypy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/activity [test_mode]</code></td>
+<td>(Админ) Текущая дневная статистика с пагинацией</td>
+</tr>
+<tr>
+<td><code>/profile [user]</code></td>
+<td>Публичный профиль и игровые аккаунты участника</td>
+</tr>
+<tr>
+<td><code>/report_daily &lt;year&gt; &lt;month&gt; &lt;day&gt;</code></td>
+<td>(Админ) Ручной ежедневный отчёт</td>
+</tr>
+<tr>
+<td><code>/report_monthly &lt;year&gt; &lt;month&gt;</code></td>
+<td>(Админ) Ручной ежемесячный отчёт</td>
+</tr>
+</tbody>
+</table>
+<p><code>/profile</code> открывает одну Components V2-карточку с вкладками:</p>
+<ul>
+<li><strong>Обзор</strong> — сообщения, войс, игровое время, полученные реакции, любимая и
+  текущая игра, места в серверных рейтингах;</li>
+<li><strong>Игры</strong> — подробный список игр и доля каждой в общем времени;</li>
+<li><strong>Моменты</strong> — до трёх самых популярных сообщений пользователя из общедоступных
+  каналов со ссылками;</li>
+<li><strong>Аккаунты</strong> — Dota 2 и FACEIT-привязки с добавлением и отвязкой в собственном профиле.</li>
+</ul>
+<p>Для первых трёх вкладок доступны текущий месяц, текущий год, всё время и
+произвольный месяц. Wrapped в профиль не входит и остаётся отдельной
+сюрприз-функцией. Slash-команда отправляет публичную карточку: её видят и
+переключают все участники канала, включая вкладку с привязанными аккаунтами.
+Контекст-меню <strong>ПКМ → «Профиль»</strong> открывает личную карточку только для инициатора.
+Кнопки управления привязками появляются при открытии собственного профиля
+и проверяют владельца при каждом действии. Формы и подтверждения всегда личные.
+В «Моменты» обеих карточек входят только каналы, где всем доступна история
+сообщений, и известные боту публичные ветки этих каналов. Закрытые каналы,
+приватные ветки и каналы с запретом доступа для отдельных ролей или участников
+исключаются. При каждом открытии вкладки доступ проверяется заново.
+Внизу профиля доступны <strong>«Последний матч Dota 2»</strong> и <strong>«Последний матч CS2»</strong>.
+Карточка матча всегда отправляется эфемерно нажавшему кнопку и относится к
+владельцу открытого профиля; используется та же логика, что у <code>/lastmatch</code> и
+<code>/cslastmatch</code>.</p>
+<h3 id="_2">Привязка игровых аккаунтов<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<p>В <code>/profile</code> → <strong>Аккаунты</strong> у каждой игры есть кнопка <strong>Привязать</strong>, а при наличии
+аккаунтов — <strong>Добавить</strong>. Форма содержит одно поле:</p>
+<ul>
+<li><strong>Dota 2:</strong> ID Dota, полный Steam ID, ссылка Steam (<code>/profiles/…</code> или <code>/id/…</code>),
+  ссылка на игрока Dotabuff, STRATZ, OpenDota или FACEIT.</li>
+<li><strong>FACEIT:</strong> ник (в том числе числовой), ссылка FACEIT, полный Steam ID или
+  ссылка Steam. По Steam бот ищет FACEIT-аккаунт с подключённой CS2.</li>
+</ul>
+<p>Перед сохранением появляется карточка с игрой, именем или ID, доступным аватаром
+и кнопкой <strong>Открыть профиль</strong>. Сохранение происходит только после <strong>Привязать</strong>.
+Для отвязки нужно выбрать конкретный аккаунт и подтвердить действие.
+После изменения обновляется исходная карточка профиля. Лимит — до пяти аккаунтов
+каждой игры (<code>limits.links_max_per_user</code>), включая одновременные запросы из разных панелей.
+Существующие привязки сохраняются; миграция базы не требуется.</p>
+<p>Чтение вкладки использует локальные данные и кэш имён, без внешних запросов.
+Именные Steam-ссылки <code>/id/…</code> и получение имён/аватаров Steam требуют необязательного
+<code>STEAM_API_KEY</code> у бота. Без него числовые ID, ссылки <code>/profiles/…</code> и привязка FACEIT
+через <code>FACEIT_API_KEY</code> доступны; для Dota без имени показывается ID со ссылкой.
+Привязка используется для просмотра статистики и не подтверждает владение Steam-аккаунтом.</p>
+<p>Команды <code>/link</code>, <code>/unlink</code>, <code>/links</code>, <code>/cslink</code>, <code>/csunlink</code>, <code>/cslinks</code> удалены.
+Все операции с аккаунтами доступны во вкладке профиля.</p>
+<p><strong>Автоматические отчёты:</strong></p>
+<ul>
+<li>Ежедневный отчёт (за вчера) — 00:00 МСК</li>
+<li>Ежемесячный отчёт (за прошлый месяц) — 1-го числа в 12:00 МСК</li>
+</ul>
+<p>После простоя бот публикует только один ежедневный отчёт — за вчера. Более старые
+дневные хвосты переносятся в месячную статистику без повторной отправки в Discord.</p>
+<h2 id="wrapped-cogsuser_statspy">Активность сообщений/голоса и Wrapped (<code>cogs/user_stats.py</code>)<a class="headerlink" href="#wrapped-cogsuser_statspy" title="Permanent link">&para;</a></h2>
+<p>Отдельный от игровой активности модуль: считает <strong>количество сообщений</strong> и
+<strong>«умное» голосовое время</strong>, а поверх собирает красивые wrapped-карточки
+(месячные/годовые серверные и персональные годовые в ЛС). Картинки рендерятся
+через matplotlib.</p>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/wrapped [user] [year]</code></td>
+<td>(Админ) Персональный итог года картинкой (по умолчанию — ваш, текущий год)</td>
+</tr>
+<tr>
+<td><code>/topstats [period]</code></td>
+<td>(Админ) Серверные итоги активности картинкой. <code>period</code>: <code>month</code> (по умолчанию) или <code>year</code></td>
+</tr>
+<tr>
+<td><code>/wrapped_monthly &lt;year&gt; &lt;month&gt;</code></td>
+<td>(Админ) Опубликовать месячный серверный wrapped в канал отчётов</td>
+</tr>
+<tr>
+<td><code>/wrapped_yearly &lt;year&gt;</code></td>
+<td>(Админ) Опубликовать годовой серверный wrapped в канал отчётов</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Как считается голос (умно).</strong> Время идёт в зачёт, только пока пользователь
+реально активен: он не в AFK-канале, не заглушён на приём (<code>deaf</code>/<code>self_deaf</code>),
+и в канале есть как минимум <code>min_humans_in_channel</code> живых участников. Мут
+микрофона по умолчанию <strong>засчитывается</strong> (человек слушает) — управляется
+<code>count_while_muted</code>. Точное «говорит/молчит» по gateway недоступно, поэтому
+ориентируемся на voice-state.</p>
+<p><strong>Сообщения</strong> считаются по событию <code>on_message</code> (боты, ЛС и команды
+игнорируются), без анти-спам кулдауна — учитывается каждое сообщение.</p>
+<p><strong>Автоматические посты</strong> (канал <code>channels.activity_reports</code>, время — по МСК):</p>
+<ul>
+<li>Месячный серверный wrapped — 1-го числа за прошлый месяц в 12:02 МСК (после отчётов
+  по играм в 12:00 и реакциям в 12:01 — посты идут в канал в этом порядке);</li>
+<li>Годовой серверный wrapped — <code>schedule.yearly_day</code>/<code>yearly_month</code> (по умолчанию 31 декабря);</li>
+<li>Персональная рассылка в ЛС — <code>schedule.personal_day</code>/<code>personal_month</code> (по умолчанию 25 декабря),
+  только активным участникам; закрытые ЛС пропускаются.</li>
+</ul>
+<p>Дневные данные хранятся в <code>daily_user_stats</code>, в полночь по МСК переносятся в
+<code>monthly_user_stats</code> (как у игровой активности). После простоя переносятся все
+накопившиеся старые даты.</p>
+<h3 id="_3">Настройка<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">user_stats</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">count_while_muted</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">     </span><span class="c1"># Засчитывать время с выключенным микрофоном</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">min_humans_in_channel</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span><span class="w">    </span><span class="c1"># Минимум живых участников в канале для зачёта</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">  </span><span class="nt">voice_min_record</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">        </span><span class="c1"># Минимальная длительность сегмента для записи (сек)</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">  </span><span class="nt">voice_max_record</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">86400</span><span class="w">     </span><span class="c1"># Верхний порог сегмента (защита от аномалий, сек)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="nt">voice_periodic_save</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">    </span><span class="c1"># Интервал периодического сохранения голоса (сек)</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">top_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">                </span><span class="c1"># Сколько позиций в топах wrapped</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">dm_send_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span><span class="w">          </span><span class="c1"># Задержка между ЛС при рассылке (сек)</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span><span class="nt">data_since</span><span class="p">:</span><span class="w"> </span><span class="s">"2026-06-01"</span><span class="w">    </span><span class="c1"># Дата старта сбора (для сноски в годовом wrapped)</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">  </span><span class="nt">schedule</span><span class="p">:</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">    </span><span class="nt">hour</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">12</span><span class="w">                  </span><span class="c1"># Время wrapped-постов (МСК)</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">    </span><span class="nt">minute</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">    </span><span class="nt">yearly_month</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">12</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">    </span><span class="nt">yearly_day</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">31</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">    </span><span class="nt">personal_month</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">12</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">    </span><span class="nt">personal_day</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">25</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">    </span><span class="nt">personal_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<h2 id="cogsanimepy">Аниме (<code>cogs/anime.py</code>)<a class="headerlink" href="#cogsanimepy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/post_anime [rating] [tag]</code></td>
+<td>(Админ) Ручная публикация. <code>rating</code> (<code>g</code>/<code>s</code>/<code>q</code>/<code>e</code>) и <code>tag</code> опциональны и переопределяют конфиг</td>
+</tr>
+</tbody>
+</table>
+<p>Автоматическая публикация дважды в день (10:00 и 18:00 UTC) из <strong>Danbooru</strong>.
+В каждом посте гарантированно есть девочка (<code>base_tags</code>), рейтинг выбирается случайно из
+<code>ratings</code> (g/s). Из-за лимита Danbooru (Member — 2 «обычных» тега) используются две стратегии:</p>
+<ul>
+<li><strong>франшиза</strong> (с вероятностью <code>extra_tag_chance</code>): <code>&lt;франшиза&gt; order:random rating:X score:&gt;=N</code>
+  — истинный рандом; наличие девочки проверяется ботом по тегам поста;</li>
+<li><strong>базовый тег</strong>: <code>&lt;1girl|2girls&gt; order:rank rating:X</code> — «горячее» (ранг = качество),
+  надёжно даже на тяжёлом теге.</li>
+</ul>
+<p>В канал постится сама картинка (ссылка), детали (художник, источник, score) идут в лог.</p>
+<p>Настройка в <code>config/bot_settings.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">anime</span><span class="p">:</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">min_score</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">            </span><span class="c1"># score:&gt;=N для франшиза-запроса (фильтр качества)</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">extra_tag_chance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.6</span><span class="w">    </span><span class="c1"># вероятность уйти в франшиза-запрос вместо базового</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">ratings</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"g"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"s"</span><span class="p p-Indicator">]</span><span class="w">      </span><span class="c1"># случайный рейтинг на каждый запрос</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span><span class="nt">base_tags</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"1girl"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"2girls"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">  </span><span class="nt">extra_tags</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"genshin_impact"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"persona"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"danganronpa"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="nt">excluded_tags</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"guro"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"comic"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"monochrome"</span><span class="p p-Indicator">]</span>
+</code></pre></div>
+<p>Аутентификация Danbooru (опционально) — через <code>.env</code>: <code>DANBOORU_LOGIN</code> и <code>DANBOORU_API_KEY</code>.
+Ключ даёт только повышенный rate-limit; лимит в 2 тега привязан к уровню аккаунта (Member),
+а не к ключу, и модуль это уже учитывает.</p>
+<h2 id="cogsfunpy">Развлечения (<code>cogs/fun.py</code>)<a class="headerlink" href="#cogsfunpy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/deathbattle [member1] [member2]</code></td>
+<td>Симуляция битвы</td>
+</tr>
+<tr>
+<td><code>/snipe</code></td>
+<td>Последнее удалённое сообщение в канале (Embed — нужен авто-unfurl)</td>
+</tr>
+<tr>
+<td><code>/penis [user]</code></td>
+<td>Измерение "пениса" (CV2-карточка, акцент по длине)</td>
+</tr>
+<tr>
+<td><code>/avatar [user]</code></td>
+<td>Аватар пользователя (Embed — нужна встроенная картинка)</td>
+</tr>
+<tr>
+<td><code>/quote [user]</code></td>
+<td>Случайная цитата пользователя (отправка картинкой-файлом)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="quote">Команда Quote<a class="headerlink" href="#quote" title="Permanent link">&para;</a></h3>
+<p>Цитаты хранятся как изображения в <code>assets/quotes/&lt;username&gt;/</code>. Добавление:</p>
+<ol>
+<li>Создайте папку в <code>assets/quotes/</code> с именем пользователя</li>
+<li>Добавьте изображения (<code>.jpg</code>, <code>.jpeg</code>, <code>.png</code>, <code>.gif</code>, <code>.webp</code>)</li>
+<li>Пользователь автоматически появится в автокомплите</li>
+</ol>
+<p>Контекст-меню «В цитаты» (ПКМ по сообщению → сохранить картинку-вложение в
+цитаты автора) пока <strong>заморожено</strong>: текущая версия умеет только копировать
+прикреплённый файл, а в планах — полноценная «скриншот-цитата» (рендер текста
+сообщения в карточку). Колбэк и хелпер сохранены в коде, но в дерево команд не
+регистрируются.</p>
+<h2 id="dota-2-cogslastmatchpy">Dota 2 (<code>cogs/lastmatch.py</code>)<a class="headerlink" href="#dota-2-cogslastmatchpy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/lastmatch [member]</code></td>
+<td>Информация о последнем матче (PNG-карточка)</td>
+</tr>
+</tbody>
+</table>
+<p>Карточка матча рисуется как <strong>PNG-изображение</strong> (<code>utils/match_card/</code>, Pillow): квадрат
+1080×1080, фон — затемнённый рендер героя со Stratz cdn, «результат во главе»
+(ПОБЕДА/ПОРАЖЕНИЕ цветом + вердикт), число-якорь KDA, сетка статов и ряд иконок
+предметов. Картинка отдаётся внутри Components V2 (<code>MediaGallery</code> через
+<code>attachment://</code>) вместе с accent-полосой и кнопками Dotabuff/OpenDota/Stratz.</p>
+<h2 id="cs2-faceit-cogscs_lastmatchpy">CS2 / FACEIT (<code>cogs/cs_lastmatch.py</code>)<a class="headerlink" href="#cs2-faceit-cogscs_lastmatchpy" title="Permanent link">&para;</a></h2>
+<p>Данные берутся из <a href="https://developers.faceit.com">FACEIT Data API</a> — нужен <code>FACEIT_API_KEY</code> в <code>.env</code>. Покрываются матчи FACEIT (официальный матчмейкинг Valve публичного API не имеет).</p>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/cslastmatch [member]</code></td>
+<td>Информация о последнем матче CS2 (PNG-карточка: Rating, K/D/A, K/D, ADR, HS, MVP, K/R, Entry, Clutch, Utility, счёт, recent-форма)</td>
+</tr>
+</tbody>
+</table>
+<p>Карточка CS2 рисуется тем же модулем <code>utils/match_card/</code> (квадрат 1080×1080): фон — сплеш
+карты из <code>utils/match_card/assets/maps/&lt;карта&gt;.jpg</code> (если файла нет — procedural-фон),
+круглый аватар FACEIT (или буква-заглушка), число-якорь Rating, плитки W/L по последним
+матчам и сетка статов 3×3. Лейблы английские, вердикт-комментарий — русский.
+Advanced-статы (Entry/Clutch/Utility) показывают <code>—</code>, если FACEIT их не отдаёт.
+Кнопки — FACEIT-матч и Профиль.</p>
+<h2 id="cogsmusicpy">Музыка (<code>cogs/music.py</code>)<a class="headerlink" href="#cogsmusicpy" title="Permanent link">&para;</a></h2>
+<p>Базируется на <strong>Lavalink v4</strong> (отдельный JVM-контейнер) и Python-клиенте <strong>wavelink 3.x</strong>. Подробности развёртывания см. в <a href="../deployment/">Деплое</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/play &lt;query&gt;</code></td>
+<td>URL (YouTube/Spotify/Apple Music/SoundCloud/Bandcamp/Twitch/Vimeo) или текстовый поиск (по умолчанию через YouTube)</td>
+</tr>
+<tr>
+<td><code>/skip</code></td>
+<td>Пропустить текущий трек (заказчик трека или админ)</td>
+</tr>
+<tr>
+<td><code>/stop</code></td>
+<td>Остановить и покинуть канал (только админ)</td>
+</tr>
+<tr>
+<td><code>/pause</code></td>
+<td>Пауза</td>
+</tr>
+<tr>
+<td><code>/resume</code></td>
+<td>Возобновить</td>
+</tr>
+<tr>
+<td><code>/queue [page]</code> (<code>/q</code>)</td>
+<td>Постраничная очередь с кнопками <code>◀ 🔄 ▶</code></td>
+</tr>
+<tr>
+<td><code>/nowplaying</code> (<code>/np</code>)</td>
+<td>Текущий трек с обложкой и метаданными</td>
+</tr>
+<tr>
+<td><code>/remove &lt;index&gt;</code></td>
+<td>Удалить трек из очереди (заказчик или админ)</td>
+</tr>
+<tr>
+<td><code>/clearqueue</code> (alias <code>cq</code>)</td>
+<td>Очистить очередь (только админ)</td>
+</tr>
+<tr>
+<td><code>/loop &lt;off\|track\|queue&gt;</code></td>
+<td>Режим повтора</td>
+</tr>
+<tr>
+<td><code>/shuffle</code></td>
+<td>Перемешать очередь</td>
+</tr>
+<tr>
+<td><code>/volume &lt;0-200&gt;</code></td>
+<td>Громкость (только админ)</td>
+</tr>
+<tr>
+<td><code>/seek &lt;MM:SS\|HH:MM:SS\|секунды&gt;</code></td>
+<td>Перемотать текущий трек</td>
+</tr>
+</tbody>
+</table>
+<p>Все команды — гибридные: работают и как <code>/slash</code>, и с префиксом <code>!</code>.</p>
+<p>Сообщение "Сейчас играет" содержит кнопки управления (▶/⏸, ⏭, ⏹, 🔁, 🔀, 📜). Бот автоматически покидает канал, если остаётся один или простаивает без музыки (<code>music.voice.inactive_timeout</code> секунд).</p>
+<h4 id="components-v2">Components V2<a class="headerlink" href="#components-v2" title="Permanent link">&para;</a></h4>
+<p>Музыкальные поверхности (now-playing, очередь, меню поиска, подтверждения и
+короткие статусы) рисуются на <strong>Components V2</strong>. Контент и кнопки живут в одном
+<code>LayoutView</code>: now-playing использует <code>NowPlayingView</code> с обложкой
+(<code>Section</code> + <code>Thumbnail</code>), метаданными и двумя рядами кнопок; очередь —
+<code>QueueLayoutView</code> с пагинацией; меню поиска — <code>SearchLayoutView</code> с заголовком
+и Select в одном эфемерном сообщении. Подтверждения и короткие статусы
+отправляются как CV2-карточки.</p>
+<h3 id="_4">Поддерживаемые источники<a class="headerlink" href="#_4" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Источник</th>
+<th>Через</th>
+<th>Заметки</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>YouTube / YouTube Music</td>
+<td><code>youtube-source</code> плагин Lavalink</td>
+<td>OAuth с burner-аккаунтом для обхода bot-detection (см. деплой)</td>
+</tr>
+<tr>
+<td>Spotify</td>
+<td>LavaSrc плагин</td>
+<td>Метаданные через Spotify API → стрим через YouTube. Требует <code>SPOTIFY_CLIENT_ID/SECRET</code></td>
+</tr>
+<tr>
+<td>Apple Music, Deezer, Yandex Music</td>
+<td>LavaSrc плагин</td>
+<td>По умолчанию выключены в <code>lavalink/application.yml</code> — включить при необходимости</td>
+</tr>
+<tr>
+<td>SoundCloud, Bandcamp, Twitch, Vimeo, Nico</td>
+<td>стандартные source-ы Lavalink</td>
+<td>Работают «из коробки»</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_5">Поиск по тексту<a class="headerlink" href="#_5" title="Permanent link">&para;</a></h3>
+<p><code>/play Imagine Dragons Believer</code> → wavelink делает <code>ytsearch:</code> запрос. Бот показывает Select-меню с результатами в пределах <code>music.lavalink.search_limit</code> — выбираете нужный трек, он встаёт в очередь. Поиск YouTube Music доступен явно: его выдача может содержать записи, для которых YouTube не отдаёт аудиопоток с IP сервера.</p>
+<p>Альтернативные префиксы (продвинутое использование, можно передать в <code>/play</code>):</p>
+<ul>
+<li><code>spsearch:queen bohemian</code> — поиск в Spotify</li>
+<li><code>scsearch:queen bohemian</code> — поиск в SoundCloud</li>
+<li><code>ytsearch:queen bohemian</code> — обычный YouTube (используется по умолчанию)</li>
+<li><code>ytmsearch:queen bohemian</code> — YouTube Music</li>
+</ul>
+<p>Явный префикс передаётся в Lavalink без дополнительного <code>ytsearch:</code>. Прямые ссылки также передаются без поискового префикса.</p>
+<h3 id="_6">Права доступа<a class="headerlink" href="#_6" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>Админ сервера</strong>: всё.</li>
+<li><strong>Заказчик текущего трека</strong>: pause/resume/skip/loop/shuffle/seek/remove (только свои треки).</li>
+<li><strong>Прочие в том же VC</strong>: nowplaying, queue.</li>
+<li><strong>Не в VC</strong>: ничего, кроме просмотра nowplaying/queue.</li>
+</ul>
+<h3 id="_7">Настройка<a class="headerlink" href="#_7" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">music</span><span class="p">:</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">lavalink</span><span class="p">:</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">secure</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">              </span><span class="c1"># https/wss для удалённой ноды за TLS-прокси</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">identifier</span><span class="p">:</span><span class="w"> </span><span class="s">"MAIN"</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">search_limit</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">           </span><span class="c1"># сколько результатов в Select-меню</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">default_volume</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">         </span><span class="c1"># стартовая громкость</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">max_volume</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span><span class="w">            </span><span class="c1"># верхняя граница /volume</span>
+<a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">queue_page_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">        </span><span class="c1"># треков на странице /queue</span>
+<a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">  </span><span class="nt">voice</span><span class="p">:</span>
+<a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">connection_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30.0</span>
+<a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="nt">inactive_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span><span class="w">      </span><span class="c1"># сек простоя до автодисконнекта</span>
+</code></pre></div>
+<p>Host/port/password Lavalink-ноды берутся из <code>.env</code>: <code>LAVALINK_HOST</code>, <code>LAVALINK_PORT</code>, <code>LAVALINK_SERVER_PASSWORD</code>.</p>
+<h2 id="twitch-cogstwitchpy">Twitch (<code>cogs/twitch.py</code>)<a class="headerlink" href="#twitch-cogstwitchpy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/twitch_add &lt;username&gt; [channel]</code></td>
+<td>(Админ) Добавить стримера для отслеживания</td>
+</tr>
+<tr>
+<td><code>/twitch_remove &lt;username&gt;</code></td>
+<td>(Админ) Удалить стримера</td>
+</tr>
+<tr>
+<td><code>/twitch_list</code></td>
+<td>Список отслеживаемых стримеров</td>
+</tr>
+</tbody>
+</table>
+<p>Требуется <code>TWITCH_CLIENT_ID</code> и <code>TWITCH_CLIENT_SECRET</code> в <code>.env</code>.</p>
+<h2 id="cogspartypy">Сбор пати (<code>cogs/party.py</code>)<a class="headerlink" href="#cogspartypy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/party [image]</code></td>
+<td>Собрать пати через <strong>одну модалку (Components V2 / Modal v2)</strong>: роль, время, размер состава, комментарий и режим завершения. После сабмита — эфемерное <strong>CV2-превью</strong> с кнопками 📣 «Опубликовать» / ✏️ «Изменить» / 🚫 «Отмена». <code>image</code> — необязательное вложение-картинка. После публикации рассылаются DM всем участникам с выбранной ролью.</td>
+</tr>
+<tr>
+<td><code>/party_cancel</code></td>
+<td>Отменить свой последний активный сбор</td>
+</tr>
+<tr>
+<td><code>/party_block &lt;user&gt; [reason]</code></td>
+<td>(Админ) Запретить пользователю вызывать <code>/party</code></td>
+</tr>
+<tr>
+<td><code>/party_unblock &lt;user&gt;</code></td>
+<td>(Админ) Снять блокировку. Параметр <code>user</code> — с автокомплитом: подсказываются только реально заблокированные (ник + причина)</td>
+</tr>
+<tr>
+<td><code>/party_blocklist</code></td>
+<td>(Админ) Список заблокированных</td>
+</tr>
+</tbody>
+</table>
+<p>Доступны для выбора только роли, выданные через <code>/role_assign</code> (то есть те,
+что висят в канале с роль-реакциями).</p>
+<p>Поток сбора:</p>
+<ol>
+<li><code>/party</code> открывает <strong>модалку (Modal v2)</strong> — одно окно со всеми полями:</li>
+<li><strong>Роль</strong> — <code>Select</code> со списком разрешённых ролей.</li>
+<li><strong>Время</strong> — <code>TextInput</code> (минуты, ручной ввод; валидируется по лимитам).</li>
+<li><strong>Размер состава</strong> — <code>TextInput</code> (ручной ввод числа; валидируется по
+     лимитам <code>min_count..max_count</code>, как и время).</li>
+<li><strong>Комментарий</strong> — <code>TextInput</code> (необязательный).</li>
+<li><strong>Досрочное завершение</strong> — <code>Select</code>: по умолчанию сбор ждёт дедлайна;
+     отдельно можно включить завершение после набора и подтверждения состава.
+   После сабмита показывается <strong>эфемерное CV2-превью</strong> с кнопками 📣 <strong>Опубликовать</strong>,
+   ✏️ <strong>Изменить</strong> (переоткрыть модалку с заполненными значениями) и 🚫 <strong>Отмена</strong>.
+   Пока не нажата «Опубликовать», рассылки нет, и кулдаун не тратится.
+   Между публикациями действует кулдаун <code>party.command_cooldown_seconds</code> на
+   одного юзера (тратится только при успешной публикации). Забаненные через
+   <code>/party_block</code> модалку не откроют.</li>
+<li>После публикации бот вешает <strong>CV2-карточку</strong> в текущий канал и параллельно шлёт
+   <strong>DM</strong> каждому, у кого есть указанная роль (кроме инициатора и заблокированных).
+   В DM — та же карточка, что висит в канале, плюс две кнопки в одном <code>LayoutView</code>:
+   ✅ <strong>Готов</strong> и ❌ <strong>Не готов</strong>. Если передана картинка — она показывается в карточке.</li>
+<li>Любое нажатие кнопки обновляет карточку синхронно во всех местах: и в канале,
+   и во всех личках. Между нажатиями действует кулдаун
+   <code>party.button_cooldown_seconds</code> секунд на одного юзера (по умолчанию 60),
+   чтобы нельзя было спамить туда-сюда.</li>
+<li><strong>Готов</strong> добавляет юзера в список готовых: первые <code>count</code> человек
+   (инициатор + ещё <code>count - 1</code> записавшихся) — в <strong>«Готовы»</strong>, остальные — в
+   <strong>«Начинку»</strong>. <strong>Не готов</strong> переносит в отдельный список <strong>«Не пойдут»</strong>.
+   Перенажатия двигают юзера между списками; если готовый передумал — первый
+   из начинки занимает освободившееся место.</li>
+<li><strong>Опциональный чек готовности</strong>. Он запускается только когда создатель выбрал
+   в форме <strong>«Завершить после набора»</strong> и <code>party.enable_ready_check: true</code>.
+   После заполнения основы сбор переходит в фазу чека: у каждого из основы кнопка меняется на
+   🟢 <strong>Подтверждаю</strong> и открывается личное окно <code>party.confirm_window_seconds</code>
+   секунд (по умолчанию 120). Инициатор подтверждён автоматически. Каждому из
+   основы (кроме инициатора) в DM сразу прилетает <strong>отдельное сообщение-пинг</strong>
+   <code>party.confirm_request_message</code> — потому что молчаливое обновление карточки легко
+   пропустить. Кто не успел подтвердить — выбывает в <strong>«Не подтвердили»</strong>, его
+   слот занимает первый из начинки (резерва), которому в DM прилетает нудж
+   <code>party.confirm_nudge_message</code>. Начинка во время чека продолжает набираться.
+   Как только весь состав подтверждён — сбор закрывается досрочно.</li>
+<li>Если досрочное завершение выключено, заполнение основы ничего не закрывает:
+   сбор продолжает принимать готовых и резерв до указанного дедлайна. По дедлайну
+   бот берёт первые <code>count</code> готовых. Если досрочное завершение включено, сбор
+   может закрыться сразу после полного подтверждения. Бот пишет в исходный канал
+   отдельное сообщение с пингами состава (шаблон <code>party.finished_message_template</code>),
+   заменяет DM на серую карточку-финал без кнопок и помечает сбор закрытым.
+   Если после чека состав собрался лишь частично — используется
+   <code>party.partial_finished_message</code> (пинг только подтвердивших). Если состав не
+   набран — <code>empty_finished_message</code>, который теперь тоже пингует тех, кто всё же
+   был готов (<code>{ready_pings}</code>).</li>
+</ol>
+<p>Инициатор автоматически в списке готовых/подтвердивших (с эмодзи
+<code>party.initiator_emoji</code>, по умолчанию <code>👑</code>) и DM ему не отправляется. Несколько
+активных пати на сервере — разрешены, у каждого своя CV2-карточка и свой набор
+DM-сообщений.</p>
+<p>Кулдаун команды — <code>party.command_cooldown_seconds</code> секунд на одного
+пользователя (по умолчанию 1 час).</p>
+<h3 id="_8">Настройка<a class="headerlink" href="#_8" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">party</span><span class="p">:</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">initiator_emoji</span><span class="p">:</span><span class="w"> </span><span class="s">"👑"</span><span class="w">           </span><span class="c1"># Эмодзи рядом с инициатором</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">min_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">max_duration_minutes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">240</span><span class="w">       </span><span class="c1"># 4 часа</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">  </span><span class="nt">min_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">  </span><span class="nt">max_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">25</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="nt">command_cooldown_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span><span class="w">  </span><span class="c1"># 1 час между вызовами /party на одного юзера</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">  </span><span class="nt">button_cooldown_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">     </span><span class="c1"># Кулдаун между нажатиями кнопок «Готов» / «Не готов»</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">  </span><span class="nt">dm_send_delay</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span><span class="w">              </span><span class="c1"># Между отправкой DM, чтобы не упереться в rate-limit</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">  </span><span class="nt">finished_message_template</span><span class="p">:</span><span class="w"> </span><span class="s">"Пати</span><span class="nv"> </span><span class="s">собрано!</span><span class="nv"> </span><span class="s">{ready_pings}</span><span class="nv"> </span><span class="s">—</span><span class="nv"> </span><span class="s">кто</span><span class="nv"> </span><span class="s">не</span><span class="nv"> </span><span class="s">пришёл,</span><span class="nv"> </span><span class="s">тот</span><span class="nv"> </span><span class="s">пидарас.</span><span class="nv"> </span><span class="s">({role}:</span><span class="nv"> </span><span class="s">{comment})"</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">  </span><span class="nt">empty_finished_message</span><span class="p">:</span><span class="w"> </span><span class="s">"Не</span><span class="nv"> </span><span class="s">набрали</span><span class="nv"> </span><span class="s">состав</span><span class="nv"> </span><span class="s">на</span><span class="nv"> </span><span class="s">{role}</span><span class="nv"> </span><span class="s">({comment}).</span><span class="nv"> </span><span class="s">Были</span><span class="nv"> </span><span class="s">готовы:</span><span class="nv"> </span><span class="s">{ready_pings}"</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">  </span><span class="nt">enable_ready_check</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">           </span><span class="c1"># Чек готовности после заполнения основы</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="w">  </span><span class="nt">confirm_window_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span><span class="w">        </span><span class="c1"># Окно на «Подтверждаю» для каждого участника</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a><span class="w">  </span><span class="nt">ready_check_poll_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1.0</span><span class="w">      </span><span class="c1"># Период опроса дедлайнов подтверждения</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a><span class="w">  </span><span class="nt">confirm_request_message</span><span class="p">:</span><span class="w"> </span><span class="s">"🔔</span><span class="nv"> </span><span class="s">Состав</span><span class="nv"> </span><span class="s">собрался!</span><span class="nv"> </span><span class="s">Жми</span><span class="nv"> </span><span class="s">«Подтверждаю»,</span><span class="nv"> </span><span class="s">что</span><span class="nv"> </span><span class="s">реди</span><span class="nv"> </span><span class="s">—</span><span class="nv"> </span><span class="s">иначе</span><span class="nv"> </span><span class="s">слот</span><span class="nv"> </span><span class="s">уйдёт</span><span class="nv"> </span><span class="s">запасному."</span>
+<a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a><span class="w">  </span><span class="nt">confirm_nudge_message</span><span class="p">:</span><span class="w"> </span><span class="s">"🔔</span><span class="nv"> </span><span class="s">Освободилось</span><span class="nv"> </span><span class="s">место</span><span class="nv"> </span><span class="s">в</span><span class="nv"> </span><span class="s">основе</span><span class="nv"> </span><span class="s">—</span><span class="nv"> </span><span class="s">жми</span><span class="nv"> </span><span class="s">«Подтверждаю»,</span><span class="nv"> </span><span class="s">пока</span><span class="nv"> </span><span class="s">не</span><span class="nv"> </span><span class="s">уплыло!"</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a><span class="w">  </span><span class="nt">partial_finished_message</span><span class="p">:</span><span class="w"> </span><span class="s">"Пати</span><span class="nv"> </span><span class="s">собрано</span><span class="nv"> </span><span class="s">частично:</span><span class="nv"> </span><span class="s">{ready_pings}</span><span class="nv"> </span><span class="s">({role}:</span><span class="nv"> </span><span class="s">{comment})."</span>
+</code></pre></div>
+<p>Blacklist хранится в таблице <code>party_blocks</code> (Tortoise ORM), управляется
+исключительно через слэш-команды. Активные пати живут в памяти и не
+переживают перезапуск бота — после рестарта кнопки в DM перестанут работать
+(юзер увидит ephemeral «сбор уже закрыт»).</p>
+<h2 id="cogsrole_reactionpy">Роли по кнопкам (<code>cogs/role_reaction.py</code>)<a class="headerlink" href="#cogsrole_reactionpy" title="Permanent link">&para;</a></h2>
+<p>Выдача ролей через <strong>persistent-кнопки</strong> под ролевым сообщением (раньше было на
+эмодзи-реакциях). Нажатие кнопки переключает роль: есть — снимаем, нет — выдаём.
+Кнопки реализованы через <code>discord.ui.DynamicItem</code> (<code>role_id</code> зашит в <code>custom_id</code>),
+поэтому переживают рестарт бота. Параметр <code>emoji</code> теперь задаёт значок на кнопке.</p>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/setup_role_message</code></td>
+<td>(Админ) Создать ролевое сообщение</td>
+</tr>
+<tr>
+<td><code>/role_assign &lt;role&gt; &lt;emoji&gt; &lt;description&gt;</code></td>
+<td>(Админ) Добавить роль-кнопку</td>
+</tr>
+<tr>
+<td><code>/role_remove &lt;emoji&gt;</code></td>
+<td>(Админ) Удалить роль-кнопку</td>
+</tr>
+</tbody>
+</table>
+<h2 id="cogstop_reactionspy">Топ реакций (<code>cogs/top_reactions.py</code>)<a class="headerlink" href="#cogstop_reactionspy" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Команда</th>
+<th>Описание</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/topreactions [month] [year] [all_time]</code></td>
+<td>(Админ, тест-режим) Топ сообщений по уникальным реакторам</td>
+</tr>
+<tr>
+<td><code>/topauthors [month] [year] [all_time]</code></td>
+<td>(Админ, тест-режим) Топ авторов по сумме реакций на их сообщения</td>
+</tr>
+</tbody>
+</table>
+<p>Команды сейчас в тест-режиме и доступны только администраторам сервера — пока
+обкатываем live-трекинг и обработку исторических данных. После стабилизации
+ограничение будет снято.</p>
+<h3 id="_9">Общие параметры периода<a class="headerlink" href="#_9" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong><code>month</code></strong> (1–12) и <strong><code>year</code></strong> — задают конкретный диапазон:<ul>
+<li>оба не указаны → текущий месяц;</li>
+<li>только <code>month</code> → этот месяц текущего года;</li>
+<li>только <code>year</code> → весь указанный год;</li>
+<li>оба указаны → конкретный месяц и год (можно смотреть прошлые периоды).</li>
+</ul>
+</li>
+<li><strong><code>all_time</code></strong> — <code>True</code> показывает топ за всё время и игнорирует <code>month</code> / <code>year</code>.</li>
+</ul>
+<p>Примеры:</p>
+<ul>
+<li><code>/topreactions</code> — топ сообщений за текущий месяц;</li>
+<li><code>/topreactions month:11 year:2025</code> — топ сообщений за ноябрь 2025;</li>
+<li><code>/topreactions year:2025</code> — топ сообщений за весь 2025-й;</li>
+<li><code>/topauthors all_time:True</code> — топ авторов за всё время.</li>
+</ul>
+<p><code>/topauthors</code> агрегирует уникальных реакторов по всем сообщениям автора и
+показывает их сумму плюс количество сообщений, попавших в эту сумму. То есть
+автор с тремя сообщениями на 3 / 4 / 5 уникальных реакторов получит
+<code>12 реакций за 3 сообщ.</code>.</p>
+<h3 id="_10">Автоматический ежемесячный отчёт<a class="headerlink" href="#_10" title="Permanent link">&para;</a></h3>
+<p>1-го числа каждого месяца в <strong>12:00 МСК</strong> (то же время, что и ежемесячный отчёт
+ActivityTracker) бот публикует в канал <code>channels.activity_reports</code> топ сообщений
+за прошедший месяц. Если за месяц не было сообщений с реакциями — отчёт не
+отправляется. Размер топа управляется тем же <code>top_reactions.live_top</code>.</p>
+<p>Текст сообщений в <code>/topreactions</code> и ежемесячном отчёте берётся только из
+общедоступных каналов и известных публичных веток — по тем же правилам, что
+«Моменты» в профиле. Фильтр применяется до выбора первых позиций топа.</p>
+<p>Бот слушает события <code>on_raw_reaction_*</code> и поддерживает в БД таблицы:</p>
+<ul>
+<li><code>reacted_messages</code> — метаданные сообщений с реакциями</li>
+<li><code>message_reactors</code> — записи <code>(message_id, user_id, emoji)</code> для подсчёта уникальных реакторов</li>
+</ul>
+<p>При первой реакции на ранее неизвестное боту сообщение выполняется ленивая
+подгрузка: бот фетчит сообщение и все его реакции, чтобы счётчик отражал
+реальное состояние. Это позволяет корректно работать со старыми сообщениями,
+на которые ставят реакции через лидерборд.</p>
+<h3 id="_11">Настройка<a class="headerlink" href="#_11" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">top_reactions</span><span class="p">:</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">live_top</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">               </span><span class="c1"># Сколько позиций в обычной выдаче и автоотчёте</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span><span class="nt">all_time_top</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">           </span><span class="c1"># Сколько позиций в режиме all_time</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">per_page</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10</span><span class="w">               </span><span class="c1"># Позиций на одной странице (пагинация кнопками)</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">content_preview_length</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span><span class="nt">preview_inline_length</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">80</span><span class="w">  </span><span class="c1"># Лимит превью текста в одной строке embed</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">  </span><span class="nt">view_timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">  </span><span class="nt">ignored_message_ids</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">    </span><span class="c1"># Ручной чёрный список сообщений</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="w">  </span><span class="nt">ignore_role_reaction_message</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># Игнорировать сообщение role-реакций</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10" href="#__codelineno-4-10"></a><span class="w">  </span><span class="nt">ignore_self_reactions</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">  </span><span class="c1"># Не считать реакции автора на своё сообщение</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11" href="#__codelineno-4-11"></a><span class="w">  </span><span class="nt">ignore_bots</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">            </span><span class="c1"># Не учитывать ботов (авторов и реакторов)</span>
+</code></pre></div>
+<p>Боты (по <code>ignore_bots</code>) не попадают ни в <code>/topreactions</code>, ни в <code>/topauthors</code>:
+их сообщения не показываются, а их реакции не идут в счётчик. Список ботов
+берётся из участников гилда на момент выдачи.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  К началу
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.sections", "navigation.expand", "navigation.top", "search.highlight", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e \u0432 \u0431\u0443\u0444\u0435\u0440", "clipboard.copy": "\u041a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0432 \u0431\u0443\u0444\u0435\u0440", "search.result.more.one": "\u0415\u0449\u0451 1 \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.more.other": "\u0415\u0449\u0451 # \u043d\u0430 \u044d\u0442\u043e\u0439 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435", "search.result.none": "\u0421\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e", "search.result.one": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e 1 \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0435", "search.result.other": "\u041d\u0430\u0439\u0434\u0435\u043d\u043e \u0441\u043e\u0432\u043f\u0430\u0434\u0435\u043d\u0438\u0439: #", "search.result.placeholder": "\u041d\u0430\u0447\u043d\u0438\u0442\u0435 \u043f\u0435\u0447\u0430\u0442\u0430\u0442\u044c \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430", "search.result.term.missing": "\u041e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442", "select.version": "\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0432\u0435\u0440\u0441\u0438\u044e"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
