@@ -413,3 +413,36 @@
   text: скандальная
   tone: negative
   family: behavior
+
+- id: adj_based
+  text: забазованная
+  tone: positive
+- id: adj_scammed
+  text: заскамленная
+  tone: negative
+- id: adj_bullied
+  text: забулленная
+  tone: negative
+- id: adj_mogged
+  text: замоганная
+  tone: negative
+  family: looksmax
+- id: adj_blackpilled
+  text: заблэкпилленная
+  tone: neutral
+  family: incel
+- id: adj_unbothered
+  text: непробиваемая
+  tone: positive
+- id: adj_ego
+  text: чсвшная
+  tone: negative
+- id: adj_shameful
+  text: позорная
+  tone: negative
+- id: adj_factory
+  text: заводская
+  tone: neutral
+- id: adj_cooked
+  text: прожаренная
+  tone: negative

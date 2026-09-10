@@ -157,7 +157,9 @@ class FunCog(commands.Cog):
             user_id=ctx.author.id,
             member_ids=[member.id for member in ctx.guild.members if not member.bot],
         )
-        await safe_send(ctx, embed=build_tyan_card(roll, display_name=ctx.author.display_name))
+        await safe_send(
+            ctx, view=build_tyan_card(roll), allowed_mentions=discord.AllowedMentions.none()
+        )
 
     @commands.hybrid_command(description="Показывает аватар пользователя")
     @discord.app_commands.describe(mentioned_user="Чей аватар показать (по умолчанию — твой)")

@@ -185,6 +185,8 @@ async def safe_send(
     embed: discord.Embed | None = None,
     ephemeral: bool = False,
     delete_after: float | None = None,
+    view: discord.ui.View | discord.ui.LayoutView | None = None,
+    allowed_mentions: discord.AllowedMentions | None = None,
 ) -> discord.Message | None:
     """
     Безопасно отправляет сообщение, учитывая тип контекста (Context или Interaction).
@@ -199,25 +201,32 @@ async def safe_send(
         Отправленное сообщение или None в случае ошибки.
     """
     try:
+        payload: dict[str, Any] = {"content": content, "embed": embed}
+        if isinstance(view, discord.ui.LayoutView) and view.has_components_v2():
+            if content is not None or embed is not None:
+                raise ValueError("CV2-карточка не допускает content или embed")
+            payload = {}
+        if view is not None:
+            payload["view"] = view
+        if allowed_mentions is not None:
+            payload["allowed_mentions"] = allowed_mentions
         if isinstance(ctx, discord.Interaction):
             if ctx.response.is_done():
                 # Используем cast для явного приведения типа
                 followup_msg = cast(
                     discord.Message,
-                    await ctx.followup.send(content=content, embed=embed, ephemeral=ephemeral),
+                    await ctx.followup.send(**payload, ephemeral=ephemeral),
                 )
                 return followup_msg
             else:
-                await ctx.response.send_message(content=content, embed=embed, ephemeral=ephemeral)
+                await ctx.response.send_message(**payload, ephemeral=ephemeral)
                 # Используем cast для явного приведения типа
                 response_msg = cast(discord.Message, await ctx.original_response())
                 return response_msg
         else:
             # ``ephemeral`` для prefix-команд discord.py молча игнорирует, а для
             # hybrid-слэша делает ответ эфемерным — поэтому пробрасываем всегда.
-            return await ctx.send(
-                content=content, embed=embed, delete_after=delete_after, ephemeral=ephemeral
-            )
+            return await ctx.send(**payload, delete_after=delete_after, ephemeral=ephemeral)
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
         return None

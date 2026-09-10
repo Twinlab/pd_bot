@@ -9,7 +9,6 @@ import pytest
 from utils.tyan.catalog import Catalog, Word, load_catalog
 from utils.tyan.config import TyanConfig
 from utils.tyan.generator import generate_roll
-from utils.tyan.presentation import build_tyan_card
 from utils.tyan.types import Roll
 
 NOW = datetime(2026, 9, 10, 20, 59, tzinfo=UTC)
@@ -51,48 +50,16 @@ def test_naive_time_is_rejected():
         generate(now=NOW.replace(tzinfo=None))
 
 
-@pytest.mark.parametrize("field,min_value,max_value", [
-    ("age", 18, 80), ("height", 140, 200), ("weight", 30, 120),
-])
-def test_numbers_reach_both_extremes_independently(field, min_value, max_value):
-    rows = [generate(rng=random.Random(seed)) for seed in range(1000)]
-    values = {getattr(row, field) for row in rows}
-    assert min(values) == min_value
-    assert max(values) == max_value
-
-
-def test_implausible_measurements_are_not_corrected():
-    config = TyanConfig(age_min=66, age_max=66, height_min=190, height_max=190,
-                        weight_min=34, weight_max=34, mother_chance=0, none_chance=0)
-    row = generate(config)
-    assert (row.age, row.height, row.weight) == (66, 190, 34)
-    assert "66-летняя 190/34" in row.text
-
-
 @pytest.mark.parametrize("weights,expected", [
     ((1, 0, 0), 1), ((0, 1, 0), 2), ((0, 0, 1), 3),
 ])
 def test_one_to_three_text_elements(weights, expected):
-    cfg = TyanConfig(part_weights=weights, positive_chance=0, mother_chance=0, none_chance=0)
+    cfg = TyanConfig(part_weights=weights, mother_chance=0, none_chance=0)
     for seed in range(20):
         row = generate(cfg, rng=random.Random(seed))
         assert sum(value is not None for value in (
             row.adjective_id, row.archetype_id, row.trait_id
         )) == expected
-
-
-def test_positive_roll_has_only_positive_modifiers_and_no_negative_archetype():
-    words = catalog()
-    lookup = {word.id: word for pool in (
-        words.adjectives, words.archetypes, words.traits
-    ) for word in pool}
-    cfg = TyanConfig(positive_chance=1, mother_chance=0, none_chance=0)
-    for seed in range(100):
-        row = generate(cfg, rng=random.Random(seed))
-        assert lookup[row.adjective_id].tone == "positive"
-        if row.trait_id is not None:
-            assert lookup[row.trait_id].tone == "positive"
-        assert lookup[row.archetype_id].tone != "negative"
 
 
 def test_type_is_not_repeated_in_fifteen_daily_results():
@@ -103,7 +70,7 @@ def test_type_is_not_repeated_in_fifteen_daily_results():
 
 
 def test_personal_type_cooldown_is_applied():
-    cfg = TyanConfig(positive_chance=0, mother_chance=0, none_chance=0)
+    cfg = TyanConfig(mother_chance=0, none_chance=0)
     history = []
     for day in range(60):
         history.append(generate(cfg, now=NOW + timedelta(days=day), history=history))
@@ -113,8 +80,7 @@ def test_personal_type_cooldown_is_applied():
 def test_adjective_archetype_pair_is_not_repeated_across_users():
     words = catalog()
     words = replace(words, archetypes=(words.archetypes[0],))
-    cfg = TyanConfig(part_weights=(0, 0, 1), positive_chance=0,
-                     mother_chance=0, none_chance=0)
+    cfg = TyanConfig(part_weights=(0, 0, 1), mother_chance=0, none_chance=0)
     first = generate_roll(words, cfg, user_id=1, now=NOW, history=[], rng=random.Random(1))
     second = generate_roll(words, cfg, user_id=2, now=NOW + timedelta(days=1),
                            history=[first], rng=random.Random(1))
@@ -124,7 +90,7 @@ def test_adjective_archetype_pair_is_not_repeated_across_users():
 
 def test_small_exhausted_catalog_still_returns_a_result():
     words = catalog(size=1)
-    cfg = TyanConfig(positive_chance=1, mother_chance=0, none_chance=0)
+    cfg = TyanConfig(mother_chance=0, none_chance=0)
     first = generate_roll(words, cfg, user_id=1, now=NOW, history=[])
     second = generate_roll(words, cfg, user_id=2, now=NOW, history=[first])
     assert second.kind == "normal"
@@ -188,14 +154,6 @@ def test_catalog_rejects_mentions_and_malformed_text(text):
         Word(id="test_id", text=text, tone="neutral")
 
 
-def test_card_displays_saved_result_and_daily_reset():
-    row = generate()
-    card = build_tyan_card(row, display_name="Игрок").to_dict()
-    assert card["description"] == row.text
-    assert card["author"]["name"] == "Тянка на сегодня · Игрок"
-    assert card["footer"]["text"] == "Следующая выдача — в 00:00 МСК"
-
-
 def test_catalog_rejects_empty_and_duplicate_pools(tmp_path):
     for name in ("adjectives", "archetypes", "traits"):
         (tmp_path / f"{name}.yaml").write_text("[]", encoding="utf-8")
@@ -231,17 +189,6 @@ def test_recent_negative_family_penalizes_positive_variant():
     ) == fresh
 
 
-def test_positive_fallback_never_uses_negative_alternatives():
-    words = catalog(size=3)
-    cfg = TyanConfig(positive_chance=1, mother_chance=0, none_chance=0)
-    rows = []
-    for index in range(10):
-        rows.append(generate_roll(words, cfg, user_id=1,
-                    now=NOW + timedelta(days=index), history=rows))
-    assert all(row.adjective_id == "adj_0" and row.trait_id in (None, "trait_0") for row in rows)
-    assert all(row.archetype_id != "type_2" for row in rows)
-
-
 @pytest.mark.parametrize("chance,kind", [(0.00499, "mother"), (0.005, "none"), (0.01, "normal")])
 def test_event_probability_boundaries(chance, kind):
     class FirstRoll(random.Random):
@@ -270,15 +217,6 @@ def test_preview_is_reproducible_and_has_thirty_labeled_examples():
     assert lines[-1] == "30. тянки не досталось. сегодня дрочишь"
 
 
-@pytest.mark.parametrize("weights,has_suffix", [((1, 0, 0), False), ((0, 1, 0), False), ((0, 0, 1), True)])
-def test_positive_roll_keeps_optional_suffix(weights, has_suffix):
-    cfg = TyanConfig(positive_chance=1, mother_chance=0, none_chance=0, part_weights=weights)
-    for seed in range(20):
-        row = generate(cfg, rng=random.Random(seed))
-        assert row.adjective_id is not None
-        assert (row.trait_id is not None) == has_suffix
-
-
 @pytest.mark.parametrize("text,joiner,ending", [
     ("с пирсингом", "space", "type0 с пирсингом"),
     ("рот в говне", "comma", "type0, рот в говне"),
@@ -288,7 +226,7 @@ def test_suffix_punctuation_keeps_one_trait(text, joiner, ending):
     words = replace(catalog(size=1), traits=(Word(
         id="trait_clause", text=text, tone="negative", joiner=joiner,
     ),))
-    cfg = TyanConfig(positive_chance=0, mother_chance=0, none_chance=0,
+    cfg = TyanConfig(mother_chance=0, none_chance=0,
                      part_weights=(0, 0, 1))
     row = generate_roll(words, cfg, user_id=1, now=NOW, history=[], rng=random.Random(1))
     assert row.text.endswith(ending)
@@ -308,8 +246,8 @@ def test_excluded_pair_is_not_restored_when_repeat_history_is_exhausted():
     smart = Word(id="adj_smart", text="умная", tone="positive", avoid_archetypes=("type_0",))
     gentle = Word(id="adj_gentle", text="нежная", tone="positive")
     words = replace(words, adjectives=(smart, gentle))
-    cfg = TyanConfig(positive_chance=1, mother_chance=0, none_chance=0,
-                     part_weights=(0, 1, 0))
+    cfg = TyanConfig(mother_chance=0, none_chance=0,
+                     part_weights=(0, 0, 1))
     history = []
     for day in range(5):
         row = generate_roll(words, cfg, user_id=1, now=NOW + timedelta(days=day),
@@ -322,7 +260,7 @@ def test_word_excluded_for_one_type_remains_available_for_another():
     words = catalog(size=1)
     smart = Word(id="adj_smart", text="умная", tone="positive", avoid_archetypes=("type_vampire",))
     words = replace(words, adjectives=(smart,))
-    row = generate_roll(words, TyanConfig(positive_chance=1, mother_chance=0, none_chance=0),
+    row = generate_roll(words, TyanConfig(mother_chance=0, none_chance=0, part_weights=(0, 0, 1)),
                         user_id=1, now=NOW, history=[])
     assert row.adjective_id == smart.id
     assert "умная type0" in row.text
@@ -336,7 +274,7 @@ def test_archetype_requiring_modifier_is_not_shown_bare(has_alternative):
     if has_alternative:
         types += (Word(id="type_other", text="няшка", tone="positive"),)
     words = replace(words, archetypes=types)
-    row = generate_roll(words, TyanConfig(positive_chance=0, mother_chance=0,
+    row = generate_roll(words, TyanConfig(mother_chance=0,
                         none_chance=0, part_weights=(1, 0, 0)),
                         user_id=1, now=NOW, history=[])
     if has_alternative:
@@ -349,18 +287,45 @@ def test_archetype_requiring_modifier_is_not_shown_bare(has_alternative):
 
 @pytest.mark.parametrize("target,match", [
     ("type_unknown", "Неизвестные типажи"),
-    ("type_0", "Нет положительных прилагательных"),
+    ("type_0", "Нет совместимых прилагательных"),
 ])
-def test_catalog_checks_pair_references_and_positive_coverage(tmp_path, target, match):
+def test_catalog_checks_pair_references_and_compatible_coverage(tmp_path, target, match):
     import yaml
 
     words = catalog(size=3)
     for name in ("adjectives", "archetypes", "traits"):
         entries = [word.model_dump(mode="json") for word in getattr(words, name)]
         if name == "adjectives":
-            entries[0]["avoid_archetypes"] = [target]
+            for entry in entries:
+                entry["avoid_archetypes"] = [target]
         (tmp_path / f"{name}.yaml").write_text(
             yaml.safe_dump(entries, allow_unicode=True), encoding="utf-8"
         )
     with pytest.raises(ValueError, match=match):
         load_catalog(tmp_path)
+
+
+def test_word_tones_do_not_control_combinations():
+    words = catalog(size=3)
+    config = TyanConfig(mother_chance=0, none_chance=0, part_weights=(0, 0, 1))
+    seen = set()
+    for seed in range(2000):
+        row = generate_roll(words, config, user_id=1, now=NOW, history=[],
+                            rng=random.Random(seed))
+        seen.add((row.adjective_id, row.archetype_id, row.trait_id))
+    assert len(seen) == 27
+
+
+def test_changing_only_tone_labels_keeps_seeded_result():
+    words = catalog(size=3)
+    changed = Catalog(**{
+        name: tuple(word.model_copy(update={"tone": "negative"}) for word in getattr(words, name))
+        for name in ("adjectives", "archetypes", "traits")
+    })
+    config = TyanConfig(mother_chance=0, none_chance=0)
+    for seed in range(20):
+        first = generate_roll(words, config, user_id=1, now=NOW, history=[],
+                              rng=random.Random(seed))
+        second = generate_roll(changed, config, user_id=1, now=NOW, history=[],
+                               rng=random.Random(seed))
+        assert first == second

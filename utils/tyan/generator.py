@@ -73,6 +73,24 @@ def _choose(
     return rng.choices(candidates, weights=weights, k=1)[0]
 
 
+def _pick_number(
+    ranges: Sequence[tuple[int, int]],
+    weights: Sequence[float],
+    rng: random.Random,
+) -> int:
+    available = [
+        (bounds, weight)
+        for bounds, weight in zip(ranges, weights, strict=True)
+        if bounds[0] <= bounds[1] and weight > 0
+    ]
+    bounds = rng.choices(
+        [bounds for bounds, _ in available],
+        weights=[weight for _, weight in available],
+        k=1,
+    )[0]
+    return rng.randint(*bounds)
+
+
 def generate_roll(
     catalog: Catalog,
     config: TyanConfig,
@@ -134,17 +152,10 @@ def generate_roll(
                 kind="none",
                 text="тянки не досталось. сегодня дрочишь",
             )
-    positive = rng.random() < config.positive_chance
     parts = rng.choices((1, 2, 3), weights=config.part_weights, k=1)[0]
     adjective_on = parts == 3 or (parts == 2 and rng.random() < 0.5)
     trait_on = parts == 3 or (parts == 2 and not adjective_on)
-    if positive:
-        # Положительный образ не требует обязательного третьего хвоста.
-        adjective_on = True
-        trait_on = parts == 3
-    archetypes = tuple(
-        word for word in catalog.archetypes if not positive or word.tone != "negative"
-    )
+    archetypes = catalog.archetypes
     if not adjective_on and not trait_on:
         standalone = tuple(word for word in archetypes if word.standalone)
         if standalone:
@@ -167,7 +178,7 @@ def generate_roll(
     trait = None
     if adjective_on:
         adjective = _choose(
-            tuple(word for word in catalog.adjectives if not positive or word.tone == "positive"),
+            catalog.adjectives,
             "adjective_id",
             family_pool=catalog.adjectives,
             user_id=user_id,
@@ -180,7 +191,7 @@ def generate_roll(
         )
     if trait_on:
         trait = _choose(
-            tuple(word for word in catalog.traits if not positive or word.tone == "positive"),
+            catalog.traits,
             "trait_id",
             family_pool=catalog.traits,
             user_id=user_id,
@@ -191,9 +202,9 @@ def generate_roll(
             archetype_id=archetype.id,
             rng=rng,
         )
-    age = rng.randint(config.age_min, config.age_max)
+    age = _pick_number(config.age_ranges, config.age_weights, rng)
     height = rng.randint(config.height_min, config.height_max)
-    weight = rng.randint(config.weight_min, config.weight_max)
+    weight = _pick_number(config.weight_ranges(height), config.weight_weights, rng)
     words = [f"{age}-летняя", f"{height}/{weight}"]
     if adjective:
         words.append(adjective.text)

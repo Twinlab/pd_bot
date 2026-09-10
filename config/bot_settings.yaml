@@ -131,7 +131,8 @@ fun:
     height_max: 200
     weight_min: 30
     weight_max: 120
-    positive_chance: 0.20
+    age_weights: [0.85, 0.10, 0.05]
+    weight_weights: [0.60, 0.30, 0.10]
     part_weights: [0.20, 0.50, 0.30]
     # Общий перерыв после любого микроивента; повтор команды не бросает шанс снова.
     mother_chance: 0.005

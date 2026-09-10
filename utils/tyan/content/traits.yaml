@@ -459,3 +459,52 @@
   tone: negative
   family: smoking
   weight: 1.0
+
+- id: trait_no_chin
+  text: без подбородка
+  tone: negative
+  family: looksmax
+- id: trait_beer_belly
+  text: с пивным пузом
+  tone: negative
+  family: skuf
+- id: trait_gigachad_jaw
+  text: с челюстью гигачада
+  tone: neutral
+  family: looksmax
+- id: trait_mewing
+  text: практикует мьюинг
+  tone: neutral
+  family: looksmax
+  joiner: comma
+- id: trait_mogs_everyone
+  text: могает весь сервер
+  tone: positive
+  family: looksmax
+  joiner: comma
+- id: trait_pivo_tanki
+  text: любит пиво и танки
+  tone: neutral
+  family: skuf
+  joiner: comma
+- id: trait_personal_army
+  text: со своей армией симпов
+  tone: neutral
+- id: trait_anon_mother
+  text: мать анонимуса
+  tone: neutral
+  family: imageboard
+- id: trait_social_skills
+  text: без социальных навыков
+  tone: negative
+- id: trait_hates_normies
+  text: презирает нормисов
+  tone: negative
+  joiner: comma
+- id: trait_grass
+  text: не трогала траву
+  tone: neutral
+  joiner: comma
+- id: trait_clown_award
+  text: с премией Дарвина
+  tone: negative

@@ -66,11 +66,13 @@ async def test_command_sends_saved_card_and_defers_slash(tyan_cog, mock_context,
         await tyan_cog.tyan.callback(tyan_cog, mock_context)
     calls = mock_context.send.await_args_list
     assert len(calls) == 2
-    first = calls[0].kwargs["embed"]
-    second = calls[1].kwargs["embed"]
-    assert first.to_dict() == second.to_dict()
-    assert mock_context.author.display_name in first.author.name
-    assert "00:00 МСК" in first.footer.text
+    first = calls[0].kwargs["view"]
+    second = calls[1].kwargs["view"]
+    assert first.to_components() == second.to_components()
+    components = first.to_components()[0]["components"]
+    assert f"<@{mock_context.author.id}>" in components[0]["content"]
+    assert "00:00 МСК" in components[-1]["content"]
+    assert calls[0].kwargs["allowed_mentions"].to_dict() == {"parse": []}
     assert calls[0].kwargs["ephemeral"] is False
     assert await TyanRoll.all().count() == 1
     if not slash:
@@ -83,10 +85,10 @@ async def test_mother_targets_human_other_than_author(tyan_cog, mock_context):
     row = await TyanRoll.get(discord_user_id=mock_context.author.id)
     assert row.kind == "mother"
     assert row.target_user_id == 2
-    assert mock_context.send.await_args.kwargs["embed"].description == (
+    assert mock_context.send.await_args.kwargs["view"].to_components()[0]["components"][1]["content"] == (
         "тебе досталась мать <@2>"
     )
-    assert mock_context.send.await_args.kwargs["content"] is None
+    assert "content" not in mock_context.send.await_args.kwargs
 
 
 async def test_solo_user_with_bots_gets_normal_roll(tyan_cog, mock_context):
@@ -99,10 +101,10 @@ async def test_solo_user_with_bots_gets_normal_roll(tyan_cog, mock_context):
 async def test_failed_discord_send_keeps_roll_for_retry(tyan_cog, mock_context):
     mock_context.send.side_effect = RuntimeError("Discord unavailable")
     await tyan_cog.tyan.callback(tyan_cog, mock_context)
-    first = mock_context.send.await_args.kwargs["embed"]
+    first = mock_context.send.await_args.kwargs["view"]
     mock_context.send.side_effect = None
     await tyan_cog.tyan.callback(tyan_cog, mock_context)
-    assert mock_context.send.await_args.kwargs["embed"].to_dict() == first.to_dict()
+    assert mock_context.send.await_args.kwargs["view"].to_components() == first.to_components()
     assert await TyanRoll.all().count() == 1
 
 

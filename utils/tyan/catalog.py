@@ -68,13 +68,6 @@ def load_catalog(directory: Path | None = None) -> Catalog:
     ]
     if len(set(all_ids)) != len(all_ids):
         raise ValueError("ID должны быть уникальны между всеми словарями")
-    if not all(
-        any(word.tone == "positive" for word in pool)
-        for pool in (catalog.adjectives, catalog.traits)
-    ):
-        raise ValueError("Для удачной выдачи нужны положительные прилагательные и особенности")
-    if not any(word.tone != "negative" for word in catalog.archetypes):
-        raise ValueError("Для удачной выдачи нужен типаж без отрицательной окраски")
     archetype_ids = {word.id for word in catalog.archetypes}
     for word in (*catalog.adjectives, *catalog.traits):
         unknown = set(word.avoid_archetypes) - archetype_ids
@@ -88,8 +81,4 @@ def load_catalog(directory: Path | None = None) -> Catalog:
             compatible = [word for word in pool if archetype.id not in word.avoid_archetypes]
             if not compatible:
                 raise ValueError(f"Нет совместимых {name} для {archetype.id}")
-            if archetype.tone != "negative" and not any(
-                word.tone == "positive" for word in compatible
-            ):
-                raise ValueError(f"Нет положительных {name} для {archetype.id}")
     return catalog
