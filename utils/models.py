@@ -3,6 +3,7 @@
 from typing import Any
 
 from tortoise import fields, models
+from tortoise.indexes import Index
 
 
 class Link(models.Model):
@@ -209,3 +210,29 @@ class MessageReactor(models.Model):
         table = "message_reactors"
         unique_together = (("message_id", "user_id", "emoji"),)
         indexes = (("message_id",), ("user_id",))
+
+
+class TyanRoll(models.Model):
+    """Снимок дневной тянки и история общих редких событий."""
+
+    id = fields.IntField(primary_key=True)
+    discord_user_id = fields.BigIntField()
+    date = fields.DateField()
+    kind = fields.CharField(max_length=16)
+    adjective_id = fields.CharField(max_length=80, null=True)
+    archetype_id = fields.CharField(max_length=80, null=True)
+    trait_id = fields.CharField(max_length=80, null=True)
+    age = fields.IntField(null=True)
+    height = fields.IntField(null=True)
+    weight = fields.IntField(null=True)
+    target_user_id = fields.BigIntField(null=True)
+    text = fields.TextField()
+    created_at = fields.DatetimeField()
+
+    class Meta:
+        table = "tyan_rolls"
+        unique_together = (("discord_user_id", "date"),)
+        indexes = (
+            Index(fields=["date"], name="idx_tyan_date"),
+            Index(fields=["kind", "created_at"], name="idx_tyan_kind_created"),
+        )

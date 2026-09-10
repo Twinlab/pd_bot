@@ -8,6 +8,8 @@ import yaml  # type: ignore
 from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings
 
+from utils.tyan.config import TyanConfig
+
 if TYPE_CHECKING:
     import discord
 
@@ -371,11 +373,13 @@ class FunConfig(BaseModel):
         penis: Настройки команды измерения пениса
         deathbattle: Настройки deathbattle
         quotes: Настройки модуля quotes
+        tyan: Настройки дневной тянки и редких событий
     """
 
     penis: PenisConfig = PenisConfig()
     deathbattle: DeathbattleConfig = DeathbattleConfig()
     quotes: QuotesConfig = QuotesConfig()
+    tyan: TyanConfig = Field(default_factory=TyanConfig)
 
 
 class ActivityReportsConfig(BaseModel):

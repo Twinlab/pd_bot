@@ -1,0 +1,461 @@
+- id: trait_own_apartment
+  text: с квартирой
+  tone: positive
+  family: trait_own_apartment
+- id: trait_own_car
+  text: на своей тачке
+  tone: positive
+  family: trait_own_car
+- id: trait_no_loans
+  text: без кредитов
+  tone: positive
+  family: debt
+- id: trait_high_salary
+  text: с бабками
+  tone: positive
+  family: trait_high_salary
+- id: trait_homemade_dumplings
+  text: с домашними пельменями
+  tone: positive
+  family: trait_homemade_dumplings
+- id: trait_clean_home
+  text: с чистой хатой
+  tone: positive
+  family: hygiene
+- id: trait_nice_voice
+  text: с приятным голосом
+  tone: positive
+  family: trait_nice_voice
+- id: trait_beautiful_smile
+  text: с красивой улыбкой
+  tone: positive
+  family: trait_beautiful_smile
+- id: trait_long_hair
+  text: с длинными волосами
+  tone: positive
+  family: trait_long_hair
+- id: trait_great_figure
+  text: с охуенной фигурой
+  tone: positive
+  family: trait_great_figure
+- id: trait_pretty_face
+  text: с красивым лицом
+  tone: positive
+  family: trait_pretty_face
+- id: trait_no_drama
+  text: без выноса мозга
+  tone: positive
+  family: trait_no_drama
+- id: trait_no_backup_boyfriend
+  text: без запасного парня
+  tone: positive
+  family: trait_no_backup_boyfriend
+- id: trait_no_ex_in_dms
+  text: без бывших в лс
+  tone: positive
+  family: relationship_ex
+- id: trait_matches_photos
+  text: как на фотках
+  tone: positive
+  family: trait_matches_photos
+- id: trait_pretty_without_filters
+  text: красивая без фильтров
+  tone: positive
+  family: trait_pretty_without_filters
+- id: trait_low_ping
+  text: с пингом 5
+  tone: positive
+  family: trait_low_ping
+  weight: 1.5
+- id: trait_no_tilt
+  text: без тильта
+  tone: positive
+  family: trait_no_tilt
+  weight: 1.5
+- id: trait_full_behavior_score
+  text: с 12к порядочности
+  tone: positive
+  family: trait_full_behavior_score
+  weight: 1.5
+- id: trait_good_aim
+  text: с хорошим аимом
+  tone: positive
+  family: trait_good_aim
+  weight: 1.5
+- id: trait_straight_hands
+  text: с прямыми руками
+  tone: positive
+  family: trait_straight_hands
+  weight: 1.5
+- id: trait_green_trust
+  text: с зелёным трастом
+  tone: positive
+  family: trait_green_trust
+  weight: 1.5
+- id: trait_knife_and_gloves
+  text: с ножом и перчатками
+  tone: positive
+  family: trait_knife_and_gloves
+  weight: 1.5
+- id: trait_all_arcanas
+  text: со всеми арканами
+  tone: positive
+  family: trait_all_arcanas
+  weight: 1.5
+- id: trait_big_boobs
+  text: с большими бубсами
+  tone: positive
+  family: trait_big_boobs
+  weight: 1.5
+- id: trait_nice_butt
+  text: с сочной жопой
+  tone: positive
+  family: trait_nice_butt
+- id: trait_nice_legs
+  text: с красивыми ногами
+  tone: positive
+  family: trait_nice_legs
+- id: trait_dimples
+  text: с ямочками на щеках
+  tone: positive
+  family: trait_dimples
+- id: trait_no_showing_off
+  text: без понтов
+  tone: positive
+  family: trait_no_showing_off
+- id: trait_own_dacha
+  text: с дачей
+  tone: positive
+  family: trait_own_dacha
+- id: trait_glasses
+  text: в очках
+  tone: neutral
+  family: trait_glasses
+- id: trait_braces
+  text: с брекетами
+  tone: neutral
+  family: trait_braces
+- id: trait_piercing
+  text: с пирсингом
+  tone: neutral
+  family: trait_piercing
+- id: trait_tattoos
+  text: с татуировками
+  tone: neutral
+  family: trait_tattoos
+- id: trait_freckles
+  text: с веснушками
+  tone: neutral
+  family: trait_freckles
+- id: trait_bangs
+  text: с чёлкой
+  tone: neutral
+  family: trait_bangs
+- id: trait_bob_cut
+  text: с каре
+  tone: neutral
+  family: trait_bob_cut
+- id: trait_black_nails
+  text: с чёрным маникюром
+  tone: neutral
+  family: trait_black_nails
+- id: trait_stretch_marks
+  text: с растяжками
+  tone: neutral
+  family: trait_stretch_marks
+- id: trait_tan
+  text: с загаром
+  tone: neutral
+  family: trait_tan
+- id: trait_heels
+  text: на каблуках
+  tone: neutral
+  family: trait_heels
+- id: trait_oversized_clothes
+  text: в оверсайзе
+  tone: neutral
+  family: trait_oversized_clothes
+- id: trait_navi_hoodie
+  text: в худи нави
+  tone: neutral
+  family: trait_navi_hoodie
+  weight: 1.5
+- id: trait_cat_ears
+  text: с кошачьими ушами
+  tone: neutral
+  family: trait_cat_ears
+- id: trait_anime_avatar
+  text: с аниме-авой
+  tone: neutral
+  family: trait_anime_avatar
+  weight: 1.5
+- id: trait_pet_cat
+  text: с котом
+  tone: neutral
+  family: trait_pet_cat
+- id: trait_shoulder_rat
+  text: с крысой на плече
+  tone: neutral
+  family: trait_shoulder_rat
+- id: trait_motorcycle
+  text: с мотоциклом
+  tone: neutral
+  family: trait_motorcycle
+- id: trait_dorm_resident
+  text: из общаги
+  tone: neutral
+  family: trait_dorm_resident
+- id: trait_sunflower_seeds
+  text: с пачкой семечек
+  tone: neutral
+  family: trait_sunflower_seeds
+- id: trait_figure_collection
+  text: с коллекцией фигурок
+  tone: neutral
+  family: trait_figure_collection
+- id: trait_souvenir_awp
+  text: с сувенирным авп
+  tone: neutral
+  family: trait_souvenir_awp
+  weight: 1.5
+- id: trait_divorced
+  text: разведёнка
+  tone: neutral
+  family: relationship_ex
+- id: trait_mustache
+  text: с усами
+  tone: neutral
+  family: trait_mustache
+- id: trait_with_child
+  text: с прицепом
+  tone: negative
+  family: trait_with_child
+- id: trait_alimony
+  text: с алиментами
+  tone: negative
+  family: debt
+- id: trait_arcana_debt
+  text: с долгом за аркану
+  tone: negative
+  family: debt
+  weight: 1.5
+- id: trait_knife_loan
+  text: с кредитом на нож
+  tone: negative
+  family: debt
+  weight: 1.5
+- id: trait_microloan
+  text: с микрозаймом
+  tone: negative
+  family: debt
+- id: trait_cockroach_home
+  text: с тараканами в хате
+  tone: negative
+  family: hygiene
+- id: trait_dorm_smell
+  text: с запахом общаги
+  tone: negative
+  family: hygiene
+- id: trait_dandruff
+  text: с перхотью
+  tone: negative
+  family: hygiene
+- id: trait_unwashed_hair
+  text: с немытой головой
+  tone: negative
+  family: hygiene
+- id: trait_booze_breath
+  text: с перегаром
+  tone: negative
+  family: hygiene
+- id: trait_dirty_nails
+  text: с грязью под ногтями
+  tone: negative
+  family: hygiene
+- id: trait_runny_nose
+  text: с вечным насморком
+  tone: negative
+  family: trait_runny_nose
+- id: trait_cigarette
+  text: с сигой в зубах
+  tone: negative
+  family: trait_cigarette
+- id: trait_dirty_socks
+  text: с грязными носками
+  tone: negative
+  family: hygiene
+- id: trait_hangover
+  text: с похмельем
+  tone: negative
+  family: trait_hangover
+- id: trait_ex_next_door
+  text: с бывшим под боком
+  tone: negative
+  family: relationship_ex
+- id: trait_backup_duo
+  text: с запасным дуо
+  tone: negative
+  family: trait_backup_duo
+  weight: 1.5
+- id: trait_avatar_with_ex
+  text: с парной авой с бывшим
+  tone: negative
+  family: relationship_ex
+  weight: 1.5
+- id: trait_red_trust
+  text: с красным трастом
+  tone: negative
+  family: trait_red_trust
+  weight: 1.5
+- id: trait_vac_ban
+  text: с ваком
+  tone: negative
+  family: trait_vac_ban
+  weight: 1.5
+- id: trait_bought_account
+  text: с купленным аккаунтом
+  tone: negative
+  family: trait_bought_account
+  weight: 1.5
+- id: trait_ex_calibration
+  text: с калибровкой от бывшего
+  tone: negative
+  family: relationship_ex
+  weight: 1.5
+- id: trait_year_mute
+  text: с мутом на год
+  tone: negative
+  family: trait_year_mute
+  weight: 1.5
+- id: trait_permanent_low_priority
+  text: с вечным лоуприо
+  tone: negative
+  family: trait_permanent_low_priority
+  weight: 1.5
+- id: trait_cheat_flash_drive
+  text: с софтом
+  tone: negative
+  family: trait_cheat_flash_drive
+  weight: 1.5
+- id: trait_no_prime
+  text: без прайма
+  tone: negative
+  family: trait_no_prime
+  weight: 1.5
+- id: trait_missing_arm
+  text: без руки
+  tone: negative
+  family: missing_limb
+  weight: 0.4
+- id: trait_toothless
+  text: без зубов
+  tone: negative
+  family: trait_toothless
+  weight: 0.4
+- id: trait_three_hundred_elo
+  text: с 300 эло
+  tone: negative
+  family: trait_three_hundred_elo
+  weight: 1.5
+- id: trait_sideways
+  text: с пиздой поперёк
+  tone: negative
+  family: body_oddity
+  weight: 0.7
+- id: trait_missing_leg
+  text: без ноги
+  tone: negative
+  family: missing_limb
+  weight: 0.4
+- id: trait_missing_legs
+  text: без ног
+  tone: negative
+  family: missing_limb
+  weight: 0.4
+- id: trait_dirty_mouth
+  text: рот в говне
+  tone: negative
+  family: hygiene
+  weight: 0.7
+  joiner: comma
+- id: trait_half_town
+  text: но её ебало полгорода
+  tone: negative
+  family: relationship_past
+  weight: 0.7
+  joiner: comma
+- id: trait_virgin
+  text: девственница
+  tone: neutral
+  family: relationship_past
+  weight: 1.0
+- id: trait_criminal_record
+  text: с судимостью
+  tone: negative
+  family: legal_trouble
+  weight: 1.0
+- id: trait_house_arrest
+  text: под домашним арестом
+  tone: negative
+  family: legal_trouble
+  weight: 1.0
+- id: trait_wanted
+  text: в розыске
+  tone: negative
+  family: legal_trouble
+  weight: 1.0
+- id: trait_black_eye
+  text: с фингалом
+  tone: neutral
+  family: appearance
+  weight: 1.0
+- id: trait_gold_tooth
+  text: с золотым зубом
+  tone: neutral
+  family: appearance
+  weight: 1.0
+- id: trait_ex_tattoo
+  text: с татухой бывшего
+  tone: negative
+  family: relationship_ex
+  weight: 1.0
+- id: trait_two_divorces
+  text: с двумя разводами
+  tone: neutral
+  family: relationship_past
+  weight: 1.0
+- id: trait_three_loans
+  text: с тремя кредитами
+  tone: negative
+  family: debt
+  weight: 1.0
+- id: trait_trouble_free
+  text: без заёбов
+  tone: positive
+  family: behavior
+  weight: 1.0
+- id: trait_beer_pack
+  text: с ящиком пива
+  tone: neutral
+  family: possessions
+  weight: 1.0
+- id: trait_tracksuit
+  text: в адидасе
+  tone: neutral
+  family: clothing
+  weight: 1.0
+- id: trait_fur_coat
+  text: в шубе
+  tone: neutral
+  family: clothing
+  weight: 1.0
+- id: trait_bathrobe
+  text: в халате
+  tone: neutral
+  family: clothing
+  weight: 1.0
+- id: trait_hoarse_voice
+  text: с прокуренным голосом
+  tone: negative
+  family: smoking
+  weight: 1.0

@@ -124,6 +124,23 @@ twitch:
 
 # Commands
 fun:
+  tyan:
+    age_min: 18
+    age_max: 80
+    height_min: 140
+    height_max: 200
+    weight_min: 30
+    weight_max: 120
+    positive_chance: 0.20
+    part_weights: [0.20, 0.50, 0.30]
+    # Общий перерыв после любого микроивента; повтор команды не бросает шанс снова.
+    mother_chance: 0.005
+    none_chance: 0.005
+    event_cooldown_days: 14
+    adjective_cooldown_days: 30
+    archetype_cooldown_days: 60
+    trait_cooldown_days: 90
+    pair_cooldown_days: 120
   penis:
     length_buckets:
       - { min_length: 0, max_length: 9, weight: 37.5 }

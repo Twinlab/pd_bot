@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord.ext import commands
+from freezegun import freeze_time
 
 from cogs.activity import ActivityTracker
 from utils.activity_data_manager import ActivityDataManager
@@ -281,6 +282,7 @@ class TestActivityTracking:
             assert activity_tracker.current_activities[after.id][0] == "Test Game"
 
     @pytest.mark.asyncio
+    @freeze_time("2026-09-10 12:00:00+00:00", real_asyncio=True)
     async def test_on_presence_update_end_game(self, mock_bot):
         """Тест метода on_presence_update (завершение игры)."""
         # Создаем экземпляр ActivityTracker
@@ -821,6 +823,7 @@ class TestUpdateCurrentActivitiesEdgeCases:
             mock_update.assert_not_called()
 
     @pytest.mark.asyncio
+    @freeze_time("2026-09-10 12:00:00+00:00", real_asyncio=True)
     async def test_update_current_activities_database_error(self, mock_bot):
         """Тест update_current_activities с ошибкой базы данных."""
         # Патчим tasks.loop, чтобы избежать проблем с циклом событий
@@ -1461,6 +1464,7 @@ class TestOnMemberRemove:
     """Тесты для обработчика on_member_remove."""
 
     @pytest.mark.asyncio
+    @freeze_time("2026-09-10 12:00:00+00:00", real_asyncio=True)
     async def test_on_member_remove_cleans_up_session(self, mock_bot):
         """Тест: при выходе участника с активной сессией она сохраняется в БД и удаляется."""
         activity_tracker = ActivityTracker(mock_bot)
@@ -1553,6 +1557,7 @@ class TestStaleSessionCleanup:
     """Тесты для очистки устаревших сессий в update_current_activities."""
 
     @pytest.mark.asyncio
+    @freeze_time("2026-09-10 12:00:00+00:00", real_asyncio=True)
     async def test_stale_session_removed(self, mock_bot):
         """Сессия отсутствующего участника сохраняется перед удалением из памяти."""
         activity_tracker = ActivityTracker(mock_bot)

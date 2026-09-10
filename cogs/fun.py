@@ -19,7 +19,7 @@ from discord.ext import commands
 
 from utils.avatar_utils import display_avatar
 from utils.deathbattle_utils import run_battle
-from utils.error_handler import command_error_handler, safe_send_error
+from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.penis_utils import measure_penis
 from utils.quotes_utils import (
     NoImagesFoundError,
@@ -30,6 +30,9 @@ from utils.quotes_utils import (
     validate_folder_exists,
 )
 from utils.snipe_utils import save_deleted_message, show_sniped_message
+from utils.tyan.catalog import load_catalog
+from utils.tyan.presentation import build_tyan_card
+from utils.tyan_data_manager import TyanDataManager
 
 logger: logging.Logger = logging.getLogger("bot.cogs.fun")  # Иерархическое имя логгера
 
@@ -52,6 +55,8 @@ class FunCog(commands.Cog):
             bot: Экземпляр бота discord.ext.commands.Bot.
         """
         self.bot: commands.Bot = bot
+        self.tyan_catalog = load_catalog()
+        self.tyan_manager = TyanDataManager()
         # Контекст-меню «В цитаты» заморожено: текущая реализация лишь копирует
         # картинку-вложение, а хочется полноценную «скриншот-цитату» (рендер
         # текста сообщения в карточку). Колбэк и хелпер сохранены, но в дерево
@@ -134,6 +139,25 @@ class FunCog(commands.Cog):
                 (опционально, по умолчанию - автор команды).
         """
         await measure_penis(ctx, mentioned_user)
+
+    @commands.hybrid_command(description="Твоя случайная тянка на сегодня")
+    @commands.guild_only()
+    @app_commands.guild_only()
+    @command_error_handler
+    async def tyan(self, ctx: commands.Context) -> None:
+        """Показывает дневную тянку автора с обновлением в полночь по Москве."""
+        if ctx.guild is None:
+            await safe_send_error(ctx, "Эта команда доступна только на сервере.")
+            return
+        if ctx.interaction is not None:
+            await ctx.defer()
+        roll = await self.tyan_manager.get_daily_roll(
+            self.tyan_catalog,
+            self.bot.settings.fun.tyan,
+            user_id=ctx.author.id,
+            member_ids=[member.id for member in ctx.guild.members if not member.bot],
+        )
+        await safe_send(ctx, embed=build_tyan_card(roll, display_name=ctx.author.display_name))
 
     @commands.hybrid_command(description="Показывает аватар пользователя")
     @discord.app_commands.describe(mentioned_user="Чей аватар показать (по умолчанию — твой)")
