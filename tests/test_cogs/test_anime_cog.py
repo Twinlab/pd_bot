@@ -501,8 +501,8 @@ class TestSearchByExplicitTag:
         assert "score:>=50" in first_params["tags"]
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_order_rank_on_500(self):
-        """При HTTP 500 на order:random делается повтор с order:rank."""
+    async def test_falls_back_to_latest_posts_on_500(self):
+        """При HTTP 500 выбирается пост из последних подходящих результатов."""
         cog = _build_cog()
         cog._cache_loaded = True
         req = AsyncMock(side_effect=[(500, []), (200, [self._raw()])])
@@ -515,7 +515,67 @@ class TestSearchByExplicitTag:
         assert result is not None
         assert req.await_count == 2
         assert "order:random" in req.await_args_list[0].args[1]["tags"]
-        assert "order:rank" in req.await_args_list[1].args[1]["tags"]
+        assert req.await_args_list[1].args[1] == {
+            "tags": "1girl order:id_desc rating:s score:>=50",
+            "limit": "100",
+            "page": "1",
+        }
+
+    async def test_latest_search_advances_past_cached_page(self):
+        cog = _build_cog()
+        cog._cache_loaded = True
+        cog.post_cache.append(1)
+        req = AsyncMock(side_effect=[(500, []), (200, [self._raw()]), (200, [self._raw(id=2)])])
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch.object(cog, "_request_danbooru", req),
+        ):
+            result = await cog.get_anime_image(rating="s", tag="2girls")
+
+        assert result is not None and result.post_id == 2
+        assert req.await_count == 3
+        pages = [call.args[1] for call in req.await_args_list[1:]]
+        assert [params["page"] for params in pages] == ["1", "2"]
+        assert all(params["tags"] == "2girls order:id_desc rating:s score:>=50" for params in pages)
+
+    async def test_empty_latest_page_stops_search(self):
+        cog = _build_cog()
+        cog._cache_loaded = True
+        req = AsyncMock(side_effect=[(500, []), (200, [])])
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch.object(cog, "_request_danbooru", req),
+        ):
+            assert await cog.get_anime_image(rating="g", tag="2girls") is None
+
+        assert req.await_count == 2
+
+    async def test_latest_search_has_bounded_page_count(self):
+        cog = _build_cog()
+        cog._cache_loaded = True
+        cog.post_cache.append(1)
+        req = AsyncMock(side_effect=[(500, [])] + [(200, [self._raw()])] * 4)
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch.object(cog, "_request_danbooru", req),
+        ):
+            assert await cog.get_anime_image(rating="s", tag="2girls") is None
+
+        assert req.await_count == 5
+        assert [call.args[1]["page"] for call in req.await_args_list[1:]] == ["1", "2", "3", "4"]
+
+    @pytest.mark.parametrize("status", [0, 401, 403, 429])
+    async def test_other_errors_do_not_repeat_search(self, status):
+        cog = _build_cog()
+        cog._cache_loaded = True
+        req = AsyncMock(return_value=(status, []))
+        with (
+            patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+            patch.object(cog, "_request_danbooru", req),
+        ):
+            assert await cog.get_anime_image(rating="s", tag="2girls") is None
+
+        req.assert_awaited_once()
 
 
 class TestGetAnimeImageRatingOverride:

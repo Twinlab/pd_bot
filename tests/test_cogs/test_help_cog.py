@@ -12,7 +12,6 @@ from cogs.help import (
     HelpEntry,
     HelpView,
     build_help_catalog,
-    build_help_embed,
     build_help_embeds,
     setup,
 )
@@ -68,16 +67,16 @@ def test_catalog_includes_context_menu_in_owning_cog_category() -> None:
     assert entry.usage == "ПКМ → Профиль"
     assert entry.description == "Контекстное меню пользователя"
 
-    embed = build_help_embed("Профиль и статистика", (entry,))
+    embed = build_help_embeds("Профиль и статистика", (entry,))[0]
     assert "`ПКМ → Профиль`" in embed.description
     assert "`/Профиль`" not in embed.description
 
 
 def test_help_embed_escapes_mentions() -> None:
-    embed = build_help_embed(
+    embed = build_help_embeds(
         "Прочее",
         (HelpEntry("test", "Позвать @everyone и @here"),),
-    )
+    )[0]
 
     assert embed.description is not None
     assert "@everyone" not in embed.description
@@ -93,7 +92,7 @@ def test_restricted_command_has_lock() -> None:
     entry = catalog["Прочее"][0]
 
     assert entry.restricted is True
-    assert "🔒 `/shutdown`" in build_help_embed("Прочее", (entry,)).description
+    assert "🔒 `/shutdown`" in build_help_embeds("Прочее", (entry,))[0].description
 
 
 def test_long_category_is_paginated_without_losing_commands() -> None:

@@ -496,6 +496,29 @@ class TestPaginationView:
             for i in range(n)
         ]
 
+    async def test_page_updates_and_timeout_disable_mentions(self):
+        view = TopReactionsView(
+            entries=self._make_entries(2),
+            period="all",
+            per_page=1,
+            guild=None,
+            invoker_id=1,
+            timeout=60,
+        )
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response.edit_message = AsyncMock()
+        view.message = MagicMock(spec=discord.Message)
+        view.message.edit = AsyncMock()
+
+        await view.change_page(interaction, 1)
+        await view.on_timeout()
+
+        for call in (
+            interaction.response.edit_message.await_args,
+            view.message.edit.await_args,
+        ):
+            assert call.kwargs["allowed_mentions"].to_dict() == discord.AllowedMentions.none().to_dict()
+
     @pytest.mark.asyncio
     async def test_total_pages_calculation(self):
         entries = self._make_entries(50)
@@ -767,6 +790,44 @@ async def test_message_leaderboards_only_query_public_channels(
     assert cog.manager.get_leaderboard.await_args.kwargs["allowed_channel_ids"] == {10}
 
 
+@pytest.mark.parametrize("kind", ["messages", "authors", "empty"])
+async def test_leaderboard_sends_without_mentions(cog, kind):
+    ctx = MagicMock()
+    ctx.guild = None
+    ctx.author.id = 1
+    ctx.send = AsyncMock()
+    entries = []
+    if kind == "messages":
+        entries = [
+            LeaderboardEntry(
+                message_id=1,
+                channel_id=2,
+                author_id=3,
+                content="@everyone <@4> <@&5>",
+                jump_url="https://discord.com/channels/1/2/1",
+                posted_at=datetime(2024, 5, 10, tzinfo=UTC),
+                reactor_count=4,
+                is_historical=False,
+            )
+        ]
+    elif kind == "authors":
+        entries = [AuthorLeaderboardEntry(author_id=3, total_reactions=4, message_count=1)]
+
+    await cog._send_leaderboard(
+        ctx,
+        entries=entries,
+        period_kind="all",
+        year_arg=None,
+        month_arg=None,
+        empty_container_factory=_build_messages_container,
+    )
+
+    call = ctx.send.await_args
+    assert call.kwargs["allowed_mentions"].to_dict() == discord.AllowedMentions.none().to_dict()
+    if kind == "messages":
+        assert "@everyone <@4> <@&5>" in _cv2_text(call.kwargs["view"])
+
+
 class TestSendMonthlyReport:
     """Юнит-тесты на _send_monthly_top_messages_report."""
 
@@ -821,6 +882,7 @@ class TestSendMonthlyReport:
         assert "embed" not in call.kwargs
         assert "content" not in call.kwargs
         assert "май 2024" in _cv2_text(call.kwargs["view"])
+        assert call.kwargs["allowed_mentions"].to_dict() == discord.AllowedMentions.none().to_dict()
 
     @pytest.mark.asyncio
     async def test_passes_year_month_to_data_manager(self, cog):

@@ -390,30 +390,73 @@ class PartyPublishView(discord.ui.LayoutView):
 
     async def handle_publish(self, interaction: discord.Interaction) -> None:
         """Публикует сбор по кнопке «Опубликовать»."""
-        role = next((r for r in self._roles if r.id == self._draft.role_id), None)
+        guild = interaction.guild
         channel = interaction.channel
-        if (
-            role is None
-            or interaction.guild is None
-            or not isinstance(channel, discord.abc.Messageable)
-        ):
+        if guild is None or not isinstance(channel, discord.abc.Messageable):
             await interaction.response.send_message(
                 "Не удалось определить роль или канал.", ephemeral=True
             )
             return
-        self.stop()
-        await interaction.response.edit_message(view=_notice_view("Создаю сбор…"))
-        await self._cog._create_and_broadcast(
-            guild=interaction.guild,
-            channel=channel,
-            role=role,
-            initiator=self._initiator,
-            duration=timedelta(minutes=self._draft.minutes),
-            count=self._draft.count,
-            comment=self._draft.comment,
-            image_url=self._image_url,
-            finish_when_full=self._draft.finish_when_full,
-        )
+        if self.is_finished():
+            await interaction.response.send_message(
+                "Это превью уже закрыто. Открой /party заново.", ephemeral=True
+            )
+            return
+
+        user_id = self._initiator.id
+        if user_id in self._cog._publishing_users:
+            await interaction.response.send_message(
+                "Твой сбор уже публикуется. Дождись окончания.", ephemeral=True
+            )
+            return
+
+        # Разные превью одного автора должны проходить проверку и публикацию по очереди.
+        self._cog._publishing_users.add(user_id)
+        try:
+            await interaction.response.defer()
+            if await self._cog.data_manager.is_blocked(user_id):
+                await interaction.followup.send("Ты заблокирован для /party.", ephemeral=True)
+                return
+            remaining = self._cog._party_cooldown_remaining(user_id)
+            if remaining > 0:
+                await interaction.followup.send(
+                    f"Слишком часто — следующий сбор можно через {remaining // 60} мин "
+                    f"{remaining % 60} сек.",
+                    ephemeral=True,
+                )
+                return
+            allowed_role_ids = await self._cog._allowed_role_ids(guild.id)
+            role = guild.get_role(self._draft.role_id)
+            if role is None or role.id not in allowed_role_ids:
+                await interaction.followup.send(
+                    "Эта роль больше недоступна для сборов. Открой /party заново.",
+                    ephemeral=True,
+                )
+                return
+
+            if self.is_finished():
+                return
+            self.stop()
+            await interaction.edit_original_response(view=_notice_view("Создаю сбор…"))
+            party = await self._cog._create_and_broadcast(
+                guild=guild,
+                channel=channel,
+                role=role,
+                initiator=self._initiator,
+                duration=timedelta(minutes=self._draft.minutes),
+                count=self._draft.count,
+                comment=self._draft.comment,
+                image_url=self._image_url,
+                finish_when_full=self._draft.finish_when_full,
+            )
+            notice = (
+                "Сбор опубликован."
+                if party is not None
+                else "Не удалось опубликовать сбор. Открой /party и попробуй ещё раз."
+            )
+            await interaction.edit_original_response(view=_notice_view(notice))
+        finally:
+            self._cog._publishing_users.discard(user_id)
 
     async def handle_edit(self, interaction: discord.Interaction) -> None:
         """Переоткрывает модалку с уже заполненными значениями."""
@@ -429,6 +472,12 @@ class PartyPublishView(discord.ui.LayoutView):
 
     async def handle_cancel(self, interaction: discord.Interaction) -> None:
         """Закрывает превью без публикации."""
+        if self.is_finished():
+            await interaction.response.send_message(
+                "Это превью уже закрыто. Опубликованный сбор можно отменить через /party_cancel.",
+                ephemeral=True,
+            )
+            return
         self.stop()
         try:
             await interaction.response.edit_message(view=_notice_view("Сборка отменена."))

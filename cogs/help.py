@@ -171,11 +171,6 @@ def build_help_embeds(
     return tuple(embeds)
 
 
-def build_help_embed(category: str, entries: tuple[HelpEntry, ...]) -> discord.Embed:
-    """Собирает первую embed-страницу категории для простых вызовов."""
-    return build_help_embeds(category, entries)[0]
-
-
 class HelpCategorySelect(discord.ui.Select["HelpView"]):
     """Переключатель разделов справки."""
 

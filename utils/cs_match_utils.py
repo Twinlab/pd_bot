@@ -22,30 +22,6 @@ from utils.ui import image_card
 logger = logging.getLogger("bot.utils.cs_match_utils")
 
 
-async def resolve_player_by_nickname(nickname: str, api_key: str) -> dict[str, Any] | None:
-    """Резолвит ник FACEIT в данные игрока (включая ``player_id`` и CS2-профиль).
-
-    Args:
-        nickname: Ник игрока на FACEIT.
-        api_key: Ключ FACEIT Data API.
-
-    Returns:
-        Словарь с данными игрока или None, если игрок не найден / нет данных CS2.
-    """
-    data = await faceit_get_with_retry(
-        "/players",
-        api_key,
-        params={"nickname": nickname},
-        cache_key=f"faceit_player_nick_{nickname.lower()}",
-        ttl=300,
-    )
-    if not data or not data.get("player_id"):
-        return None
-    if "cs2" not in (data.get("games") or {}):
-        return None
-    return data
-
-
 def _player_faction(item: dict[str, Any], player_id: str) -> str | None:
     """Определяет, за какую фракцию (faction1/faction2) играл игрок в матче истории."""
     teams = item.get("teams", {})

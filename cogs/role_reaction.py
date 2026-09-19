@@ -378,10 +378,14 @@ class RoleReactionCog(commands.Cog):
 
             if success:
                 # Обновляем сообщение с реакциями
-                await self.update_reaction_message(interaction.guild.id)
+                updated = await self.update_reaction_message(interaction.guild.id)
 
                 await interaction.response.send_message(
-                    f"Роль, привязанная к эмодзи {emoji}, успешно удалена.", ephemeral=True
+                    f"Роль, привязанная к эмодзи {emoji}, успешно удалена."
+                    if updated
+                    else "Привязка удалена из списка, но обновить сообщение с кнопками "
+                    "не удалось. Кнопки без действующей привязки больше не выдают роли.",
+                    ephemeral=True,
                 )
                 logger.info(
                     f"Удалена привязка роли к эмодзи {emoji_format} "

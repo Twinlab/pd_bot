@@ -1,13 +1,54 @@
 """Тесты для модуля dota_match_utils."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
 
-from utils.dota_match_utils import get_match_data, handle_lastmatch
+from utils.dota_match_utils import _fetch_card_images, get_match_data, handle_lastmatch
 
 _PNG = b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.mark.asyncio
+async def test_card_images_are_parallel_bounded_and_keep_slot_order() -> None:
+    """Параллельная загрузка сохраняет слоты и заглушки при лимите в четыре запроса."""
+    active = 0
+    peak = 0
+    started = []
+    saturated = asyncio.Event()
+    release = asyncio.Event()
+
+    async def fetch(url):
+        nonlocal active, peak
+        started.append(url)
+        active += 1
+        peak = max(peak, active)
+        if active == 4:
+            saturated.set()
+        await release.wait()
+        if url == "first":
+            await asyncio.sleep(0)
+        active -= 1
+        return None if url == "failed" else url.encode()
+
+    urls = ["first", None, "second", "failed", "third", "fourth", "fifth", "hero", "avatar"]
+    with patch("utils.dota_match_utils.fetch_image_bytes", side_effect=fetch):
+        task = asyncio.create_task(_fetch_card_images(urls))
+        try:
+            await asyncio.wait_for(saturated.wait(), timeout=1)
+            assert len(started) == 4
+            release.set()
+            result = await asyncio.wait_for(task, timeout=1)
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+
+    assert peak == 4
+    assert result == [b"first", None, b"second", None, b"third", b"fourth", b"fifth", b"hero", b"avatar"]
 
 
 def _count_buttons(view: discord.ui.LayoutView) -> int:
@@ -444,15 +485,22 @@ class TestHandleLastmatch:
             patch("utils.dota_match_utils.fetch_image_bytes", new_callable=AsyncMock) as mock_fetch,
         ):
             mock_get_match.return_value = (mock_match_data, None, 7000000003, mock_items_dict)
-            mock_fetch.return_value = None
+            mock_fetch.side_effect = lambda url: url.encode() if "ward_observer" not in url else None
 
             await handle_lastmatch(self.mock_ctx, user_links_list)
 
         card = mock_render.call_args.args[0]
         names = [it.display_name for it in card.items]
         assert names == ["Iron Branch", "", "", "", "Magic Stick", "Observer Ward"]
+        assert card.items[0].image.endswith(b"/branches.png")
+        assert all(item.image is None for item in card.items[1:4])
+        assert card.items[4].image.endswith(b"/magic_stick.png")
+        assert card.items[5].image is None
         assert card.neutral is not None
         assert card.neutral.display_name == "Keen Optic"
+        assert card.neutral.image.endswith(b"/keen_optic.png")
+        assert card.hero_bg.endswith(b"/pudge_horz.png")
+        assert card.avatar is None
 
     @pytest.mark.asyncio
     async def test_handle_lastmatch_no_items_data(self):

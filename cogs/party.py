@@ -62,6 +62,7 @@ class PartyCog(commands.Cog):
         self._timers = {}
         self._check_timers = {}
         self._last_party = {}
+        self._publishing_users: set[int] = set()
 
     async def _allowed_role_ids(self, guild_id: int) -> set[int]:
         """ID ролей, разрешённых для сбора (только выданные через /role_assign).
@@ -162,7 +163,11 @@ class PartyCog(commands.Cog):
 
         async def edit_one(uid: int, msg: discord.Message) -> None:
             try:
+                was_finalized = party.finalized
                 await msg.edit(view=self._dm_view_for(party, uid))
+                # Более медленное обновление не должно вернуть кнопки после финального.
+                if not was_finalized and party.finalized:
+                    await msg.edit(view=self._card_view(party, finalized=True))
             except (discord.NotFound, discord.Forbidden):
                 pass
             except discord.HTTPException as e:
@@ -191,15 +196,23 @@ class PartyCog(commands.Cog):
         settings = get_settings()
         delivered = 0
         for member in role.members:
+            if party.finalized or datetime.now(UTC) >= party.deadline:
+                break
             if member.bot or member.id == initiator.id:
                 continue
             if await self.data_manager.is_blocked(member.id):
                 continue
+            if party.finalized or datetime.now(UTC) >= party.deadline:
+                break
             try:
                 view = PartyView(cog=self, party=party)
                 msg = await member.send(view=view)
                 party.dm_messages[member.id] = msg
                 delivered += 1
+                # Финализация могла пройти, пока Discord отправлял это сообщение.
+                if party.finalized:
+                    await msg.edit(view=self._card_view(party, finalized=True))
+                    break
             except discord.Forbidden:
                 logger.info(f"Юзер {member.id} закрыл DM — пропускаем")
             except discord.HTTPException as e:
@@ -231,6 +244,8 @@ class PartyCog(commands.Cog):
         В чеке: подтвердившим — карточка без кнопок, ожидающим подтверждения —
         «Подтверждаю», остальным (резерв) — обычные «Готов» / «Не готов».
         """
+        if party.finalized:
+            return self._card_view(party, finalized=True)
         if party.phase is PartyPhase.READY_CHECK:
             if user_id in party.confirmed:
                 return self._card_view(party)
@@ -311,9 +326,10 @@ class PartyCog(commands.Cog):
         if len(party.confirmed) >= party.count:
             await self._finalize(party)
 
-    async def _finalize_after(self, party: Party, seconds: float) -> None:
+    async def _finalize_after(self, party: Party) -> None:
         """Таймер закрытия пати. Отменяется через `task.cancel()` в `cog_unload`."""
         try:
+            seconds = max(0.0, (party.deadline - datetime.now(UTC)).total_seconds())
             await asyncio.sleep(seconds)
         except asyncio.CancelledError:
             return
@@ -496,26 +512,26 @@ class PartyCog(commands.Cog):
             image_url=image_url,
             finish_when_full=finish_when_full,
         )
+        self._last_party[initiator.id] = now
+        self._timers[party.id] = asyncio.create_task(
+            self._finalize_after(party), name=f"party-finalize-{party.id}"
+        )
 
         await self._refresh_public_embed(party)
 
         delivered = await self._send_dms(party, role, initiator)
         # После рассылки нужно ещё раз обновить публичный embed — а заодно DM,
         # вдруг счётчики уже изменились пока мы рассылали.
-        await self._refresh_all_embeds(party)
+        if not party.finalized:
+            await self._refresh_all_embeds(party)
         logger.info(
             f"Создано пати {party.id} (роль {role.id}, нужно {count}, "
             f"дедлайн {deadline.isoformat()}, finish_when_full={finish_when_full}): "
             f"DM доставлено {delivered}"
         )
 
-        seconds = max(1, int(duration.total_seconds()))
-        task = asyncio.create_task(
-            self._finalize_after(party, seconds), name=f"party-finalize-{party.id}"
-        )
-        self._timers[party.id] = task
-        self._last_party[initiator.id] = now
-        await self._maybe_start_ready_check(party)
+        if not party.finalized:
+            await self._maybe_start_ready_check(party)
         return party
 
     @app_commands.command(

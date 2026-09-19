@@ -369,21 +369,6 @@ def get_folder_stats(folder_name: str) -> dict[str, int]:
         return {"total_images": 0}
 
 
-def get_all_folders_stats() -> dict[str, dict[str, int]]:
-    """Получает статистику по всем папкам с изображениями.
-
-    Returns:
-        dict[str, dict[str, int]]: Словарь со статистикой по каждой папке
-    """
-    folders = scan_quotes_folders()
-    all_stats = {}
-
-    for folder in folders:
-        all_stats[folder] = get_folder_stats(folder)
-
-    return all_stats
-
-
 # UI компоненты для выбора папок
 
 

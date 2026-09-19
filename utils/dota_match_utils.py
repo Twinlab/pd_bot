@@ -198,6 +198,19 @@ async def get_match_data(
     return match_data, weekly_data, match_id, items_dict
 
 
+async def _fetch_card_images(urls: list[str | None]) -> list[bytes | None]:
+    """Загружает картинки параллельно, сохраняя порядок слотов и ограничивая запросы."""
+    semaphore = asyncio.Semaphore(4)
+
+    async def fetch(url: str | None) -> bytes | None:
+        if not url:
+            return None
+        async with semaphore:
+            return await fetch_image_bytes(url)
+
+    return list(await asyncio.gather(*(fetch(url) for url in urls)))
+
+
 async def handle_lastmatch(
     ctx: commands.Context, user_links_list: list[int], member: discord.Member | None = None
 ) -> None:
@@ -322,23 +335,34 @@ async def handle_lastmatch(
             logger.error(f"Ошибка при расчете винрейта: {wl_error}")
 
     # Иконки предметов (6 слотов) + нейтралка; картинки тянем с Valve cdn по item-name.
-    item_list: list[ItemImage] = []
+    item_specs: list[tuple[str, str | None]] = []
     for i in range(6):
         item_id = player_data.get(f"item{i}Id")
         info = items_dict.get(item_id) if (items_dict and item_id and item_id > 0) else None
         if info:
-            image = await fetch_image_bytes(item_image_url(info["name"]))
-            item_list.append(ItemImage(info.get("displayName", ""), image))
+            item_specs.append((info.get("displayName", ""), item_image_url(info["name"])))
         else:
-            item_list.append(ItemImage("", None))
+            item_specs.append(("", None))
 
-    neutral_item: ItemImage | None = None
+    neutral_info = None
     neutral_id = player_data.get("neutral0Id")
     if items_dict and neutral_id and neutral_id > 0 and neutral_id in items_dict:
-        info = items_dict[neutral_id]
-        neutral_item = ItemImage(
-            info.get("displayName", ""), await fetch_image_bytes(item_image_url(info["name"]))
-        )
+        neutral_info = items_dict[neutral_id]
+
+    images = await _fetch_card_images(
+        [url for _, url in item_specs]
+        + [
+            item_image_url(neutral_info["name"]) if neutral_info else None,
+            f"https://cdn.stratz.com/images/dota2/heroes/{hero_name}_horz.png",
+            player_data.get("steamAccount", {}).get("avatar"),
+        ]
+    )
+    item_list = [
+        ItemImage(name, image) for (name, _), image in zip(item_specs, images[:6], strict=True)
+    ]
+    neutral_item = (
+        ItemImage(neutral_info.get("displayName", ""), images[6]) if neutral_info else None
+    )
 
     from config.settings import get_settings
 
@@ -346,11 +370,6 @@ async def handle_lastmatch(
 
     dur_str = f"{duration // 60}:{duration % 60:02}"
     date_str = datetime_obj.strftime("%d/%m/%Y")
-
-    hero_bg = await fetch_image_bytes(
-        f"https://cdn.stratz.com/images/dota2/heroes/{hero_name}_horz.png"
-    )
-    avatar = await fetch_image_bytes(player_data.get("steamAccount", {}).get("avatar"))
 
     card = DotaCardData(
         verdict=kda_comment,
@@ -371,8 +390,8 @@ async def handle_lastmatch(
         duration_str=dur_str,
         items=item_list,
         neutral=neutral_item,
-        hero_bg=hero_bg,
-        avatar=avatar,
+        hero_bg=images[7],
+        avatar=images[8],
     )
     png = await asyncio.to_thread(render_dota_card, card)
     file = discord.File(BytesIO(png), filename="dota_match.png")

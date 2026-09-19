@@ -56,6 +56,7 @@ def cog(bot: MagicMock) -> PartyCog:
     c.role_reaction_manager.get_all_role_reactions = AsyncMock(
         return_value=[{"role_id": 42, "emoji": "🎮", "message_id": 1}]
     )
+    c.data_manager.is_blocked = AsyncMock(return_value=False)
     return c
 
 
@@ -250,9 +251,78 @@ class TestSendDMs:
 
         assert party.dm_messages[200] is member.send.return_value
 
+    @pytest.mark.asyncio
+    async def test_finalization_during_send_closes_late_dm_and_stops_broadcast(
+        self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
+    ) -> None:
+        """Поздний ответ Discord не оставляет рабочие кнопки закрытого сбора."""
+        initiator = make_member(100)
+        first, second = make_member(200), make_member(300)
+        role.members = [first, second]
+        party = _make_party(cog)
+        message = first.send.return_value
+
+        async def send_and_finalize(**kwargs):
+            await cog.manager.cancel(party.id)
+            return message
+
+        first.send.side_effect = send_and_finalize
+        delivered = await cog._send_dms(party, role, initiator)
+
+        assert delivered == 1
+        second.send.assert_not_awaited()
+        message.edit.assert_awaited_once()
+        view = message.edit.await_args.kwargs["view"]
+        assert not any(isinstance(child, discord.ui.Button) for child in view.walk_children())
+
+    @pytest.mark.asyncio
+    async def test_expired_party_does_not_send_invitations(
+        self, cog: PartyCog, role: MagicMock, patched_settings: BotSettings
+    ) -> None:
+        """Рассылка не начинает новый DM после абсолютного дедлайна."""
+        member = make_member(200)
+        role.members = [member]
+        party = _make_party(cog)
+        party.deadline = datetime.now(UTC) - timedelta(seconds=1)
+
+        assert await cog._send_dms(party, role, make_member(100)) == 0
+        member.send.assert_not_awaited()
+
 
 class TestRefreshAllEmbeds:
     """Тесты _refresh_all_embeds — публичный + DM-сообщения."""
+
+    @pytest.mark.asyncio
+    async def test_slow_refresh_cannot_restore_buttons_after_finalization(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Завершившийся позже старый edit исправляется финальной карточкой."""
+        party = _make_party(cog)
+        message = MagicMock(spec=discord.Message)
+        party.dm_messages = {200: message}
+        editing, proceed = asyncio.Event(), asyncio.Event()
+        displayed = []
+
+        async def edit(*, view):
+            if any(isinstance(child, discord.ui.Button) for child in view.walk_children()):
+                editing.set()
+                await proceed.wait()
+            displayed.append(view)
+
+        message.edit = AsyncMock(side_effect=edit)
+        task = asyncio.create_task(cog._refresh_dm_embeds(party))
+        try:
+            await asyncio.wait_for(editing.wait(), timeout=1)
+            await cog.manager.cancel(party.id)
+            await cog._disable_dm_buttons(party)
+        finally:
+            proceed.set()
+            await task
+
+        assert message.edit.await_count == 3
+        assert not any(
+            isinstance(child, discord.ui.Button) for child in displayed[-1].walk_children()
+        )
 
     @pytest.mark.asyncio
     async def test_edits_all_dm_messages(
@@ -407,8 +477,27 @@ class TestFinalize:
         cog._finalize = AsyncMock()  # type: ignore[method-assign]
 
         with patch("cogs.party.asyncio.sleep", new=AsyncMock()):
-            await cog._finalize_after(party, 60)
+            await cog._finalize_after(party)
 
+        cog._finalize.assert_awaited_once_with(party)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("elapsed,remaining", [(15, 45), (75, 0)])
+    async def test_timer_uses_remaining_time_until_deadline(
+        self, cog: PartyCog, elapsed: int, remaining: int
+    ) -> None:
+        """Задержка до запуска таймера не продлевает обещанное время сбора."""
+        party = _make_party(cog)
+        party.deadline = party.created_at + timedelta(seconds=60)
+        cog._finalize = AsyncMock()
+        with (
+            patch("cogs.party.datetime") as clock,
+            patch("cogs.party.asyncio.sleep", new=AsyncMock()) as sleep,
+        ):
+            clock.now.return_value = party.created_at + timedelta(seconds=elapsed)
+            await cog._finalize_after(party)
+
+        sleep.assert_awaited_once_with(remaining)
         cog._finalize.assert_awaited_once_with(party)
 
     @pytest.mark.asyncio
@@ -957,6 +1046,25 @@ class TestPartySetupModal:
 class TestPartyPublishView:
     """Превью сбора: публикация / переоткрытие модалки / отмена."""
 
+    def _make_interaction(self) -> MagicMock:
+        interaction = _slash_interaction()
+        interaction.channel = MagicMock(spec=discord.TextChannel)
+        message = MagicMock(spec=discord.Message, id=123)
+        message.channel.id = 10
+        interaction.channel.send = AsyncMock(return_value=message)
+        interaction.response.defer = AsyncMock()
+        interaction.response.edit_message = AsyncMock()
+        interaction.edit_original_response = AsyncMock()
+        interaction.followup.send = AsyncMock()
+        return interaction
+
+    def _mock_broadcast_io(self, cog: PartyCog) -> None:
+        cog._send_dms = AsyncMock(return_value=2)
+        cog._refresh_public_embed = AsyncMock()
+        cog._refresh_all_embeds = AsyncMock()
+        cog._disable_dm_buttons = AsyncMock()
+        cog._maybe_start_ready_check = AsyncMock()
+
     def _make_view(self, cog: PartyCog) -> PartyPublishView:
         initiator = MagicMock(spec=discord.Member, id=100)
         initiator.guild = MagicMock(spec=discord.Guild, id=1)
@@ -980,20 +1088,196 @@ class TestPartyPublishView:
         cog._create_and_broadcast = AsyncMock(return_value=None)  # type: ignore[method-assign]
         view = self._make_view(cog)
 
-        interaction = MagicMock(spec=discord.Interaction)
-        interaction.guild = MagicMock(spec=discord.Guild, id=1)
-        interaction.channel = MagicMock(spec=discord.TextChannel)
-        interaction.response = MagicMock()
-        interaction.response.edit_message = AsyncMock()
+        interaction = self._make_interaction()
 
         await view.handle_publish(interaction)
 
-        interaction.response.edit_message.assert_awaited_once()
+        interaction.response.defer.assert_awaited_once()
+        assert interaction.edit_original_response.await_count == 2
         cog._create_and_broadcast.assert_awaited_once()
         ca = cog._create_and_broadcast.await_args.kwargs
         assert ca["count"] == 3
         assert ca["duration"] == timedelta(minutes=30)
         assert ca["finish_when_full"] is True
+        assert ca["role"] is interaction.guild.get_role.return_value
+
+    @pytest.mark.asyncio
+    async def test_two_existing_previews_cannot_bypass_cooldown(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Публикация первого превью закрывает доступ к рассылке из второго."""
+        self._mock_broadcast_io(cog)
+        first, second = self._make_view(cog), self._make_view(cog)
+        interaction = self._make_interaction()
+        try:
+            await first.handle_publish(interaction)
+            assert cog._party_cooldown_remaining(100) > 0
+            await second.handle_publish(interaction)
+
+            assert len(cog.manager.all_active()) == 1
+            cog._send_dms.assert_awaited_once()
+            assert "Слишком часто" in interaction.followup.send.await_args.args[0]
+        finally:
+            await cog.cog_unload()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("change", ["blocked", "unassigned", "deleted"])
+    async def test_publication_rechecks_permissions_after_preview(
+        self, cog: PartyCog, patched_settings: BotSettings, change: str
+    ) -> None:
+        """Старое превью не обходит новый бан или удаление разрешённой роли."""
+        view = self._make_view(cog)
+        interaction = self._make_interaction()
+        cog._create_and_broadcast = AsyncMock()
+        if change == "blocked":
+            cog.data_manager.is_blocked.return_value = True
+        elif change == "unassigned":
+            cog.role_reaction_manager.get_all_role_reactions.return_value = []
+        else:
+            interaction.guild.get_role.return_value = None
+
+        await view.handle_publish(interaction)
+
+        cog._create_and_broadcast.assert_not_awaited()
+        interaction.followup.send.assert_awaited_once()
+        assert not cog._publishing_users
+
+    @pytest.mark.asyncio
+    async def test_concurrent_previews_allow_only_one_broadcast(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Вторая форма не проходит, пока первая ещё проверяет доступ в БД."""
+        first, second = self._make_view(cog), self._make_view(cog)
+        checking, proceed = asyncio.Event(), asyncio.Event()
+
+        async def check_blocked(user_id: int) -> bool:
+            checking.set()
+            await proceed.wait()
+            return False
+
+        cog.data_manager.is_blocked = AsyncMock(side_effect=check_blocked)
+        cog._create_and_broadcast = AsyncMock(return_value=MagicMock())
+        task = asyncio.create_task(first.handle_publish(self._make_interaction()))
+        try:
+            await asyncio.wait_for(checking.wait(), timeout=1)
+            second_interaction = self._make_interaction()
+            await second.handle_publish(second_interaction)
+            assert "уже публикуется" in second_interaction.response.send_message.await_args.args[0]
+        finally:
+            proceed.set()
+            await task
+
+        cog._create_and_broadcast.assert_awaited_once()
+        assert not cog._publishing_users
+
+    @pytest.mark.asyncio
+    async def test_cancel_during_permission_check_prevents_publication(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Отмена во время запроса БД не превращается в отправленный сбор."""
+        view = self._make_view(cog)
+        checking, proceed = asyncio.Event(), asyncio.Event()
+
+        async def allowed_roles(guild_id):
+            checking.set()
+            await proceed.wait()
+            return {42}
+
+        cog._allowed_role_ids = AsyncMock(side_effect=allowed_roles)
+        cog._create_and_broadcast = AsyncMock()
+        task = asyncio.create_task(view.handle_publish(self._make_interaction()))
+        try:
+            await asyncio.wait_for(checking.wait(), timeout=1)
+            cancellation = self._make_interaction()
+            await view.handle_cancel(cancellation)
+            cancellation.response.edit_message.assert_awaited_once()
+        finally:
+            proceed.set()
+            await task
+
+        cog._create_and_broadcast.assert_not_awaited()
+        assert not cog._publishing_users
+
+    @pytest.mark.asyncio
+    async def test_late_cancel_does_not_claim_started_publication_was_cancelled(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """После начала отправки отмена превью отсылает к отмене самого сбора."""
+        view = self._make_view(cog)
+        publishing, proceed = asyncio.Event(), asyncio.Event()
+
+        async def broadcast(**kwargs):
+            publishing.set()
+            await proceed.wait()
+            return MagicMock()
+
+        cog._create_and_broadcast = AsyncMock(side_effect=broadcast)
+        task = asyncio.create_task(view.handle_publish(self._make_interaction()))
+        try:
+            await asyncio.wait_for(publishing.wait(), timeout=1)
+            cancellation = self._make_interaction()
+            await view.handle_cancel(cancellation)
+            cancellation.response.edit_message.assert_not_awaited()
+            assert "/party_cancel" in cancellation.response.send_message.await_args.args[0]
+        finally:
+            proceed.set()
+            await task
+
+        cog._create_and_broadcast.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_failed_publication_does_not_spend_cooldown_and_allows_retry(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Отказ Discord до публикации не блокирует следующую попытку автора."""
+        self._mock_broadcast_io(cog)
+        interaction = self._make_interaction()
+        message = interaction.channel.send.return_value
+        interaction.channel.send.side_effect = [
+            discord.Forbidden(MagicMock(status=403), "forbidden"),
+            message,
+        ]
+        try:
+            await self._make_view(cog).handle_publish(interaction)
+
+            assert cog._party_cooldown_remaining(100) == 0
+            assert not cog._publishing_users
+            assert not cog.manager.all_active()
+            notice = interaction.edit_original_response.await_args.kwargs["view"]
+            assert any(
+                isinstance(child, discord.ui.TextDisplay)
+                and "Не удалось опубликовать" in child.content
+                for child in notice.walk_children()
+            )
+
+            await self._make_view(cog).handle_publish(interaction)
+            assert len(cog.manager.all_active()) == 1
+            cog._send_dms.assert_awaited_once()
+        finally:
+            await cog.cog_unload()
+
+    @pytest.mark.asyncio
+    async def test_finalization_can_run_before_broadcast_completes(
+        self, cog: PartyCog, patched_settings: BotSettings
+    ) -> None:
+        """Рассылка не откладывает запуск дедлайна и не оживляет закрытый сбор."""
+        self._mock_broadcast_io(cog)
+
+        async def expire(party):
+            await cog._finalize(party)
+
+        async def slow_broadcast(party, role, initiator):
+            await cog._timers[party.id]
+            return 0
+
+        cog._finalize_after = AsyncMock(side_effect=expire)
+        cog._send_dms = AsyncMock(side_effect=slow_broadcast)
+        await self._make_view(cog).handle_publish(self._make_interaction())
+
+        assert not cog.manager.all_active()
+        assert not cog._timers
+        cog._refresh_all_embeds.assert_not_awaited()
+        cog._maybe_start_ready_check.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_edit_reopens_modal(self, cog: PartyCog, patched_settings: BotSettings) -> None:

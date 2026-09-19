@@ -17,6 +17,8 @@ from typing import Any
 import discord
 from discord import ui
 
+from utils.role_reaction_data_manager import RoleReactionDataManager
+
 logger = logging.getLogger("bot.utils.role_reaction_views")
 
 CUSTOM_ID_TEMPLATE = re.compile(r"rr:role:(?P<role_id>\d+)")
@@ -79,6 +81,19 @@ class RoleButton(ui.DynamicItem[ui.Button], template=CUSTOM_ID_TEMPLATE):
         role = guild.get_role(self.role_id)
         if role is None:
             await interaction.response.send_message("Роль больше не существует.", ephemeral=True)
+            return
+
+        bindings = await RoleReactionDataManager().get_all_role_reactions(guild.id)
+        if interaction.message is None or not any(
+            binding["role_id"] == self.role_id
+            and binding["message_id"] == interaction.message.id
+            and binding["channel_id"] == interaction.channel_id
+            for binding in bindings
+        ):
+            await interaction.response.send_message(
+                "Эта кнопка больше недоступна. Открой актуальное сообщение с ролями.",
+                ephemeral=True,
+            )
             return
 
         no_mentions = discord.AllowedMentions.none()

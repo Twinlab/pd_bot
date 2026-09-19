@@ -544,6 +544,13 @@ class MusicCog(commands.Cog, name="Music"):  # type: ignore[misc]
         if not player.paused:
             await safe_send_error(ctx, "Воспроизведение не на паузе.")
             return
+        if not isinstance(ctx.author, discord.Member) or not player.can_control(ctx.author):
+            await safe_send_error(
+                ctx,
+                "Продолжить воспроизведение может только администратор "
+                "или тот, кто заказал этот трек.",
+            )
+            return
         await player.pause(False)
         await self._send_status(ctx, "▶️ Продолжаем", kind="success")
 

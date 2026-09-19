@@ -317,7 +317,9 @@ class TopReactionsView(ui.LayoutView):
         if 0 <= new_page <= self.total_pages - 1:
             self.current_page = new_page
             self._render()
-            await interaction.response.edit_message(view=self)
+            await interaction.response.edit_message(
+                view=self, allowed_mentions=discord.AllowedMentions.none()
+            )
         else:
             await interaction.response.defer()
 
@@ -327,7 +329,7 @@ class TopReactionsView(ui.LayoutView):
                 item.disabled = True
         if self.message:
             try:
-                await self.message.edit(view=self)
+                await self.message.edit(view=self, allowed_mentions=discord.AllowedMentions.none())
             except discord.HTTPException:
                 pass
 
@@ -560,7 +562,7 @@ class TopReactionsCog(commands.Cog):
             )
             empty_view: ui.LayoutView = ui.LayoutView(timeout=None)
             empty_view.add_item(container)
-            await ctx.send(view=empty_view)
+            await ctx.send(view=empty_view, allowed_mentions=discord.AllowedMentions.none())
             return
 
         view = TopReactionsView(
@@ -573,7 +575,7 @@ class TopReactionsCog(commands.Cog):
             year=year_arg,
             month=month_arg,
         )
-        message = await ctx.send(view=view)
+        message = await ctx.send(view=view, allowed_mentions=discord.AllowedMentions.none())
         view.message = message
 
     @commands.hybrid_command(
@@ -782,7 +784,7 @@ class TopReactionsCog(commands.Cog):
         report_view.add_item(container)
 
         try:
-            await channel.send(view=report_view)
+            await channel.send(view=report_view, allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException as e:
             logger.error(f"monthly_report: не удалось отправить отчёт: {e}")
             return False

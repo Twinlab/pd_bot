@@ -376,6 +376,25 @@ class TestRoleAssignCommand:
 
 
 class TestRoleRemoveCommand:
+    async def test_role_remove_reports_message_refresh_failure(
+        self, role_reaction_cog, mock_interaction, mock_data_manager
+    ):
+        mock_data_manager.get_message_info.return_value = (123, 456)
+        mock_data_manager.remove_role_reaction.return_value = True
+        role_reaction_cog.update_reaction_message = AsyncMock(return_value=False)
+
+        await role_reaction_cog.role_remove.callback(
+            role_reaction_cog, mock_interaction, emoji="👍"
+        )
+
+        mock_data_manager.remove_role_reaction.assert_awaited_once_with(
+            mock_interaction.guild.id, "👍"
+        )
+        response = mock_interaction.response.send_message.await_args
+        assert "Привязка удалена из списка" in response.args[0]
+        assert "обновить сообщение с кнопками не удалось" in response.args[0]
+        assert response.kwargs["ephemeral"] is True
+
     @pytest.mark.asyncio
     async def test_role_remove_message_not_setup(
         self,

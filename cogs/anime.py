@@ -345,7 +345,8 @@ class AnimeCog(commands.Cog):
         и ``score >= min_score``.
 
         ``order:random`` на сверхпопулярных тегах (миллионы постов, напр. ``1girl``) Danbooru
-        отвечает HTTP 500, поэтому при 500 делается фолбэк на ``order:rank``.
+        отвечает HTTP 500. Тогда выбираем случайный пост из последних подходящих
+        и перебираем страницы, сохраняя рейтинг, оценку и защиту от повторов.
 
         Args:
             settings: Объект настроек бота.
@@ -359,24 +360,26 @@ class AnimeCog(commands.Cog):
         score_filter = f"score:>={settings.anime.min_score}"
         limit = str(settings.anime.limit)
 
+        order = "order:random"
+        page = 1
         for attempt in range(MAX_RETRIES):
             logger.info(f"Попытка {attempt + 1}/{MAX_RETRIES} (ручной тег '{tag}')...")
-            posts: list[AnimePost] = []
-            for order in ("order:random", "order:rank"):
-                status, data = await self._request_danbooru(
-                    settings,
-                    {
-                        "tags": f"{tag} {order} rating:{chosen_rating} {score_filter}",
-                        "limit": limit,
-                    },
-                )
-                if status == 200:
-                    posts = self._parse_posts(
-                        data, settings, chosen_rating, require_girl=False, apply_excluded=False
-                    )
-                    break
-                if status != 500:
-                    break
+            params = {
+                "tags": f"{tag} {order} rating:{chosen_rating} {score_filter}",
+                "limit": limit,
+            }
+            if order == "order:id_desc":
+                params["page"] = str(page)
+            status, data = await self._request_danbooru(settings, params)
+            if status == 500 and order == "order:random":
+                logger.info("Случайный поиск Danbooru недоступен; переходим к последним постам.")
+                order = "order:id_desc"
+                continue
+            if status != 200:
+                break
+            posts = self._parse_posts(
+                data, settings, chosen_rating, require_girl=False, apply_excluded=False
+            )
 
             candidate = self._pick_fresh(posts)
             if candidate:
@@ -384,8 +387,12 @@ class AnimeCog(commands.Cog):
                     f"Найден пост по тегу '{tag}' (ID: {candidate.post_id}, score: {candidate.score})"
                 )
                 return candidate
+            if order == "order:id_desc":
+                if not data:
+                    break
+                page += 1
 
-        logger.error(f"Не удалось найти пост по тегу '{tag}' после всех попыток.")
+        logger.error(f"Не удалось найти подходящий пост по тегу '{tag}'.")
         return None
 
     def _parse_posts(

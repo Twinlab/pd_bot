@@ -9,7 +9,7 @@
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from io import BytesIO
 
 import aiohttp
@@ -52,6 +52,7 @@ class UserStatsTracker(commands.Cog):
         self.activity_manager = ActivityDataManager()
         self.reactions_manager = TopReactionsDataManager()
         self.voice_sessions: dict[int, datetime] = {}
+        self._pending_voice: dict[tuple[int, date], int] = {}
         self._voice_lock = asyncio.Lock()
         self._scan_scheduled = False
 
@@ -152,34 +153,49 @@ class UserStatsTracker(commands.Cog):
         elif not active and member.id in self.voice_sessions:
             await self._close_session(member.id, now)
 
-    async def _save_voice_interval(
+    def _queue_voice_interval(
         self,
         user_id: int,
         started_at: datetime,
         ended_at: datetime,
     ) -> None:
-        """Сохраняет голосовой интервал в правильные московские даты."""
+        """Фиксирует завершённый интервал до обращения к БД под ``_voice_lock``."""
         for target_date, seconds in split_interval_by_local_date(started_at, ended_at):
-            await self.stats_manager.add_voice_seconds(
-                user_id,
-                seconds,
-                target_date=target_date,
-            )
+            key = (user_id, target_date)
+            self._pending_voice[key] = self._pending_voice.get(key, 0) + seconds
+
+    async def _flush_pending_voice(self) -> bool:
+        """Повторяет только незаписанные интервалы под ``_voice_lock``."""
+        for key, seconds in list(self._pending_voice.items()):
+            user_id, target_date = key
+            try:
+                await self.stats_manager.add_voice_seconds(
+                    user_id, seconds, target_date=target_date
+                )
+            except Exception:
+                logger.exception(
+                    "Не удалось сохранить голос %s за %s; интервал оставлен для повтора",
+                    user_id,
+                    target_date,
+                )
+                return False
+            del self._pending_voice[key]
+        return True
 
     async def _close_session(self, user_id: int, now: datetime) -> None:
         """Закрывает сессию и пишет накопленные секунды в БД (если в допустимом диапазоне)."""
-        start = self.voice_sessions.get(user_id)
+        start = self.voice_sessions.pop(user_id, None)
         if start is None:
             return
         cfg = get_settings().user_stats
         elapsed = int((now - start).total_seconds())
         if cfg.voice_min_record <= elapsed < cfg.voice_max_record:
-            await self._save_voice_interval(user_id, start, now)
+            self._queue_voice_interval(user_id, start, now)
         elif elapsed >= cfg.voice_max_record:
             logger.warning(f"Аномально длинная голосовая сессия {user_id} ({elapsed}s) — пропуск.")
-        self.voice_sessions.pop(user_id, None)
+        await self._flush_pending_voice()
 
-    async def _flush_active(self, *, restart: bool) -> None:
+    async def _flush_active(self, *, restart: bool) -> bool:
         """Сбрасывает накопленное время активных сессий в БД.
 
         Args:
@@ -188,6 +204,7 @@ class UserStatsTracker(commands.Cog):
         """
         async with self._voice_lock:
             await self._flush_active_locked(restart=restart)
+            return await self._flush_pending_voice()
 
     async def _flush_active_locked(self, *, restart: bool) -> None:
         """Сохраняет голосовые сессии; вызывается только под ``_voice_lock``."""
@@ -200,7 +217,7 @@ class UserStatsTracker(commands.Cog):
         for user_id, start in list(self.voice_sessions.items()):
             elapsed = int((now - start).total_seconds())
             if cfg.voice_min_record <= elapsed < cfg.voice_max_record:
-                await self._save_voice_interval(user_id, start, now)
+                self._queue_voice_interval(user_id, start, now)
             elif elapsed >= cfg.voice_max_record:
                 logger.warning(f"Аномальная сессия {user_id} ({elapsed}s) при флаше — сброс.")
                 self.voice_sessions.pop(user_id, None)
@@ -239,7 +256,8 @@ class UserStatsTracker(commands.Cog):
     async def daily_transfer(self) -> None:
         """В полночь по МСК флашит голос и переносит накопившиеся дневные данные."""
         try:
-            await self._flush_active(restart=True)
+            if not await self._flush_active(restart=True):
+                return
             today = moscow_today()
             yesterday = today - timedelta(days=1)
             pending_dates = await self.stats_manager.get_pending_daily_dates(today)

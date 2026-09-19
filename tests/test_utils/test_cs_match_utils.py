@@ -17,7 +17,6 @@ from utils.cs_match_utils import (
     _to_int,
     get_cs_match_data,
     handle_cs_lastmatch,
-    resolve_player_by_nickname,
 )
 
 
@@ -184,36 +183,6 @@ class TestPureHelpers:
         rating = _compute_hltv1_rating(stats, 25)
         assert rating is not None
         assert rating < 0.7
-
-
-class TestResolvePlayer:
-    """Тесты resolve_player_by_nickname."""
-
-    @pytest.mark.asyncio
-    async def test_success(self):
-        with patch(
-            "utils.cs_match_utils.faceit_get_with_retry", new_callable=AsyncMock
-        ) as mock_get:
-            mock_get.return_value = {"player_id": "p1", "games": {"cs2": {}}}
-            result = await resolve_player_by_nickname("Coolguy", "key")
-            assert result is not None
-            assert result["player_id"] == "p1"
-
-    @pytest.mark.asyncio
-    async def test_not_found(self):
-        with patch(
-            "utils.cs_match_utils.faceit_get_with_retry", new_callable=AsyncMock
-        ) as mock_get:
-            mock_get.return_value = None
-            assert await resolve_player_by_nickname("Nope", "key") is None
-
-    @pytest.mark.asyncio
-    async def test_no_cs2(self):
-        with patch(
-            "utils.cs_match_utils.faceit_get_with_retry", new_callable=AsyncMock
-        ) as mock_get:
-            mock_get.return_value = {"player_id": "p1", "games": {"csgo": {}}}
-            assert await resolve_player_by_nickname("Coolguy", "key") is None
 
 
 class TestGetCsMatchData:

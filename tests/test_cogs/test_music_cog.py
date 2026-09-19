@@ -196,6 +196,30 @@ class TestCommandsGuardErrors:
         wrapped = hybrid_cmd.callback
         return getattr(wrapped, "__wrapped__", wrapped)
 
+    @pytest.mark.parametrize("can_control", [False, True])
+    async def test_resume_checks_requester_or_admin(
+        self, cog: MusicCog, mock_player: MusicPlayer, monkeypatch, can_control: bool
+    ) -> None:
+        ctx = MagicMock(spec=commands.Context)
+        ctx.author = MagicMock(spec=discord.Member)
+        monkeypatch.setattr(type(mock_player), "paused", property(lambda self: True))
+        with (
+            patch.object(cog, "_require_same_voice", return_value=mock_player),
+            patch.object(mock_player, "can_control", return_value=can_control) as check,
+            patch.object(mock_player, "pause", new=AsyncMock()) as pause,
+            patch.object(cog, "_send_status", new=AsyncMock()),
+            patch("cogs.music.safe_send_error", new=AsyncMock()) as send_error,
+        ):
+            await self._raw_callback(cog.resume)(cog, ctx)
+
+        check.assert_called_once_with(ctx.author)
+        if can_control:
+            pause.assert_awaited_once_with(False)
+            send_error.assert_not_awaited()
+        else:
+            pause.assert_not_awaited()
+            send_error.assert_awaited_once()
+
     async def test_skip_without_player_sends_error(self, cog: MusicCog) -> None:
         ctx = MagicMock(spec=commands.Context)
         ctx.guild = MagicMock(spec=discord.Guild)
