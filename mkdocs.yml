@@ -1,5 +1,5 @@
 site_name: PD Bot
-site_description: Многофункциональный Discord бот на Python
+site_description: Discord-бот для небольшого сервера — команды, установка и разработка
 repo_url: https://github.com/twinlab/pd_bot
 repo_name: twinlab/pd_bot
 
@@ -52,10 +52,22 @@ markdown_extensions:
   - toc:
       permalink: true
 
+strict: true
+validation:
+  nav:
+    omitted_files: warn
+  links:
+    anchors: warn
+    unrecognized_links: warn
+
 nav:
   - Главная: index.md
-  - Начало работы: getting-started.md
-  - Архитектура: architecture.md
-  - Команды: commands.md
-  - Деплой: deployment.md
-  - Стиль кода: style-guide.md
+  - Участникам:
+      - Команды: commands.md
+      - Данные и приватность: data-and-privacy.md
+  - Владельцам:
+      - Начало работы: getting-started.md
+      - Эксплуатация: deployment.md
+  - Разработчикам:
+      - Архитектура: architecture.md
+      - Разработка: style-guide.md

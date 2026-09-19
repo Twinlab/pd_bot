@@ -1,301 +1,133 @@
-# Деплой
+# Развёртывание и эксплуатация
 
-## TL;DR — что произойдёт при мердже в `main`
+Первый запуск собственного экземпляра описан в [начале работы](getting-started.md). Здесь — устройство существующего Compose, обновление и сохранность данных. Все команды выполняются из корня проекта на хосте Docker.
 
-> ⚠️ **Важно: одного мерджа в `main` недостаточно при структурных изменениях.** Watchtower на VM обновляет только `image` существующих контейнеров — он **не** пуллит `docker-compose.yml` из git, **не** добавляет новые сервисы и **не** создаёт новые env-переменные. Если в PR появился новый сервис, env или volume — после мерджа нужно зайти на VM и выполнить `git pull && docker compose up -d` руками.
+Примеры с `docker compose` используют основной `docker-compose.yml`. Если вы создали `compose.selfhost.yaml`, добавляйте к ним `-f docker-compose.yml -f compose.selfhost.yaml`, как в инструкции первого запуска.
 
-Что произойдёт автоматически:
+## Сервисы и данные
 
-1. CI прогонит Ruff и pytest, соберёт новый `ghcr.io/twinlab/pd_bot:latest` и запушит в GHCR.
-2. Watchtower на VM через ≤60 секунд увидит новый image, остановит старый контейнер `pd_bot`, поднимет новый из того же `image`, с теми же volume/env/network что были на VM **до** этого момента.
-3. Новый бот загрузится и фоном подключится к существующему сервису `lavalink:2333`.
-4. При временной недоступности Lavalink остальные подсистемы продолжат работать, а музыкальные команды будут возвращать контролируемую ошибку до восстановления ноды.
+| Сервис | Назначение |
+| --- | --- |
+| `bot` | Команды Discord, статистика, фоновые публикации; Python 3.13 |
+| `lavalink` | Аудиоплеер с YouTube-плагином и LavaSrc |
+| `yt-cipher` | Обработка YouTube-сигнатур для плагина Lavalink |
+| `watchtower` | Необязательное автоматическое обновление помеченных контейнеров |
 
-При остановке контейнера бот обрабатывает `SIGTERM`: закрытие Discord ограничено
-3 секундами, сетевые клиенты — 2 секундами параллельно, SQLite — отдельными
-2 секундами. Даже при зависшем клиенте штатное завершение занимает не более
-примерно 7 секунд и укладывается в стандартное окно остановки Docker.
+Lavalink и `yt-cipher` доступны во внутренней Docker-сети; Compose не публикует их порты на хосте. Бот запускается после успешной TCP-проверки Lavalink. Она подтверждает доступность порта, а не успешное воспроизведение.
 
----
+| Путь на хосте | Содержимое и способ подключения |
+| --- | --- |
+| `data/` | SQLite `bot_data.db` и рабочие данные; том `/app/data` |
+| `logs/` | Журналы бота; том `/app/logs` |
+| `assets/` | Изображения и цитаты; том `/app/assets`, заменяющий каталог из образа |
+| `lavalink/application.yml` | Конфигурация музыкальной ноды, подключена только для чтения |
+| `lavalink/plugins/`, `lavalink/logs/` | Загруженные плагины и журналы Lavalink |
+| `.env` | Окружение сервисов; остаётся на хосте и не включается в образ |
 
-## Объявления о пользовательских изменениях
+В основном Compose файл `config/bot_settings.yaml` находится **в образе**. Изменение его локальной копии требует нового образа. Пример `compose.selfhost.yaml` дополнительно монтирует этот файл: в таком варианте достаточно перезапуска бота после изменения YAML.
 
-При релизе с новыми возможностями или заметными исправлениями заполните
-`config/release_notes.yaml`:
+### Объявления об обновлениях {#release-announcements}
 
-- `id` — новый уникальный ID объявления, например дата релиза. Использованные ID
-  нельзя переиспользовать: исправление текста при прежнем ID не отправит новый пост.
-- `title` — заголовок карточки.
-- `text` — авторский текст с Markdown, до 3500 символов. Для нескольких строк
-  используйте YAML-блок `text: |`. Пустое поле отключает отправку.
+Для собственного экземпляра сначала установите `announcements: null` в разделе `channels` файла `config/bot_settings.yaml`. Если анонсы нужны, подготовьте свои `id`, `title` и `text` в `config/release_notes.yaml`, затем задайте канал. Этот файл тоже включён в образ: его изменения требуют пересборки или отдельного подключения томом. Пример selfhost монтирует только `bot_settings.yaml`.
 
-Для технического обновления оставьте этот файл без изменений. Бот не составляет
-анонс из git-коммитов и не отправляет сообщения на каждый новый `BOT_REVISION`.
-После установки образа и подключения к Discord непустой новый анонс уйдёт
-в `channels.announcements`. Упоминания пользователей, ролей и `@everyone` отключены.
-В development/testing отправка отключена. Текст первого релиза предоставлен владельцем.
+Объявление публикуется после запуска только при `BOT_ENVIRONMENT=production`, непустом `text` и настроенном канале. Для нового объявления нужен новый `id`; журнал доставки хранится в `data/release_announcements.json` и предотвращает повторы при перезапуске.
 
-Нужны права просмотра канала, отправки сообщений и чтения истории.
-При временном сбое бот повторяет попытку через пять минут. Если отправка оборвалась,
-сначала проверяется история, чтобы восстановить результат принятого Discord поста.
-Ошибки пишутся в лог `bot.cogs.announcements`.
-
-Журнал `data/release_announcements.json` живёт в уже подключённом `/app/data`.
-Сохраняйте его вместе с остальными данными при переносе и восстановлении VM:
-удаление журнала сбросит память об отправленных объявлениях. Миграция SQLite,
-новые секреты, volumes и ручной перезапуск Compose для этой функции не нужны.
-
-## Архитектура CI/CD
-
-```mermaid
-graph LR
-    A[Push в main] --> B[GitHub Actions: Ruff и pytest]
-    B --> C[Сборка Docker-образа pd_bot]
-    C --> D[Push в ghcr.io/twinlab/pd_bot:latest]
-    D --> E[Watchtower на VM polls каждые 60s]
-    E --> F[Обновление контейнера pd_bot]
-
-    subgraph "только image"
-        F
-    end
-
-    subgraph "вручную при изменении схемы"
-        G[git pull на VM]
-        H[Правка .env]
-        I[docker compose up -d]
-    end
-
-    G -.-> I
-    H -.-> I
-```
-
-GitHub Actions конфигурация: `.github/workflows/deploy.yml`. На VM достаточно одного `docker compose up -d`, чтобы запустить связку `bot + lavalink + yt-cipher + watchtower`. Watchtower автоматически обновляет бот с тегом `:latest` и `yt-cipher:master`; остальные инфраструктурные образы закреплены по версии и digest.
-
-### Что Watchtower умеет и **не** умеет
-
-| Умеет | Не умеет |
-|-------|----------|
-| Подтягивать новые `:latest` image-ы из GHCR | Подтягивать новый `docker-compose.yml` из git |
-| Перезапускать контейнеры с label `com.centurylinklabs.watchtower.enable=true` | Создавать **новые** сервисы, появившиеся в compose-файле |
-| Удалять старые image-ы (`--cleanup`) | Менять `env_file`, `environment`, `volumes`, `depends_on`, `networks` существующего сервиса |
-| Авторизоваться в GHCR через `REPO_USER`/`REPO_PASS` | Читать ваши новые секреты из репозитория |
-
-Поэтому любое **структурное** изменение docker-compose (новый сервис, новые env, новые volume) требует ручного шага на VM.
-
-Отдельная gotcha: `lavalink/application.yml` — это volume-mount, поэтому после правок нужен `docker compose restart lavalink` руками (Watchtower не среагирует — образ не меняется).
-
-### Обновление инфраструктуры и музыкальных плагинов
-
-Python, Lavalink и Watchtower закреплены по версии и OCI digest. Плагины `youtube-source`
-и LavaSrc закреплены Maven-координатами в `lavalink/application.yml`. Они тоже требуют
-регулярного обновления, но обновляются отдельным PR вместе с проверкой совместимости
-конфига, версии Lavalink и воспроизведения.
-
-`yt-cipher` — исключение: сервис отслеживает частые изменения `player.js`, поэтому
-использует `master` и автоматически обновляется Watchtower.
-
-Для закреплённых компонентов:
-
-1. Выбрать совместимую версию и прочитать release notes.
-2. Проверить manifest командой `docker buildx imagetools inspect <image>`.
-3. Обновить тег и digest в `Dockerfile` или `docker-compose.yml`.
-4. Прогнать тесты и Docker build.
-5. После мерджа выполнить на VM `git pull && docker compose up -d`.
-
-`LAVALINK_SERVER_PASSWORD` обязателен. Compose завершит проверку конфигурации ошибкой, если переменная отсутствует; известного fallback-пароля нет.
-
----
-
-## Сервис `yt-cipher`
-
-Stateless-сервис [kikkia/yt-cipher](https://github.com/kikkia/yt-cipher) — выносит signature-decoding (`/s/player/<hash>/...`) из плагина `youtube-source` в отдельный контейнер, потому что YouTube часто меняет обфускацию player.js и плагин за ней не успевает. Подключение — `plugins.youtube.remoteCipher` в `lavalink/application.yml`.
-
-В compose должна использоваться переменная `OVERRIDE_PLAYER_VARIANT=IAS`.
-Старое имя `OVERRIDE_SCRIPT_VARIANT` актуальный образ `yt-cipher` не читает.
-
-Адрес сервиса можно переопределить без правки YAML:
-
-```dotenv
-YOUTUBE_REMOTE_CIPHER_URL=https://cipher.kikkia.dev/
-```
-
-По умолчанию используется локальный `http://yt-cipher:8001`. Публичный endpoint
-имеет ограничение 10 запросов/с и не гарантирует стопроцентную доступность, поэтому
-он нужен прежде всего как fallback или для конфигурации с внешним HTTP-прокси.
-
----
-
-## Прокси для Lavalink
-
-`PROXY_URL` загружается Python-конфигом бота, но Lavalink и `youtube-source` эту
-переменную не разбирают. Для JVM-контейнера нужны штатные Spring Boot переменные:
-
-```dotenv
-LAVALINK_SERVER_HTTP_CONFIG_PROXY_HOST=proxy.example.com
-LAVALINK_SERVER_HTTP_CONFIG_PROXY_PORT=3128
-LAVALINK_SERVER_HTTP_CONFIG_PROXY_USER=username
-LAVALINK_SERVER_HTTP_CONFIG_PROXY_PASSWORD=password
-```
-
-Указывать нужно HTTP/HTTPS CONNECT-прокси: host без `http://`, порт отдельно.
-Если авторизации нет, переменные `USER` и `PASSWORD` следует полностью удалить,
-а не оставлять пустыми.
-
-`httpConfig` применяется ко всем запросам HTTP-клиента YouTube-плагина, включая
-обращение к `remoteCipher`. Внешний прокси обычно не может разрешить внутреннее
-Docker-имя `yt-cipher`. В таком случае есть два варианта:
-
-1. Подключить прокси-контейнер к сети `pd_bot_net`, чтобы он видел `yt-cipher`.
-2. Задать `YOUTUBE_REMOTE_CIPHER_URL=https://cipher.kikkia.dev/`, чтобы cipher-запрос
-   тоже шёл через прокси на публично разрешимое имя.
-
-Не добавляйте значения прокси в `application.yml`: логин и пароль должны оставаться
-только в `.env` на VM.
-
----
-
-## Диагностика музыки на VM
-
-Проверки ниже не печатают значения секретов.
-
-### 1. Состояние контейнеров и доступность cipher
+## Состояние и журналы
 
 ```bash
 docker compose ps
-docker compose exec lavalink sh -lc 'nc -z yt-cipher 8001 && echo "yt-cipher: reachable"'
+docker compose logs --since=10m bot
+docker compose logs --since=10m lavalink yt-cipher
 ```
 
-Если используется публичный `YOUTUBE_REMOTE_CIPHER_URL`, второй тест проверяет только
-локальный сервис и не является обязательным.
+В стартовом журнале бота есть `Версия сборки`. CI записывает туда SHA коммита через `APP_REVISION` → `BOT_REVISION`; сборка без этого аргумента показывает `development`. Это помогает отличить загруженный образ от ожидаемой версии исходников.
 
-### 2. Наличие OAuth и прокси в окружении Lavalink
+Для проверки поведения используйте `/help`, `/profile` и одну нужную интеграцию. После обновления музыки проверьте короткий трек в голосовом канале. Журналы OAuth могут содержать refresh token: перед публикацией фрагмента удаляйте секреты.
+
+## Обновление локальной сборки
+
+Обновите исходники до выбранной версии, сохраните резервную копию БД и соберите новый образ:
 
 ```bash
-docker compose exec lavalink sh -lc \
-  'test -n "$YOUTUBE_REFRESH_TOKEN" && echo "oauth=set" || echo "oauth=missing";
-   test -n "$LAVALINK_SERVER_HTTP_CONFIG_PROXY_HOST" && echo "proxy_host=set" || echo "proxy_host=missing";
-   test -n "$LAVALINK_SERVER_HTTP_CONFIG_PROXY_PORT" && echo "proxy_port=set" || echo "proxy_port=missing"'
+docker compose -f docker-compose.yml -f compose.selfhost.yaml build bot
+docker compose -f docker-compose.yml -f compose.selfhost.yaml up -d --no-deps bot
+docker compose -f docker-compose.yml -f compose.selfhost.yaml ps
 ```
 
-`oauth=missing` допустим только на время первого device-flow. Для постоянной работы
-нужен refresh token burner-аккаунта; основной Google-аккаунт использовать нельзя.
+База и остальные подключённые каталоги сохраняются при замене контейнера. `--no-deps` оставляет музыкальные сервисы работающими.
 
-### 3. Версии загруженных плагинов
+Настройки применяются по-разному:
+
+- Изменение `.env` требует пересоздания соответствующего контейнера, например `docker compose up -d --force-recreate --no-deps bot`. Обычный [`restart` не перечитывает окружение контейнера](https://docs.docker.com/reference/cli/docker/compose/restart/).
+- Изменение смонтированного `config/bot_settings.yaml` применяется после `docker compose restart bot`.
+- Изменение `lavalink/application.yml` требует перезапуска Lavalink; изменение его переменных в `.env` — пересоздания. Это прерывает музыку.
+- Изменение моделей БД требует отдельного плана миграции и проверенной копии базы. Создание отсутствующих таблиц при запуске не заменяет миграцию существующей схемы.
+
+## Обновление из registry {#registry-updates}
+
+Workflow `.github/workflows/deploy.yml` проверяет Ruff, форматирование и pytest на PR и push в `main`. После успешного push в `main` он публикует образ в GHCR с тегами `latest` и `sha-…`, а документацию — через MkDocs. Dockerfile и CI устанавливают зависимости через `pip`; `uv.lock` в этом процессе не используется.
+
+Для собственного форка укажите в `bot.image` образ своего репозитория. Конфигурацию своего сервера либо включите в этот образ, либо подключите YAML отдельным томом. Если registry закрытый, настройте доступ к нему на хосте; Watchtower использует `REPO_USER` и `REPO_PASS` из окружения.
+
+Ручное обновление уже настроенного образа:
 
 ```bash
-docker compose exec lavalink sh -lc \
-  'wget -qO- --header="Authorization: $LAVALINK_SERVER_PASSWORD" \
-  http://127.0.0.1:2333/v4/info'
+docker compose pull bot
+docker compose up -d --no-deps bot
 ```
 
-В `plugins` должна быть версия `youtube-plugin` из `lavalink/application.yml`, а в
-`sourceManagers` — `youtube`. Lavalink при старте сам удаляет старую версию jar из
-persistent volume и скачивает объявленную.
-
-YouTube-плагин закреплён на коммите `f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3`
-из официального snapshots-репозитория. Версия plugin-модуля указывается без
-суффикса `-SNAPSHOT`. Релиз `1.18.2` не содержит августовское исправление
-User-Agent OAuth-клиента TV. Причины выбора, контрольные суммы и результаты
-проверок приведены в [отчёте диагностики музыки](music-diagnostics-2026-09-05.md).
-
-### 4. Безопасный срез ошибок
+Watchtower запускается отдельно:
 
 ```bash
-docker compose logs --since=10m lavalink yt-cipher \
-  | grep -E 'AllClientsFailed|RemoteCipher|read timeout|Sign in|403|429|youtube-plugin'
-
-docker compose logs --since=10m bot \
-  | grep -E 'VOICE_STATE_UPDATE|VOICE_SERVER_UPDATE|ChannelTimeout'
+docker compose up -d watchtower
 ```
 
-Не публикуйте целиком OAuth device-flow лог: в нём может появиться refresh token.
+В текущем Compose он проверяет обновления каждые 60 секунд и обрабатывает только контейнеры с меткой `com.centurylinklabs.watchtower.enable=true`. Такая метка есть у `bot` и `yt-cipher`; у Lavalink её нет. У локальной сборки из руководства метка бота отключена.
 
-### Как читать результат
+`yt-cipher` использует изменяемый тег `master`, поэтому при включённом Watchtower может обновиться независимо от кода бота. Текущая схема не фиксирует версию этого сервиса и не выполняет автоматический откат после проверки звука. Watchtower получает Docker socket и относится к доверенным управляющим компонентам хоста.
 
-| Фрагмент ошибки | Что проверять |
-|---|---|
-| `Sign in to confirm you're not a bot`, `403`, `429` | OAuth, репутацию IP и фактическое наличие proxy-переменных |
-| `TVHTML5` и `The page needs to be reloaded` | Версию youtube-plugin: в `1.18.2` остался отвергаемый YouTube User-Agent TV-клиента |
-| `RemoteCipher`, `resolve_url`, `read timeout` | Доступность `yt-cipher`, `YOUTUBE_REMOTE_CIPHER_URL`, таймауты |
-| `AllClientsFailedException` | Вложенные причины по каждому InnerTube-клиенту; это исходная ошибка YouTube |
-| В `/v4/info` нет `youtube` | Загрузку jar и версию `youtube-plugin` |
-| `ChannelTimeoutException`, без `PATCH /players` в Lavalink | Порядок событий Discord Voice Gateway; `MusicPlayer` повторно собирает handshake после получения обеих частей |
-| Трек стартует без YouTube-ошибок, но аудио нет | Discord Voice/DAVE и события voice gateway, а не источник YouTube |
+## Музыкальные источники
 
-После изменения `docker-compose.yml`, `application.yml` или `.env`:
+Версии Lavalink и его плагинов задаются в `docker-compose.yml` и `lavalink/application.yml`. Сверяйтесь с этими файлами при обновлении: перечень источников и параметры внешних сервисов могут меняться.
+
+В конфигурации включены YouTube, SoundCloud, Bandcamp, Twitch, Vimeo и NicoNico. Для Spotify включён LavaSrc: он разрешает метаданные, а аудио ищет через настроенных провайдеров. Apple Music, Deezer и Yandex Music в текущем YAML отключены. Произвольные HTTP- и локальные файловые источники также отключены.
+
+### yt-cipher
+
+По умолчанию YouTube-плагин обращается к `http://yt-cipher:8001` во внутренней сети. `YOUTUBE_REMOTE_CIPHER_URL` позволяет указать другой совместимый сервис. Он отвечает за разбор сигнатур; сам по себе не заменяет OAuth и не гарантирует доступность YouTube.
+
+OAuth настраивается при [первом запуске](getting-started.md#youtube-setup). При проблеме сначала проверьте состояние контейнеров и короткий фрагмент журналов: ошибки входа, ограничения источника и недоступность `yt-cipher` требуют разных действий. Не отключайте проверку TLS-сертификатов.
+
+## Резервные копии
+
+Сохраняйте базу, собственные файлы `assets/`, конфигурацию и секреты в защищённом хранилище. Образы из registry не содержат рабочую БД. Копия на том же диске полезна для отката, но не защищает от потери хоста.
+
+Для SQLite используйте согласованный snapshot. Обычное копирование только `bot_data.db` во время работы может не включить изменения из WAL.
+
+Скрипт `ops/backup_db.sh` создаёт snapshot через `VACUUM INTO`, проверяет целостность и внешние ключи, сжимает файл и проверяет его повторное чтение. Для Linux нужны Bash, `sqlite3`, `gzip` и стандартные файловые утилиты; отправка через необязательный webhook дополнительно использует `curl`.
+
+Пример локальной копии с явными путями и без внешней отправки:
 
 ```bash
-git pull
-docker compose pull bot yt-cipher
-docker compose up -d --force-recreate yt-cipher lavalink bot
-docker compose ps
+PD_BOT_DB_PATH="$PWD/data/bot_data.db" \
+PD_BOT_BACKUP_DIR="$PWD/backups/db" \
+PD_BOT_BACKUP_ENV_FILE=/dev/null \
+PD_BOT_BACKUP_REQUIRE_UPLOAD=0 \
+DB_BACKUP_WEBHOOK_URL= \
+PD_BOT_BACKUP_KEEP=14 \
+bash ops/backup_db.sh
 ```
 
----
+Указание всех путей делает запуск независимым от значений по умолчанию в скрипте. Он оставляет 14 последних архивов в выбранном каталоге. Расписание запуска и копирование во внешнее хранилище настраиваются на хосте отдельно; Compose и CI этого не делают.
 
-## Идентификация production-сборки
+Включая отправку через `DB_BACKUP_WEBHOOK_URL`, учитывайте, что получателю передаётся вся база. Храните URL отдельно от репозитория и ограничьте доступ к каналу/хранилищу. Для своих настроек скрипта используйте `PD_BOT_BACKUP_ENV_FILE`; такой файл содержит shell-присваивания и должен быть доступен только доверенному администратору.
 
-CI передаёт полный `${{ github.sha }}` в Docker build-arg `APP_REVISION`. Runtime-образ
-сохраняет его в `BOT_REVISION`, а `main.py` пишет значение в стартовый лог:
+## Восстановление и откат
 
-```text
-Версия сборки: <git-sha>
-```
+1. Если Watchtower запущен, остановите его на время работ: `docker compose stop watchtower`.
+2. Остановите бот: `docker compose stop bot`. Убедитесь, что других процессов с доступом к этой базе нет.
+3. Сохраните отдельную копию текущего каталога `data/`. Распакуйте выбранный архив в другой каталог и проверьте его командой `sqlite3 restored.db 'PRAGMA integrity_check; PRAGMA foreign_key_check;'`: ожидается `ok` без строк ошибок внешних ключей.
+4. Замените базу проверенным snapshot. Не оставляйте рядом WAL/SHM от другой версии базы; предварительно сохраните их вместе с прежним `data/`. Верните файлу права пользователя контейнера.
+5. Запустите совместимую с этой схемой версию бота и проверьте команды, привязки и статистику. Учитывайте, что изменения после момента резервной копии в восстановленной базе отсутствуют.
 
-Локальная сборка без аргумента получает значение `development`. Это позволяет после
-обновления Watchtower сопоставить работающий контейнер с конкретным коммитом, не
-полагаясь только на изменяемый тег `latest`.
-
-## Выпуск /tyan с новой таблицей
-
-Перед публикацией первого образа с `/tyan` выполнить
-[ручной план миграции](tyan-migration-plan.md): проверенный backup на VM,
-затем добавление `tyan_rolls`, затем обычный выпуск кода.
-Изменения Compose, зависимостей и секретов не требуются.
-
-## Backup SQLite на VM
-
-Production-база копируется независимо от bot-контейнера. Версия скрипта хранится в
-`ops/backup_db.sh`, на VM устанавливается как `/home/twinlab/backup_db.sh` и
-запускается cron ежедневно в 04:30 МСК:
-
-```cron
-30 4 * * * /home/twinlab/backup_db.sh >> /home/twinlab/backup_db.log 2>&1
-```
-
-Скрипт:
-
-- создаёт согласованный snapshot через SQLite `VACUUM INTO`, поэтому активный WAL не
-  требуется копировать отдельно;
-- проверяет `integrity_check` и внешние ключи до сжатия;
-- распаковывает архив во временный файл и повторно проверяет восстановленную БД;
-- хранит 14 последних локальных копий;
-- отправляет архив во внешнее хранилище через Discord webhook;
-- сообщает в тот же webhook о неуспешном запуске, если URL доступен.
-
-Webhook хранится только на VM в `/home/twinlab/.pd_bot_backup.env`:
-
-```dotenv
-DB_BACKUP_WEBHOOK_URL=https://discord.com/api/webhooks/...
-```
-
-Файл должен иметь права `600`, скрипт — `700`. Значение webhook нельзя добавлять в
-репозиторий или печатать в диагностике.
-
-### Проверка последней копии без остановки бота
-
-Проверка работает с отдельным временным файлом и не изменяет production-БД:
-
-```bash
-latest="$(find backups/db -maxdepth 1 -type f -name 'bot_data-*.db.gz' \
-  -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)"
-restored="$(mktemp /tmp/pd_bot_restore_check.XXXXXX.db)"
-gzip -t "$latest"
-gzip -dc "$latest" > "$restored"
-sqlite3 "$restored" 'PRAGMA integrity_check; PRAGMA foreign_key_check;'
-rm -f -- "$restored"
-```
-
-Ожидаемый результат `integrity_check` — `ok`, а `foreign_key_check` не должен
-возвращать строк. Полное восстановление production-БД выполняется только при
-остановленном bot-контейнере и после сохранения отдельной копии текущей базы.
+Если откатывается только код и схема совместима, достаточно вернуть известный рабочий образ по SHA-тегу или digest и пересоздать `bot`. При изменении схемы нужен согласованный откат базы и кода. Возобновляйте Watchtower после выбора нужного образа и политики обновления, иначе изменяемый тег может снова привести к автоматической замене.
