@@ -66,3 +66,28 @@ async def test_negative_counter_rejected(db) -> None:
 async def test_invalid_period_rejected() -> None:
     with pytest.raises(ValueError):
         await WrappedDataManager().get_month(2026, 13)
+
+
+async def test_year_snapshot_merges_months_and_pending_days(db) -> None:
+    for month in (1,2):
+        await MonthlyUserStats.create(discord_user_id=1, year=2026, month=month,
+                                      messages=100, voice_seconds=3600)
+        await MonthlyActivity.create(discord_user_id=1, game_name="A", year=2026,
+                                     month=month,total_seconds_in_month=1800)
+    await DailyUserStats.create(discord_user_id=1, date="2026-12-31",messages=10,voice_seconds=1)
+    await DailyActivity.create(discord_user_id=1, game_name="A",date="2026-12-31",
+                               seconds_played_today=1)
+    await DailyUserStats.create(discord_user_id=1,date="2025-12-31",messages=999,voice_seconds=9)
+    result=await WrappedDataManager().get_year(2026)
+    assert result.users[1].messages == 210
+    assert result.users[1].voice_seconds == 7201
+    assert result.games == {1:{"A":3601}}
+    assert result.user_months == result.game_months == frozenset({1,2,12})
+
+
+async def test_year_read_errors_and_invalid_year_propagate(db) -> None:
+    with patch("utils.wrapped_data_manager.DailyUserStats.filter",side_effect=RuntimeError("read")):
+        with pytest.raises(RuntimeError):
+            await WrappedDataManager().get_year(2026)
+    with pytest.raises(ValueError):
+        await WrappedDataManager().get_year(0)

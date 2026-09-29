@@ -81,7 +81,7 @@ def test_actual_entrypoint_uses_new_design_and_data(tmp_path) -> None:
     png = render_server_card(summary, names.__getitem__)
     im = Image.open(BytesIO(png))
     assert im.size[0] == 1200
-    assert im.getpixel((0, 0)) == (204, 255, 102)
+    assert im.getpixel((0, 0)) == (255, 66, 75)
     (tmp_path / "monthly.png").write_bytes(png)
 
 

@@ -7,16 +7,12 @@
 структуры, которые рендер превращает в картинку.
 """
 
-import logging
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
 from utils.activity_data_manager import ActivityDataManager
 from utils.top_reactions_data_manager import TopReactionsDataManager
 from utils.user_stats_data_manager import UserStatsDataManager, UserTotals
-
-logger = logging.getLogger("bot.utils.wrapped.builder")
 
 WrappedScope = Literal["monthly", "yearly"]
 
@@ -92,71 +88,13 @@ class PersonalWrapped:
     total_users: int = 0
     footnote: str | None = None
 
+    previous: dict[str, int] = field(default_factory=dict)
+
 
 def _period_label(scope: WrappedScope, year: int, month: int | None) -> str:
     if scope == "monthly" and month is not None:
         return f"{MONTH_NAMES_RU.get(month, month)} {year}"
     return f"{year} год"
-
-
-async def _gather_user_totals(
-    scope: WrappedScope,
-    year: int,
-    month: int | None,
-    stats_mgr: UserStatsDataManager,
-) -> dict[int, UserTotals]:
-    """Собирает тоталы сообщений/голоса, подмешивая ещё не перенесённые дни."""
-    if scope == "monthly" and month is not None:
-        monthly = await stats_mgr.get_monthly_totals(year, month)
-        daily = await stats_mgr.get_daily_totals_by_prefix(f"{year}-{month:02d}")
-    else:
-        monthly = await stats_mgr.get_yearly_totals(year)
-        daily = await stats_mgr.get_daily_totals_by_prefix(str(year))
-    return stats_mgr.merge_totals(monthly, daily)
-
-
-async def _gather_game_totals(
-    scope: WrappedScope,
-    year: int,
-    month: int | None,
-    activity_mgr: ActivityDataManager,
-) -> tuple[dict[int, int], dict[str, int]]:
-    """Возвращает (игровые секунды на пользователя, игровые секунды на игру)."""
-    per_user: dict[int, int] = defaultdict(int)
-    per_game: dict[str, int] = defaultdict(int)
-
-    if scope == "monthly" and month is not None:
-        months = [(year, month)]
-    else:
-        months = [(year, m) for m in range(1, 13)]
-
-    for y, m in months:
-        agg = await activity_mgr.get_aggregated_monthly_stats(y, m)
-        for uid, games in agg.items():
-            for game, seconds in games.items():
-                per_user[uid] += seconds
-                per_game[game] += seconds
-
-    return dict(per_user), dict(per_game)
-
-
-async def _reactions_by_author(
-    scope: WrappedScope,
-    year: int,
-    month: int | None,
-    reactions_mgr: TopReactionsDataManager,
-    limit: int,
-) -> dict[int, int]:
-    """Возвращает {author_id: полученные реакции} за период."""
-    try:
-        if scope == "monthly" and month is not None:
-            entries = await reactions_mgr.get_top_authors("month", limit, year=year, month=month)
-        else:
-            entries = await reactions_mgr.get_top_authors("year", limit, year=year)
-        return {e.author_id: e.total_reactions for e in entries}
-    except Exception as e:
-        logger.error(f"Ошибка получения топа авторов реакций: {e}", exc_info=True)
-        return {}
 
 
 async def build_server_wrapped(
@@ -177,88 +115,23 @@ async def build_server_wrapped(
     guild_id: int | None = None,
 ) -> ServerWrapped:
     """Строит серверную wrapped-сводку за период."""
-    if scope == "monthly":
-        from utils.wrapped.monthly import build_monthly_wrapped
-        from utils.wrapped_data_manager import WrappedDataManager
+    from utils.wrapped.monthly import build_period_wrapped
+    from utils.wrapped_data_manager import WrappedDataManager
 
-        if month is None:
-            raise ValueError("Для месячного wrapped нужен номер месяца")
-        return await build_monthly_wrapped(
-            year=year,
-            month=month,
-            manager=WrappedDataManager(),
-            reactions_mgr=reactions_mgr,
-            top_limit=top_limit,
-            data_since=data_since,
-            allowed_channel_ids=allowed_channel_ids or set(),
-            excluded_message_ids=excluded_message_ids or set(),
-            excluded_user_ids=excluded_user_ids or set(),
-            ignore_self_reactions=ignore_self_reactions,
-            guild_id=guild_id,
-        )
-
-    user_totals = await _gather_user_totals(scope, year, month, stats_mgr)
-    game_per_user, game_per_game = await _gather_game_totals(scope, year, month, activity_mgr)
-    reactions = await _reactions_by_author(scope, year, month, reactions_mgr, max(top_limit, 50))
-
-    top_messages = [
-        NamedValue(t.user_id, t.messages)
-        for t in UserStatsDataManager.top_by_messages(user_totals, top_limit)
-    ]
-    top_voice = [
-        NamedValue(t.user_id, t.voice_seconds)
-        for t in UserStatsDataManager.top_by_voice(user_totals, top_limit)
-    ]
-    top_games = sorted(game_per_game.items(), key=lambda kv: kv[1], reverse=True)[:top_limit]
-
-    total_messages = sum(t.messages for t in user_totals.values())
-    total_voice = sum(t.voice_seconds for t in user_totals.values())
-    total_game = sum(game_per_game.values())
-    active_users = len(
-        {uid for uid, t in user_totals.items() if t.messages > 0 or t.voice_seconds > 0}
-        | set(game_per_user)
-    )
-
-    nominations: list[Nomination] = []
-    if top_messages:
-        nominations.append(
-            Nomination(
-                "💬",
-                "По сообщениям",
-                top_messages[0].user_id,
-                f"{top_messages[0].value} сообщ.",
-            )
-        )
-    if top_voice:
-        nominations.append(
-            Nomination(
-                "🎙️",
-                "По войсу",
-                top_voice[0].user_id,
-                _fmt_hm(top_voice[0].value),
-            )
-        )
-    if game_per_user:
-        gamer_id = max(game_per_user, key=lambda uid: game_per_user[uid])
-        nominations.append(Nomination("🎮", "Геймер", gamer_id, _fmt_hm(game_per_user[gamer_id])))
-    if reactions:
-        magnet_id = max(reactions, key=lambda uid: reactions[uid])
-        nominations.append(
-            Nomination("⭐", "По реакциям", magnet_id, f"{reactions[magnet_id]} реакц.")
-        )
-
-    return ServerWrapped(
-        period_label=_period_label(scope, year, month),
-        scope=scope,
-        total_messages=total_messages,
-        total_voice_seconds=total_voice,
-        total_game_seconds=total_game,
-        active_users=active_users,
-        top_messages=top_messages,
-        top_voice=top_voice,
-        top_games=top_games,
-        nominations=nominations,
-        footnote=footnote,
+    if scope == "monthly" and month is None:
+        raise ValueError("Для месячного wrapped нужен номер месяца")
+    return await build_period_wrapped(
+        year=year,
+        month=month if scope == "monthly" else None,
+        manager=WrappedDataManager(),
+        reactions_mgr=reactions_mgr,
+        top_limit=top_limit,
+        data_since=data_since,
+        allowed_channel_ids=allowed_channel_ids or set(),
+        excluded_message_ids=excluded_message_ids or set(),
+        excluded_user_ids=excluded_user_ids or set(),
+        ignore_self_reactions=ignore_self_reactions,
+        guild_id=guild_id,
     )
 
 
@@ -270,16 +143,35 @@ async def build_personal_wrapped(
     activity_mgr: ActivityDataManager,
     reactions_mgr: TopReactionsDataManager,
     footnote: str | None = None,
+    data_since: str | None = None,
 ) -> PersonalWrapped:
     """Строит персональную годовую сводку пользователя (с рангами по серверу)."""
-    user_totals = await _gather_user_totals("yearly", year, None, stats_mgr)
-    game_per_user, _ = await _gather_game_totals("yearly", year, None, activity_mgr)
-    reactions = await _reactions_by_author("yearly", year, None, reactions_mgr, 100000)
+    from utils.time_utils import moscow_today
+    from utils.wrapped.monthly import previous_snapshot
+    from utils.wrapped_data_manager import WrappedDataManager
+
+    if year > moscow_today().year:
+        raise ValueError("Нельзя построить wrapped за будущий год")
+    manager = WrappedDataManager()
+    snapshot = await manager.get_year(year)
+    user_totals = snapshot.users
+    game_per_user = {uid: sum(games.values()) for uid, games in snapshot.games.items()}
+    entries = await reactions_mgr.get_top_authors("year", 100000, year=year, strict=True)
+    reactions = {e.author_id: e.total_reactions for e in entries}
+    available, old = await previous_snapshot(manager, snapshot, year, None, data_since)
+    previous = {}
+    if old is not None:
+        # Отсутствие участника в архиве не означает подтверждённый ноль.
+        if "messages" in available and user_id in old.users:
+            previous["messages"] = old.users[user_id].messages
+            previous["voice"] = old.users[user_id].voice_seconds
+        if "games" in available and user_id in old.games:
+            previous["games"] = sum(old.games[user_id].values())
 
     mine = user_totals.get(user_id, UserTotals(user_id=user_id, messages=0, voice_seconds=0))
 
-    msg_ranked = sorted(user_totals.values(), key=lambda t: t.messages, reverse=True)
-    voice_ranked = sorted(user_totals.values(), key=lambda t: t.voice_seconds, reverse=True)
+    msg_ranked = sorted(user_totals.values(), key=lambda t: (-t.messages, t.user_id))
+    voice_ranked = sorted(user_totals.values(), key=lambda t: (-t.voice_seconds, t.user_id))
     message_rank = next(
         (i for i, t in enumerate(msg_ranked, 1) if t.user_id == user_id and t.messages > 0), None
     )
@@ -288,19 +180,15 @@ async def build_personal_wrapped(
         None,
     )
 
-    react_ranked = sorted(reactions.items(), key=lambda kv: kv[1], reverse=True)
+    react_ranked = sorted(reactions.items(), key=lambda kv: (-kv[1], kv[0]))
     reaction_rank = (
         next((i for i, (uid, _) in enumerate(react_ranked, 1) if uid == user_id), None)
         if reactions.get(user_id, 0) > 0
         else None
     )
 
-    my_games: dict[str, int] = {}
-    for y, m in [(year, mm) for mm in range(1, 13)]:
-        agg = await activity_mgr.get_aggregated_monthly_stats(y, m)
-        for game, seconds in agg.get(user_id, {}).items():
-            my_games[game] = my_games.get(game, 0) + seconds
-    top_games = sorted(my_games.items(), key=lambda kv: kv[1], reverse=True)[:5]
+    my_games = snapshot.games.get(user_id, {})
+    top_games = sorted(my_games.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
     favorite_game = top_games[0][0] if top_games else None
 
     return PersonalWrapped(
@@ -318,15 +206,22 @@ async def build_personal_wrapped(
         reaction_total=len(reactions),
         total_users=len(user_totals),
         footnote=footnote,
+        previous=previous,
     )
 
 
 def _fmt_hm(seconds: int) -> str:
     """Короткий формат времени (например, "5ч 12м")."""
     if seconds <= 0:
-        return "0м"
+        return "0 мин"
+    if seconds < 60:
+        return "< 1 мин"
     hours, rem = divmod(seconds, 3600)
-    minutes, _ = divmod(rem, 60)
+    minutes = rem // 60
     if hours > 0:
-        return f"{hours}ч {minutes}м" if minutes else f"{hours}ч"
-    return f"{minutes}м"
+        return (
+            f"{hours:,} ч {minutes} мин".replace(",", " ")
+            if minutes
+            else f"{hours:,} ч".replace(",", " ")
+        )
+    return f"{minutes} мин"

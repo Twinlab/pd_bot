@@ -251,3 +251,19 @@ async def test_wrapped_summary_passes_public_channel_and_reaction_filters() -> N
     assert kwargs["excluded_message_ids"] == {20, 21}
     assert kwargs["excluded_user_ids"] == {8}
     assert kwargs["ignore_self_reactions"] is True
+
+@pytest.mark.parametrize("scope,label", [("monthly","Август 2026"),("yearly","2026 год")])
+async def test_wrapped_fetches_unique_avatars_from_both_rankings_and_awards(scope,label):
+    from utils.wrapped.builder import ServerWrapped, NamedValue, Nomination
+    tracker=UserStatsTracker.__new__(UserStatsTracker)
+    guild=MagicMock()
+    tracker.bot=MagicMock()
+    tracker.bot.guilds=[guild]
+    tracker._fetch_avatars=AsyncMock(return_value={1:b"avatar"})
+    summary=ServerWrapped(label,scope,1,1,1,3,
+        top_messages=[NamedValue(1,1)],top_voice=[NamedValue(2,1)],
+        nominations=[Nomination("","Геймер",3,"1 ч"),Nomination("","По реакциям",1,"1")])
+    with patch("cogs.user_stats.render_server_card",return_value=b"png") as render:
+        assert await tracker._render_summary(summary) == b"png"
+    tracker._fetch_avatars.assert_awaited_once_with([1,2,3],guild)
+    assert render.call_args.args[2] == {1:b"avatar"}

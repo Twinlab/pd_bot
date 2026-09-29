@@ -16,6 +16,8 @@ class MonthlySnapshot:
 
     users: dict[int, UserTotals]
     games: dict[int, dict[str, int]]
+    user_months: frozenset[int] = frozenset()
+    game_months: frozenset[int] = frozenset()
 
 
 class WrappedDataManager:
@@ -33,13 +35,23 @@ class WrappedDataManager:
             Exception: Ошибка чтения БД, при которой отчёт нельзя публиковать.
         """
         date(year, month, 1)
-        prefix = f"{year:04d}-{month:02d}-"
+        return await self._read(year, month)
+
+    async def get_year(self, year: int) -> MonthlySnapshot:
+        """Возвращает годовой снимок и месяцы, присутствующие в каждом источнике."""
+        date(year, 1, 1)
+        return await self._read(year, None)
+
+    async def _read(self, year: int, month: int | None) -> MonthlySnapshot:
+        filters = {"year": year}
+        prefix = f"{year:04d}-"
+        if month is not None:
+            filters["month"] = month
+            prefix += f"{month:02d}-"
         async with in_transaction() as connection:
-            monthly = await MonthlyUserStats.filter(year=year, month=month).using_db(connection)
+            monthly = await MonthlyUserStats.filter(**filters).using_db(connection)
             daily = await DailyUserStats.filter(date__startswith=prefix).using_db(connection)
-            monthly_games = await MonthlyActivity.filter(year=year, month=month).using_db(
-                connection
-            )
+            monthly_games = await MonthlyActivity.filter(**filters).using_db(connection)
             daily_games = await DailyActivity.filter(date__startswith=prefix).using_db(connection)
 
         # Перенос дневных записей тоже транзакционный: один и тот же день
@@ -74,4 +86,8 @@ class WrappedDataManager:
         return MonthlySnapshot(
             UserStatsDataManager.merge_totals(*user_parts),
             {uid: dict(values) for uid, values in games.items()},
+            frozenset(row.month for row in monthly)
+            | frozenset(int(row.date[5:7]) for row in daily),
+            frozenset(row.month for row in monthly_games)
+            | frozenset(int(row.date[5:7]) for row in daily_games),
         )

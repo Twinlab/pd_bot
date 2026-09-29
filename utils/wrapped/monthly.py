@@ -6,7 +6,7 @@ from datetime import date
 
 from utils.time_utils import MOSCOW_TZ, moscow_today
 from utils.top_reactions_data_manager import TopReactionsDataManager
-from utils.wrapped.builder import MONTH_NAMES_RU, NamedValue, Nomination, ServerWrapped
+from utils.wrapped.builder import MONTH_NAMES_RU, NamedValue, Nomination, ServerWrapped, _fmt_hm
 from utils.wrapped_data_manager import MonthlySnapshot, WrappedDataManager
 
 logger = logging.getLogger("bot.wrapped.monthly")
@@ -29,10 +29,10 @@ def _plural(value: int, forms: tuple[str, str, str]) -> str:
     return forms[0] if value % 10 == 1 else forms[1] if 2 <= value % 10 <= 4 else forms[2]
 
 
-async def build_monthly_wrapped(
+async def build_period_wrapped(
     *,
     year: int,
-    month: int,
+    month: int | None,
     manager: WrappedDataManager,
     reactions_mgr: TopReactionsDataManager,
     top_limit: int,
@@ -43,11 +43,11 @@ async def build_monthly_wrapped(
     ignore_self_reactions: bool,
     guild_id: int | None,
 ) -> ServerWrapped:
-    """Собирает месяц; сравнивает только закрытые периоды с доступной историей.
+    """Собирает месяц или год; сравнивает закрытые периоды с доступной историей.
 
     Args:
         year: Год отчёта.
-        month: Номер месяца.
+        month: Номер месяца; None для годового отчёта.
         manager: Строгий источник месячных снимков.
         reactions_mgr: Источник рейтингов реакций.
         top_limit: Число строк рейтингов, не больше пяти.
@@ -61,34 +61,13 @@ async def build_monthly_wrapped(
     Raises:
         Exception: Ошибка чтения текущего периода.
     """
-    start = date(year, month, 1)
-    end = date(year + (month == 12), 1 if month == 12 else month + 1, 1)
-    previous_start = date(year - (month == 1), 12 if month == 1 else month - 1, 1)
+    yearly = month is None
+    start = date(year, month or 1, 1)
     if start > moscow_today():
-        raise ValueError("Нельзя построить wrapped за будущий месяц")
-    current = await manager.get_month(year, month)
+        raise ValueError("Нельзя построить wrapped за будущий период")
+    current = await manager.get_year(year) if yearly else await manager.get_month(year, month)
     totals = _totals(current)
-    previous: dict[str, int] = {}
-    try:
-        since = date.fromisoformat(data_since) if data_since else None
-    except ValueError:
-        logger.warning("Некорректная дата начала сбора: сравнение wrapped отключено")
-        since = None
-
-    if since is not None and since <= previous_start and end <= moscow_today():
-        try:
-            old = await manager.get_month(previous_start.year, previous_start.month)
-        except Exception:
-            logger.exception("Предыдущий месяц недоступен: wrapped без сравнения")
-        else:
-            old_totals = _totals(old)
-            # Отсутствие строк в истории само по себе не доказывает нулевую активность.
-            if old.users:
-                previous.update(messages=old_totals["messages"], voice=old_totals["voice"])
-            if old.games:
-                previous["games"] = old_totals["games"]
-            if old.users and old.games:
-                previous["users"] = old_totals["users"]
+    previous, _ = await previous_snapshot(manager, current, year, month, data_since)
 
     limit = min(5, max(1, top_limit))
     top_messages = sorted(
@@ -125,7 +104,7 @@ async def build_monthly_wrapped(
         )
 
     leaders = await reactions_mgr.get_leaderboard(
-        "month",
+        "year" if yearly else "month",
         1,
         year=year,
         month=month,
@@ -143,7 +122,7 @@ async def build_monthly_wrapped(
         nominations.append(
             Nomination(
                 "💬",
-                "Сообщение месяца",
+                "Сообщение года" if yearly else "Сообщение месяца",
                 best.author_id,
                 f"{count:,} {_plural(count, ('реакция', 'реакции', 'реакций'))}".replace(",", " "),
             )
@@ -157,9 +136,11 @@ async def build_monthly_wrapped(
         gamer = min(current.games, key=lambda uid: (-sum(current.games[uid].values()), uid))
         minutes = sum(current.games[gamer].values()) // 60
         detail = f"{minutes:,} мин".replace(",", " ") if minutes else "< 1 мин"
+        if yearly:
+            detail = _fmt_hm(sum(current.games[gamer].values()))
         nominations.append(Nomination("🎮", "Геймер", gamer, detail))
     authors = await reactions_mgr.get_top_authors(
-        "month",
+        "year" if yearly else "month",
         1,
         year=year,
         month=month,
@@ -182,8 +163,8 @@ async def build_monthly_wrapped(
         )
 
     return ServerWrapped(
-        period_label=f"{MONTH_NAMES_RU[month]} {year}",
-        scope="monthly",
+        period_label=f"{year} год" if yearly else f"{MONTH_NAMES_RU[month or 1]} {year}",
+        scope="yearly" if yearly else "monthly",
         total_messages=totals["messages"],
         total_voice_seconds=totals["voice"],
         total_game_seconds=totals["games"],
@@ -195,3 +176,56 @@ async def build_monthly_wrapped(
         previous=previous,
         message_url=message_url,
     )
+
+
+async def previous_snapshot(
+    manager: WrappedDataManager,
+    current: MonthlySnapshot,
+    year: int,
+    month: int | None,
+    data_since: str | None,
+) -> tuple[dict[str, int], MonthlySnapshot | None]:
+    """Допускает сравнение только при подтверждённой истории обоих периодов."""
+    yearly = month is None
+    month_number = month or 1
+    end = (
+        date(year + 1, 1, 1)
+        if yearly
+        else date(year + (month_number == 12), 1 if month_number == 12 else month_number + 1, 1)
+    )
+    prior = (
+        date(year - 1, 1, 1)
+        if yearly
+        else date(year - (month_number == 1), 12 if month_number == 1 else month_number - 1, 1)
+    )
+    try:
+        since = date.fromisoformat(data_since) if data_since else None
+    except ValueError:
+        since = None
+    if since is None or since > prior or end > moscow_today():
+        return {}, None
+    try:
+        old = (
+            await manager.get_year(prior.year)
+            if yearly
+            else await manager.get_month(prior.year, prior.month)
+        )
+    except Exception:
+        logger.exception("Предыдущий период недоступен: wrapped без сравнения")
+        return {}, None
+    totals = _totals(old)
+    all_months = frozenset(range(1, 13))
+    users_ready = bool(old.users) and (
+        not yearly or old.user_months == current.user_months == all_months
+    )
+    games_ready = bool(old.games) and (
+        not yearly or old.game_months == current.game_months == all_months
+    )
+    previous: dict[str, int] = {}
+    if users_ready:
+        previous.update(messages=totals["messages"], voice=totals["voice"])
+    if games_ready:
+        previous["games"] = totals["games"]
+    if users_ready and games_ready:
+        previous["users"] = totals["users"]
+    return previous, old

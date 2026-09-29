@@ -382,7 +382,7 @@ class UserStatsTracker(commands.Cog):
         settings = get_settings()
         guild = self.bot.guilds[0] if self.bot.guilds else None
         excluded = set(settings.top_reactions.ignored_message_ids)
-        if scope == "monthly" and guild and settings.top_reactions.ignore_role_reaction_message:
+        if guild and settings.top_reactions.ignore_role_reaction_message:
             info = await RoleReactionDataManager().get_message_info(guild.id, strict=True)
             if info:
                 excluded.add(info[1])
@@ -412,8 +412,12 @@ class UserStatsTracker(commands.Cog):
         guild = self.bot.guilds[0] if self.bot.guilds else None
         names = self._name_resolver(guild) if guild else (lambda uid: f"ID {uid}")
         avatars = {}
-        if summary.scope != "monthly" and guild:
-            ids = [n.user_id for n in summary.nominations if n.user_id is not None]
+        if guild:
+            ids = sorted(
+                {n.user_id for n in summary.nominations if n.user_id is not None}
+                | {row.user_id for row in summary.top_messages[:5]}
+                | {row.user_id for row in summary.top_voice[:5]}
+            )
             avatars = await self._fetch_avatars(ids, guild)
         return await asyncio.to_thread(render_server_card, summary, names, avatars)
 
@@ -429,7 +433,12 @@ class UserStatsTracker(commands.Cog):
         png = await self._render_summary(summary)
         view = discord.ui.View()
         if summary.message_url:
-            view.add_item(discord.ui.Button(label="Сообщение месяца", url=summary.message_url))
+            view.add_item(
+                discord.ui.Button(
+                    label="Сообщение месяца" if scope == "monthly" else "Сообщение года",
+                    url=summary.message_url,
+                )
+            )
         file = discord.File(BytesIO(png), filename="wrapped.png")
         await channel.send(
             content="🎉 Серверный Wrapped",
@@ -467,6 +476,7 @@ class UserStatsTracker(commands.Cog):
                         activity_mgr=self.activity_manager,
                         reactions_mgr=self.reactions_manager,
                         footnote=self._footnote(),
+                        data_since=cfg.data_since,
                     )
                     avatar = await self._fetch_avatar(member, session=session)
                     png = await asyncio.to_thread(
@@ -516,6 +526,7 @@ class UserStatsTracker(commands.Cog):
             activity_mgr=self.activity_manager,
             reactions_mgr=self.reactions_manager,
             footnote=self._footnote(),
+            data_since=get_settings().user_stats.data_since,
         )
         display_name = getattr(target, "display_name", str(target))
         avatar = await self._fetch_avatar(target)

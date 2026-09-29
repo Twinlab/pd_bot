@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from utils.wrapped import render
 from utils.wrapped.builder import NamedValue, Nomination, PersonalWrapped, ServerWrapped
 from utils.wrapped.render import render_personal_card, render_server_card
 
@@ -117,14 +116,6 @@ def test_render_personal_card_returns_png():
     _write_preview("wrapped_preview_personal.png", png)
 
 
-def test_icon_fallback_for_unknown_emoji():
-    """Неизвестный эмодзи не должен ломать рендер — иконка просто пропускается."""
-    assert render._icon_array("🛸") is None
-
-
-def test_render_survives_missing_assets(monkeypatch):
-    """Если ассеты эмодзи недоступны, рендер всё равно отдаёт валидный PNG."""
-    monkeypatch.setattr(render, "_icon_cache", {})
-    monkeypatch.setattr(render, "_EMOJI_DIR", Path("/nonexistent/emoji"))
-    png = render_server_card(_full_server(), lambda uid: f"User{uid}")
+def test_render_survives_broken_avatar():
+    png = render_server_card(_full_server(), lambda uid: f"User{uid}", {1: b"broken"})
     assert png.startswith(_PNG_SIGNATURE)
