@@ -23,12 +23,15 @@ class RoleReactionDataManager:
         """Инициализирует менеджер данных привязок эмодзи к ролям."""
         logger.info("Инициализация RoleReactionDataManager (Tortoise ORM)")
 
-    async def get_message_info(self, guild_id: int) -> tuple[int, int] | None:
+    async def get_message_info(
+        self, guild_id: int, *, strict: bool = False
+    ) -> tuple[int, int] | None:
         """
         Получает информацию о сообщении с реакциями для указанного сервера.
 
         Args:
             guild_id: ID сервера Discord.
+            strict: Передавать ошибку БД вместо отсутствующего сообщения.
 
         Returns:
             Кортеж (channel_id, message_id) или None, если сообщение не найдено
@@ -47,6 +50,8 @@ class RoleReactionDataManager:
                 f"Ошибка при получении информации о сообщении для сервера {guild_id}: {e}",
                 exc_info=True,
             )
+            if strict:
+                raise
             return None
 
     async def add_role_reaction(

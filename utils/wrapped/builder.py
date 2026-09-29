@@ -69,6 +69,8 @@ class ServerWrapped:
     top_games: list[tuple[str, int]] = field(default_factory=list)
     nominations: list[Nomination] = field(default_factory=list)
     footnote: str | None = None
+    previous: dict[str, int] = field(default_factory=dict)
+    message_url: str | None = None
 
 
 @dataclass(slots=True)
@@ -167,8 +169,34 @@ async def build_server_wrapped(
     reactions_mgr: TopReactionsDataManager,
     top_limit: int,
     footnote: str | None = None,
+    data_since: str | None = None,
+    allowed_channel_ids: set[int] | None = None,
+    excluded_message_ids: set[int] | None = None,
+    excluded_user_ids: set[int] | None = None,
+    ignore_self_reactions: bool = True,
+    guild_id: int | None = None,
 ) -> ServerWrapped:
     """Строит серверную wrapped-сводку за период."""
+    if scope == "monthly":
+        from utils.wrapped.monthly import build_monthly_wrapped
+        from utils.wrapped_data_manager import WrappedDataManager
+
+        if month is None:
+            raise ValueError("Для месячного wrapped нужен номер месяца")
+        return await build_monthly_wrapped(
+            year=year,
+            month=month,
+            manager=WrappedDataManager(),
+            reactions_mgr=reactions_mgr,
+            top_limit=top_limit,
+            data_since=data_since,
+            allowed_channel_ids=allowed_channel_ids or set(),
+            excluded_message_ids=excluded_message_ids or set(),
+            excluded_user_ids=excluded_user_ids or set(),
+            ignore_self_reactions=ignore_self_reactions,
+            guild_id=guild_id,
+        )
+
     user_totals = await _gather_user_totals(scope, year, month, stats_mgr)
     game_per_user, game_per_game = await _gather_game_totals(scope, year, month, activity_mgr)
     reactions = await _reactions_by_author(scope, year, month, reactions_mgr, max(top_limit, 50))

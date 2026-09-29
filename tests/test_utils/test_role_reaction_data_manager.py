@@ -247,3 +247,10 @@ class TestGetRoleByEmoji:
             result = await manager.get_role_by_emoji(guild_id=111222333, emoji="🎮")
             
             assert result is None
+
+@pytest.mark.asyncio
+async def test_get_message_info_strict_error(manager) -> None:
+    with patch("utils.role_reaction_data_manager.RoleReaction.filter",
+               side_effect=RuntimeError("db")):
+        with pytest.raises(RuntimeError, match="db"):
+            await manager.get_message_info(1, strict=True)

@@ -3,6 +3,7 @@
 from io import BytesIO
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from utils.wrapped import render
@@ -13,6 +14,11 @@ _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 # Куда складывать превью для глазного контроля (downloads/ в .gitignore).
 _PREVIEW_DIR = Path(__file__).resolve().parents[2] / "downloads"
+
+
+@pytest.fixture(autouse=True)
+def _preview_directory(tmp_path, monkeypatch):
+    monkeypatch.setattr(__import__(__name__, fromlist=[""]), "_PREVIEW_DIR", tmp_path)
 
 
 def _fake_avatar(color: tuple[int, int, int] = (90, 120, 200)) -> bytes:

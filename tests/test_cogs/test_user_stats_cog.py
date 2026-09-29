@@ -180,3 +180,74 @@ async def test_daily_transfer_waits_for_pending_voice() -> None:
 
     tracker.stats_manager.transfer_daily_to_monthly.assert_not_awaited()
     assert tracker._pending_voice == {(123, date(2026, 9, 19)): 120}
+
+
+@pytest.mark.asyncio
+async def test_wrapped_post_uses_one_summary_and_link_button() -> None:
+    """Карточка и кнопка относятся к одному снимку; упоминания выключены."""
+    from utils.wrapped.builder import ServerWrapped
+
+    tracker = UserStatsTracker.__new__(UserStatsTracker)
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    tracker._report_channel = MagicMock(return_value=channel)
+    summary = ServerWrapped(
+        "Август 2026", "monthly", 10, 60, 3601, 2,
+        message_url="https://discord.com/channels/1/2/3",
+    )
+    tracker._server_summary = AsyncMock(return_value=summary)
+    tracker._render_summary = AsyncMock(return_value=b"png")
+    assert await tracker._post_server_wrapped("monthly", 2026, 8)
+    tracker._server_summary.assert_awaited_once_with("monthly", 2026, 8)
+    tracker._render_summary.assert_awaited_once_with(summary)
+    sent = channel.send.await_args.kwargs
+    assert sent["view"].children[0].url == summary.message_url
+    assert sent["allowed_mentions"].everyone is False
+    assert sent["allowed_mentions"].users is False
+
+
+@pytest.mark.asyncio
+async def test_wrapped_read_failure_never_sends_zero_card() -> None:
+    tracker = UserStatsTracker.__new__(UserStatsTracker)
+    channel = MagicMock()
+    channel.send = AsyncMock()
+    tracker._report_channel = MagicMock(return_value=channel)
+    tracker._server_summary = AsyncMock(side_effect=RuntimeError("db"))
+    with pytest.raises(RuntimeError):
+        await tracker._post_server_wrapped("monthly", 2026, 8)
+    channel.send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_wrapped_summary_passes_public_channel_and_reaction_filters() -> None:
+    from types import SimpleNamespace
+
+    tracker = UserStatsTracker.__new__(UserStatsTracker)
+    guild = MagicMock()
+    guild.id = 1
+    guild.members = [SimpleNamespace(id=8, bot=True), SimpleNamespace(id=9, bot=False)]
+    tracker.bot = MagicMock()
+    tracker.bot.guilds = [guild]
+    tracker.stats_manager = MagicMock()
+    tracker.activity_manager = MagicMock()
+    tracker.reactions_manager = MagicMock()
+    tracker._footnote = MagicMock(return_value="PD Bot")
+    settings = SimpleNamespace(
+        user_stats=SimpleNamespace(top_limit=5, data_since="2026-06-01"),
+        top_reactions=SimpleNamespace(ignored_message_ids=[20],
+            ignore_role_reaction_message=True, ignore_bots=True, ignore_self_reactions=True),
+    )
+    with (
+        patch("cogs.user_stats.get_settings", return_value=settings),
+        patch("cogs.user_stats.public_message_channel_ids", return_value={10}),
+        patch("cogs.user_stats.RoleReactionDataManager.get_message_info",
+              AsyncMock(return_value=(10, 21))) as role_read,
+        patch("cogs.user_stats.build_server_wrapped", AsyncMock()) as builder,
+    ):
+        await tracker._server_summary("monthly", 2026, 8)
+    role_read.assert_awaited_once_with(1, strict=True)
+    kwargs = builder.await_args.kwargs
+    assert kwargs["allowed_channel_ids"] == {10}
+    assert kwargs["excluded_message_ids"] == {20, 21}
+    assert kwargs["excluded_user_ids"] == {8}
+    assert kwargs["ignore_self_reactions"] is True

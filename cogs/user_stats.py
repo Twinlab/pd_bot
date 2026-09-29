@@ -20,11 +20,14 @@ from discord.ext import commands, tasks
 from config import get_settings
 from utils.activity.helpers import is_application
 from utils.activity_data_manager import ActivityDataManager
+from utils.channel_permissions import public_message_channel_ids
 from utils.error_handler import command_error_handler, safe_send
+from utils.role_reaction_data_manager import RoleReactionDataManager
 from utils.time_utils import MOSCOW_TZ, moscow_today, split_interval_by_local_date
 from utils.top_reactions_data_manager import TopReactionsDataManager
 from utils.user_stats_data_manager import UserStatsDataManager
 from utils.wrapped.builder import (
+    ServerWrapped,
     WrappedScope,
     build_personal_wrapped,
     build_server_wrapped,
@@ -373,33 +376,68 @@ class UserStatsTracker(commands.Cog):
         logger.error(f"Канал для wrapped (ID: {channel_id}) не найден или не текстовый.")
         return None
 
-    async def _render_server(self, scope: WrappedScope, year: int, month: int | None) -> bytes:
-        cfg = get_settings().user_stats
+    async def _server_summary(
+        self, scope: WrappedScope, year: int, month: int | None
+    ) -> ServerWrapped:
+        settings = get_settings()
         guild = self.bot.guilds[0] if self.bot.guilds else None
-        summary = await build_server_wrapped(
+        excluded = set(settings.top_reactions.ignored_message_ids)
+        if scope == "monthly" and guild and settings.top_reactions.ignore_role_reaction_message:
+            info = await RoleReactionDataManager().get_message_info(guild.id, strict=True)
+            if info:
+                excluded.add(info[1])
+        bot_ids = (
+            {member.id for member in guild.members if member.bot}
+            if guild and settings.top_reactions.ignore_bots
+            else set()
+        )
+        return await build_server_wrapped(
             scope=scope,
             year=year,
             month=month,
             stats_mgr=self.stats_manager,
             activity_mgr=self.activity_manager,
             reactions_mgr=self.reactions_manager,
-            top_limit=cfg.top_limit,
+            top_limit=settings.user_stats.top_limit,
             footnote=self._footnote(),
+            data_since=settings.user_stats.data_since,
+            allowed_channel_ids=public_message_channel_ids(guild),
+            excluded_message_ids=excluded,
+            excluded_user_ids=bot_ids,
+            ignore_self_reactions=settings.top_reactions.ignore_self_reactions,
+            guild_id=guild.id if guild else None,
         )
+
+    async def _render_summary(self, summary: ServerWrapped) -> bytes:
+        guild = self.bot.guilds[0] if self.bot.guilds else None
         names = self._name_resolver(guild) if guild else (lambda uid: f"ID {uid}")
-        nom_ids = [n.user_id for n in summary.nominations if n.user_id is not None]
-        avatars = await self._fetch_avatars(nom_ids, guild) if guild else {}
+        avatars = {}
+        if summary.scope != "monthly" and guild:
+            ids = [n.user_id for n in summary.nominations if n.user_id is not None]
+            avatars = await self._fetch_avatars(ids, guild)
         return await asyncio.to_thread(render_server_card, summary, names, avatars)
+
+    async def _render_server(self, scope: WrappedScope, year: int, month: int | None) -> bytes:
+        summary = await self._server_summary(scope, year, month)
+        return await self._render_summary(summary)
 
     async def _post_server_wrapped(self, scope: WrappedScope, year: int, month: int | None) -> bool:
         channel = self._report_channel()
         if channel is None:
             return False
-        png = await self._render_server(scope, year, month)
-        title = "🎉 Серверный Wrapped"
+        summary = await self._server_summary(scope, year, month)
+        png = await self._render_summary(summary)
+        view = discord.ui.View()
+        if summary.message_url:
+            view.add_item(discord.ui.Button(label="Сообщение месяца", url=summary.message_url))
         file = discord.File(BytesIO(png), filename="wrapped.png")
-        await channel.send(content=title, file=file)
-        logger.info(f"Опубликован серверный wrapped ({scope} {year}-{month}).")
+        await channel.send(
+            content="🎉 Серверный Wrapped",
+            file=file,
+            view=view if view.children else None,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        logger.info("Опубликован серверный wrapped (%s %s-%s).", scope, year, month)
         return True
 
     async def _broadcast_personal_wrapped(self, year: int) -> None:

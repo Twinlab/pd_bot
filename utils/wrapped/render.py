@@ -409,6 +409,11 @@ def render_server_card(
         names: Функция ``user_id -> отображаемое имя``.
         avatars: Опциональные PNG-байты аватаров ``{user_id: bytes}`` для номинаций.
     """
+    if summary.scope == "monthly":
+        from .monthly_render import render_monthly_card
+
+        return render_monthly_card(summary, names)
+
     avatars = avatars or {}
     fig, ax = _new_canvas()
 

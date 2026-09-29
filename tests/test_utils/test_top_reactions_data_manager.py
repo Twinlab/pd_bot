@@ -1070,3 +1070,41 @@ class TestGetTopAuthors:
         assert len(result) == 3
         # Должны прийти топ-3 по значению (5, 4, 3)
         assert [r.total_reactions for r in result] == [5, 4, 3]
+
+
+@pytest.mark.parametrize("method", ["get_leaderboard", "get_top_authors"])
+async def test_strict_read_propagates_error(manager, method) -> None:
+    with patch("utils.top_reactions_data_manager.Tortoise.get_connection",
+               side_effect=RuntimeError("db unavailable")):
+        with pytest.raises(RuntimeError, match="db unavailable"):
+            await getattr(manager, method)("month", 1, strict=True)
+
+
+async def test_author_channel_filter_before_limit(db, manager) -> None:
+    for message, channel, author, count in [(1, 20, 7, 100), (2, 10, 8, 2)]:
+        await ReactedMessage.create(
+            message_id=message, channel_id=channel, author_id=author, content="text",
+            jump_url=f"https://discord.com/channels/1/{channel}/{message}",
+            posted_at=datetime(2026, 8, 2), historical_reaction_count=count,
+        )
+    result = await manager.get_top_authors("month", 1, year=2026, month=8,
+                                           allowed_channel_ids={10}, strict=True)
+    assert [r.author_id for r in result] == [8]
+    assert await manager.get_top_authors("month", 1, allowed_channel_ids=set(), strict=True) == []
+
+
+@pytest.mark.parametrize("method", ["get_leaderboard", "get_top_authors"])
+async def test_moscow_month_boundary_for_wrapped(db, manager, method) -> None:
+    await ReactedMessage.create(
+        message_id=1, channel_id=10, author_id=8, content="text",
+        jump_url="https://discord.com/channels/1/10/1",
+        posted_at=datetime(2026, 7, 31, 21, 0, 0), historical_reaction_count=2,
+    )
+    await ReactedMessage.create(
+        message_id=2, channel_id=10, author_id=9, content="text",
+        jump_url="https://discord.com/channels/1/10/2",
+        posted_at=datetime(2026, 7, 31, 20, 59, 59), historical_reaction_count=50,
+    )
+    result = await getattr(manager, method)("month", 1, year=2026, month=8,
+        timezone=MOSCOW_TZ, allowed_channel_ids={10}, strict=True)
+    assert [r.author_id for r in result] == [8]

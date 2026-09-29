@@ -359,6 +359,7 @@ class TopReactionsDataManager:
         excluded_user_ids: set[int] | None = None,
         ignore_self_reactions: bool = False,
         timezone: tzinfo = UTC,
+        strict: bool = False,
     ) -> list[LeaderboardEntry]:
         """Возвращает топ сообщений за указанный период.
 
@@ -390,6 +391,7 @@ class TopReactionsDataManager:
             ignore_self_reactions: Не учитывать реакции автора на своё сообщение
                 (фильтр в ON-условии джойна, чтобы строка сообщения сохранялась).
             timezone: Часовой пояс календарных границ месяца и года.
+            strict: Передавать ошибку чтения вызывающему коду.
 
         Returns:
             Список LeaderboardEntry, отсортированный по убыванию счётчика.
@@ -468,7 +470,7 @@ class TopReactionsDataManager:
                 HAVING live_count > 0 OR COALESCE(rm.historical_reaction_count, 0) > 0
                 ORDER BY
                     CASE WHEN live_count > 0 THEN live_count
-                         ELSE COALESCE(rm.historical_reaction_count, 0) END DESC
+                         ELSE COALESCE(rm.historical_reaction_count, 0) END DESC, rm.message_id ASC
                 LIMIT ?
             """
             params.append(limit)
@@ -506,6 +508,8 @@ class TopReactionsDataManager:
             return entries
         except Exception as e:
             logger.error(f"Ошибка get_leaderboard period={period}: {e}", exc_info=True)
+            if strict:
+                raise
             return []
 
     async def get_top_authors(
@@ -515,10 +519,12 @@ class TopReactionsDataManager:
         *,
         year: int | None = None,
         month: int | None = None,
+        allowed_channel_ids: set[int] | None = None,
         excluded_message_ids: set[int] | None = None,
         excluded_user_ids: set[int] | None = None,
         ignore_self_reactions: bool = False,
         timezone: tzinfo = UTC,
+        strict: bool = False,
     ) -> list[AuthorLeaderboardEntry]:
         """Возвращает топ авторов по сумме реакций на их сообщения.
 
@@ -542,16 +548,20 @@ class TopReactionsDataManager:
             limit: Сколько авторов вернуть.
             year: Явный год для фильтра.
             month: Явный месяц 1–12.
+            allowed_channel_ids: Только общедоступные каналы; пустой набор запрещает все.
             excluded_message_ids: Сообщения с этими id будут исключены из
                 агрегации.
             excluded_user_ids: ID, которых не учитываем ни как авторов, ни как
                 реакторов (обычно — боты гилда).
             ignore_self_reactions: Не учитывать реакции автора на своё сообщение.
             timezone: Часовой пояс календарных границ месяца и года.
+            strict: Передавать ошибку чтения вызывающему коду.
 
         Returns:
             Список AuthorLeaderboardEntry, отсортированный по убыванию total_reactions.
         """
+        if allowed_channel_ids is not None and not allowed_channel_ids:
+            return []
         try:
             start, end = resolve_period_range(
                 period,
@@ -582,6 +592,10 @@ class TopReactionsDataManager:
                 params.extend(excluded_user_ids)
 
             where_clauses = ["is_deleted = 0"]
+            if allowed_channel_ids is not None:
+                placeholders = ",".join(["?"] * len(allowed_channel_ids))
+                where_clauses.append(f"channel_id IN ({placeholders})")
+                params.extend(sorted(allowed_channel_ids))
             if start is not None and end is not None:
                 where_clauses.append("posted_at >= ?")
                 where_clauses.append("posted_at < ?")
@@ -629,7 +643,7 @@ class TopReactionsDataManager:
                 WHERE effective > 0
                 GROUP BY author_id
                 HAVING total > 0
-                ORDER BY total DESC
+                ORDER BY total DESC, author_id ASC
                 LIMIT ?
             """
             params.append(limit)
@@ -647,4 +661,6 @@ class TopReactionsDataManager:
             ]
         except Exception as e:
             logger.error(f"Ошибка get_top_authors period={period}: {e}", exc_info=True)
+            if strict:
+                raise
             return []
