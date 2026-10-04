@@ -22,16 +22,18 @@ import asyncio
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from weakref import WeakSet
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from config import get_settings
-from utils.error_handler import command_error_handler, safe_send, safe_send_error
+from utils.error_handler import command_error_handler, new_incident_id, safe_send, safe_send_error
 from utils.party.data_manager import PartyDataManager
 from utils.party.embeds import build_party_container, party_card_view
 from utils.party.manager import Party, PartyManager, PartyPhase
+from utils.party.state import PartyRecord, PartySnapshot, PartyStateStore
 from utils.party.views import (
     PartyConfirmView,
     PartySetupModal,
@@ -54,7 +56,7 @@ class PartyCog(commands.Cog):
     _check_timers: dict[str, asyncio.Task[None]]
     _last_party: dict[int, datetime]
 
-    def __init__(self, bot: commands.Bot) -> None:
+    def __init__(self, bot: commands.Bot, *, state_store: PartyStateStore | None = None) -> None:
         self.bot = bot
         self.manager = PartyManager()
         self.data_manager = PartyDataManager()
@@ -63,6 +65,170 @@ class PartyCog(commands.Cog):
         self._check_timers = {}
         self._last_party = {}
         self._publishing_users: set[int] = set()
+        self._state_store = state_store or PartyStateStore()
+        self._state_lock = asyncio.Lock()
+        self._loaded = False
+        self._stopping = False
+        self._state_error: str | None = None
+        self._closing: dict[str, Party] = {}
+        self._recovering: set[str] = set()
+        self._restore_task: asyncio.Task[None] | None = None
+        self._views: WeakSet[discord.ui.LayoutView] = WeakSet()
+        self._broadcasting: set[str] = set()
+        self._broadcast_tasks: set[asyncio.Task[int]] = set()
+
+    def ensure_available(self, party_id: str | None = None) -> None:
+        """Запрещает менять состояние до восстановления и после ошибки хранилища."""
+        if not self._loaded or self._stopping or self._state_error or party_id in self._recovering:
+            raise RuntimeError("Состояние сборов недоступно; дождитесь восстановления бота")
+
+    def _fail_state(self, error: Exception) -> None:
+        self._state_error = self._state_error or new_incident_id()
+        logger.error(
+            "Хранилище сборов недоступно [%s]; изменения заблокированы",
+            self._state_error,
+            exc_info=(type(error), error, error.__traceback__),
+            extra={"context": {"incident_id": self._state_error}},
+        )
+
+    async def _persist_locked(self) -> None:
+        if not self._loaded or self._state_error:
+            raise RuntimeError("Нельзя перезаписать недоступное состояние сборов")
+        try:
+            snapshot = PartySnapshot(
+                version=1,
+                parties=[
+                    PartyRecord.from_party(party)
+                    for party in [*self.manager.all_active(), *self._closing.values()]
+                ],
+                cooldowns=self._last_party,
+            )
+            await self._state_store.save(snapshot)
+        except Exception as error:
+            self._fail_state(error)
+            raise
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Запускает одно восстановление; reconnect не загружает снимок повторно."""
+        if self._restore_task is None and not self._stopping:
+            self._restore_task = asyncio.create_task(self._restore_loop(), name="party-restore")
+
+    async def cog_load(self) -> None:
+        """Восстанавливает сборы и при перезагрузке кога уже работающего бота."""
+        if self.bot.is_ready():
+            await self.on_ready()
+
+    async def _restore_loop(self) -> None:
+        try:
+            async with self._state_lock:
+                snapshot = await asyncio.to_thread(self._state_store.load)
+                guild_id = get_settings().guild_id
+                if guild_id and any(record.guild_id != guild_id for record in snapshot.parties):
+                    raise ValueError("Снимок сборов относится к другому серверу")
+                parties = [record.to_party() for record in snapshot.parties]
+                self.manager.restore(parties)
+                self._closing = {party.id: party for party in parties if party.finalized}
+                self._last_party = dict(snapshot.cooldowns)
+                self._recovering = {party.id for party in parties}
+                self._loaded = True
+            while not self._stopping and not self._state_error:
+                for party_id in tuple(self._recovering):
+                    party = self.manager.get(party_id) or self._closing.get(party_id)
+                    if party is None or await self._restore_party(party):
+                        self._recovering.discard(party_id)
+                await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            self._fail_state(error)
+
+    async def _restore_party(self, party: Party) -> bool:
+        if party.id in self._broadcasting:
+            return False
+        async with self._state_lock:
+            now = datetime.now(UTC)
+            close = party.deadline <= now
+            changed = False
+            if not party.finalized and not close and party.phase is PartyPhase.READY_CHECK:
+                tick = await self.manager.tick_ready_check(
+                    party.id,
+                    now=now,
+                    window=timedelta(seconds=get_settings().party.confirm_window_seconds),
+                )
+                changed = tick.changed
+                close = tick.finished in ("success", "partial")
+            if not party.finalized and close:
+                await self.manager.cancel(party.id)
+                party.final_notice_attempted = True
+                self._closing[party.id] = party
+                changed = True
+            if changed:
+                await self._persist_locked()
+        guild = self.bot.get_guild(party.guild_id)
+        if guild is None:
+            return False
+        try:
+            missing_public = False
+            public_accessible = True
+            try:
+                channel = self.bot.get_channel(party.channel_id)
+                if channel is None:
+                    channel = await self.bot.fetch_channel(party.channel_id)
+                if not isinstance(
+                    channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)
+                ):
+                    raise ValueError("Сохранённый канал сбора недоступен")
+                await channel.fetch_message(party.public_message_id)
+            except discord.NotFound:
+                missing_public = True
+            except discord.HTTPException:
+                public_accessible = False
+            restored: dict[int, discord.Message] = {}
+            missing: list[int] = []
+            for user_id, (channel_id, message_id) in tuple(party.dm_message_ids.items()):
+                try:
+                    user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                    dm = await user.create_dm()
+                    if dm.id != channel_id:
+                        raise ValueError("Сохранённое приглашение не принадлежит участнику")
+                    restored[user_id] = await dm.fetch_message(message_id)
+                except discord.NotFound:
+                    missing.append(user_id)
+                except discord.HTTPException as error:
+                    logger.warning("Не удалось восстановить DM сбора %s: %s", party.id, error)
+            async with self._state_lock:
+                party.dm_messages.update(restored)
+                for user_id in missing:
+                    party.dm_message_ids.pop(user_id, None)
+                    party.dm_messages.pop(user_id, None)
+                if missing_public and not party.finalized:
+                    await self.manager.cancel(party.id)
+                    party.final_notice_attempted = True
+                    self._closing[party.id] = party
+                if missing or missing_public:
+                    await self._persist_locked()
+            if party.finalized or party.deadline <= datetime.now(UTC):
+                await self._finalize(party, notify=False)
+                return party.id not in self._closing
+            if not public_accessible or not party.dm_message_ids.keys() <= party.dm_messages.keys():
+                return False
+            public_ok = await self._refresh_public_embed(party)
+            dm_ok = await self._refresh_dm_embeds(party)
+            if public_ok is False or dm_ok is False:
+                return False
+            if party.id not in self._timers:
+                self._timers[party.id] = asyncio.create_task(
+                    self._finalize_after(party), name=f"party-finalize-{party.id}"
+                )
+            if party.phase is PartyPhase.READY_CHECK:
+                self._start_check_loop(party)
+            else:
+                await self._maybe_start_ready_check(party)
+            return True
+        except (discord.HTTPException, ValueError) as error:
+            logger.warning("Не удалось восстановить сообщения сбора %s: %s", party.id, error)
+            return False
 
     async def _allowed_role_ids(self, guild_id: int) -> set[int]:
         """ID ролей, разрешённых для сбора (только выданные через /role_assign).
@@ -74,25 +240,27 @@ class PartyCog(commands.Cog):
         return {row["role_id"] for row in rows if row["role_id"] != 0}
 
     async def cog_unload(self) -> None:
-        """Закрывает активные сборы и отменяет их таймеры."""
+        """Останавливает задачи и сохраняет сборы для следующего запуска."""
+        self._stopping = True
         tasks = [*self._timers.values(), *self._check_timers.values()]
+        if self._restore_task is not None:
+            tasks.append(self._restore_task)
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
+        if self._broadcast_tasks:
+            # Уже принятый Discord DM нужно записать до передачи файла новому когу.
+            await asyncio.gather(*self._broadcast_tasks, return_exceptions=True)
         self._timers.clear()
         self._check_timers.clear()
 
-        active_parties = self.manager.all_active()
-        for party in active_parties:
-            cancelled = await self.manager.cancel(party.id)
-            if cancelled is None:
-                continue
-            await asyncio.gather(
-                self._disable_dm_buttons(cancelled),
-                self._refresh_public_embed(cancelled),
-                return_exceptions=True,
-            )
+        for view in self._views:
+            view.stop()
+        self._views.clear()
+        async with self._state_lock:
+            if self._loaded and not self._state_error:
+                await self._persist_locked()
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
 
     def _member_resolver(
@@ -135,48 +303,58 @@ class PartyCog(commands.Cog):
         """Неинтерактивная карточка сбора (публичное сообщение, финал в DM)."""
         return party_card_view(self._build_container(party, finalized=finalized))
 
-    async def _refresh_public_embed(self, party: Party) -> None:
+    async def _refresh_public_embed(self, party: Party) -> bool:
         """Перерисовывает публичную карточку; поглощает Discord-ошибки."""
         guild = self.bot.get_guild(party.guild_id)
         channel = self.bot.get_channel(party.channel_id) if guild else None
-        if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
-            return
         try:
+            if channel is None:
+                channel = await self.bot.fetch_channel(party.channel_id)
+            if not isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
+                return False
             message = await channel.fetch_message(party.public_message_id)
-        except (discord.NotFound, discord.Forbidden):
-            return
+        except discord.NotFound:
+            return True
         except discord.HTTPException as e:
             logger.warning(f"fetch_message {party.public_message_id} упал: {e}")
-            return
+            return False
 
         try:
+            was_finalized = party.finalized
             await message.edit(view=self._card_view(party))
-        except (discord.NotFound, discord.Forbidden):
-            pass
+            if not was_finalized and party.finalized:
+                await message.edit(view=self._card_view(party, finalized=True))
+        except discord.NotFound:
+            return True
         except discord.HTTPException as e:
             logger.warning(f"Не удалось обновить публичную карточку пати {party.id}: {e}")
+            return False
+        return True
 
-    async def _refresh_dm_embeds(self, party: Party) -> None:
+    async def _refresh_dm_embeds(self, party: Party) -> bool:
         """Перерисовывает карточку во всех DM с корректным для фазы/юзера view."""
         if not party.dm_messages:
-            return
+            return True
 
-        async def edit_one(uid: int, msg: discord.Message) -> None:
+        async def edit_one(uid: int, msg: discord.Message) -> bool:
             try:
                 was_finalized = party.finalized
                 await msg.edit(view=self._dm_view_for(party, uid))
                 # Более медленное обновление не должно вернуть кнопки после финального.
                 if not was_finalized and party.finalized:
                     await msg.edit(view=self._card_view(party, finalized=True))
-            except (discord.NotFound, discord.Forbidden):
-                pass
+            except discord.NotFound:
+                return True
             except discord.HTTPException as e:
                 logger.warning(f"DM edit для юзера {uid} упал: {e}")
+                return False
+            return True
 
-        await asyncio.gather(
+        results = await asyncio.gather(
             *(edit_one(uid, msg) for uid, msg in party.dm_messages.items()),
             return_exceptions=True,
         )
+        return all(result is True for result in results)
 
     async def _refresh_all_embeds(self, party: Party) -> None:
         """Обновляет публичную карточку + все DM синхронно."""
@@ -192,22 +370,56 @@ class PartyCog(commands.Cog):
         role: discord.Role,
         initiator: discord.Member,
     ) -> int:
+        """Не даёт финализатору забыть ещё отправляемое приглашение."""
+        self._broadcasting.add(party.id)
+        task = asyncio.current_task()
+        if task is not None:
+            self._broadcast_tasks.add(task)
+        try:
+            return await self._send_dms_impl(party, role, initiator)
+        finally:
+            self._broadcasting.discard(party.id)
+            if task is not None:
+                self._broadcast_tasks.discard(task)
+
+    async def _send_dms_impl(
+        self,
+        party: Party,
+        role: discord.Role,
+        initiator: discord.Member,
+    ) -> int:
         """Рассылает DM с embed + кнопками. Возвращает число доставленных писем."""
         settings = get_settings()
         delivered = 0
         for member in role.members:
-            if party.finalized or datetime.now(UTC) >= party.deadline:
+            if (
+                self._stopping
+                or self._state_error
+                or party.finalized
+                or datetime.now(UTC) >= party.deadline
+            ):
                 break
             if member.bot or member.id == initiator.id:
                 continue
             if await self.data_manager.is_blocked(member.id):
                 continue
-            if party.finalized or datetime.now(UTC) >= party.deadline:
+            if (
+                self._stopping
+                or self._state_error
+                or party.finalized
+                or datetime.now(UTC) >= party.deadline
+            ):
                 break
             try:
                 view = PartyView(cog=self, party=party)
                 msg = await member.send(view=view)
-                party.dm_messages[member.id] = msg
+                async with self._state_lock:
+                    party.dm_messages[member.id] = msg
+                    party.dm_message_ids[member.id] = (msg.channel.id, msg.id)
+                    if party.finalized:
+                        self._closing[party.id] = party
+                        self._recovering.add(party.id)
+                    await self._persist_locked()
                 delivered += 1
                 # Финализация могла пройти, пока Discord отправлял это сообщение.
                 if party.finalized:
@@ -220,23 +432,26 @@ class PartyCog(commands.Cog):
             await asyncio.sleep(settings.party.dm_send_delay)
         return delivered
 
-    async def _disable_dm_buttons(self, party: Party) -> None:
+    async def _disable_dm_buttons(self, party: Party) -> bool:
         """Снимает кнопки во всех DM, заменяя на серую карточку-финал."""
         if not party.dm_messages:
-            return
+            return True
 
-        async def disable_one(uid: int, msg: discord.Message) -> None:
+        async def disable_one(uid: int, msg: discord.Message) -> bool:
             try:
                 await msg.edit(view=self._card_view(party, finalized=True))
-            except (discord.NotFound, discord.Forbidden):
-                pass
+            except discord.NotFound:
+                return True
             except discord.HTTPException as e:
                 logger.warning(f"Не удалось снять кнопки в DM юзера {uid}: {e}")
+                return False
+            return True
 
-        await asyncio.gather(
+        results = await asyncio.gather(
             *(disable_one(uid, msg) for uid, msg in party.dm_messages.items()),
             return_exceptions=True,
         )
+        return all(result is True for result in results)
 
     def _dm_view_for(self, party: Party, user_id: int) -> discord.ui.LayoutView:
         """Подбирает DM-view под фазу/роль юзера.
@@ -273,9 +488,15 @@ class PartyCog(commands.Cog):
         if not party.finish_when_full or not settings.party.enable_ready_check:
             return
         window = timedelta(seconds=settings.party.confirm_window_seconds)
-        started = await self.manager.start_ready_check(
-            party.id, now=datetime.now(UTC), window=window
-        )
+        async with self._state_lock:
+            self.ensure_available()
+            if party.deadline <= datetime.now(UTC):
+                return
+            started = await self.manager.start_ready_check(
+                party.id, now=datetime.now(UTC), window=window
+            )
+            if started is not None:
+                await self._persist_locked()
         if started is None:
             return
 
@@ -291,6 +512,8 @@ class PartyCog(commands.Cog):
 
     def _start_check_loop(self, party: Party) -> None:
         """Создаёт фоновый sweep-таск опроса дедлайнов подтверждения."""
+        if party.id in self._check_timers:
+            return
         task = asyncio.create_task(self._ready_check_loop(party), name=f"party-check-{party.id}")
         self._check_timers[party.id] = task
 
@@ -304,9 +527,16 @@ class PartyCog(commands.Cog):
                 await asyncio.sleep(poll)
                 if self.manager.get(party.id) is None:
                     return
-                tick = await self.manager.tick_ready_check(
-                    party.id, now=datetime.now(UTC), window=window
-                )
+                if party.deadline <= datetime.now(UTC):
+                    await self._finalize(party)
+                    return
+                async with self._state_lock:
+                    self.ensure_available()
+                    tick = await self.manager.tick_ready_check(
+                        party.id, now=datetime.now(UTC), window=window
+                    )
+                    if tick.changed:
+                        await self._persist_locked()
                 if tick.finished in ("success", "partial"):
                     await self._finalize(party)
                     return
@@ -318,6 +548,8 @@ class PartyCog(commands.Cog):
                     await self._refresh_public_embed(party)
         except asyncio.CancelledError:
             return
+        except Exception:
+            logger.exception("Остановлена проверка готовности сбора %s", party.id)
 
     async def _after_confirm(self, party: Party) -> None:
         """Реакция на нажатие «Подтверждаю»: перерисовка и финал при полном составе."""
@@ -333,12 +565,13 @@ class PartyCog(commands.Cog):
             await asyncio.sleep(seconds)
         except asyncio.CancelledError:
             return
-        await self._finalize(party)
+        try:
+            await self._finalize(party)
+        except Exception:
+            logger.exception("Не удалось завершить сбор %s", party.id)
 
-    async def _finalize(self, party: Party) -> None:
+    async def _finalize(self, party: Party, *, notify: bool = True) -> None:
         """Финализирует пати: пингует готовых, обновляет embed, чистит state."""
-        if party.finalized:
-            return
         settings = get_settings()
         guild = self.bot.get_guild(party.guild_id)
         channel = self.bot.get_channel(party.channel_id) if guild else None
@@ -346,10 +579,19 @@ class PartyCog(commands.Cog):
 
         # cancel() атомарно помечает финализированным и удаляет из активных —
         # снимок ростера берём только после него, чтобы поздний клик не потерялся.
-        cancelled = await self.manager.cancel(party.id)
-        if cancelled is None:
-            # Уже финализировано параллельным /party_cancel — отдаём раунд.
-            return
+        async with self._state_lock:
+            self.ensure_available()
+            cancelled = await self.manager.cancel(party.id)
+            if cancelled is not None:
+                self._closing[party.id] = cancelled
+            else:
+                cancelled = self._closing.get(party.id)
+            if cancelled is None:
+                return
+            send_notice = notify and not cancelled.final_notice_attempted
+            # При неясном результате send не повторяем пинг после рестарта.
+            cancelled.final_notice_attempted = True
+            await self._persist_locked()
 
         # Имя роли, а не mention — иначе в финальном сообщении она выглядит как кликабельный
         # пинг (даже с allowed_mentions roles=False это всё равно подсвечивается и раздражает).
@@ -385,7 +627,9 @@ class PartyCog(commands.Cog):
                     role=role_name, comment=cancelled.comment, ready_pings=ready_pings
                 )
 
-        if isinstance(channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)):
+        if send_notice and isinstance(
+            channel, (discord.TextChannel, discord.Thread, discord.VoiceChannel)
+        ):
             try:
                 await channel.send(
                     text,
@@ -397,8 +641,25 @@ class PartyCog(commands.Cog):
                 logger.warning(f"Не удалось отправить финальное сообщение пати {party.id}: {e}")
 
         # Сначала снимаем кнопки в DM (с серым embed-ом), потом обновляем публичный.
-        await self._disable_dm_buttons(cancelled)
-        await self._refresh_public_embed(cancelled)
+        closing_ids = dict(cancelled.dm_message_ids)
+        dm_ok = await self._disable_dm_buttons(cancelled)
+        public_ok = await self._refresh_public_embed(cancelled)
+        async with self._state_lock:
+            if self._stopping:
+                # Старый callback может завершить HTTP после выгрузки: marker уже сохранён.
+                return
+            if (
+                dm_ok is not False
+                and public_ok is not False
+                and closing_ids == cancelled.dm_message_ids
+                and closing_ids.keys() <= cancelled.dm_messages.keys()
+                and party.id not in self._broadcasting
+            ):
+                self._closing.pop(party.id, None)
+                self._recovering.discard(party.id)
+            else:
+                self._recovering.add(party.id)
+            await self._persist_locked()
         deadline_task = self._timers.pop(party.id, None)
         if deadline_task is not None and deadline_task is not asyncio.current_task():
             deadline_task.cancel()
@@ -485,6 +746,7 @@ class PartyCog(commands.Cog):
         """
         now = datetime.now(UTC)
         deadline = now + duration
+        self.ensure_available()
 
         placeholder_view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
         placeholder_container: discord.ui.Container = discord.ui.Container(
@@ -499,20 +761,23 @@ class PartyCog(commands.Cog):
             logger.error(f"Не удалось опубликовать карточку пати: {e}")
             return None
 
-        party = self.manager.create(
-            guild_id=guild.id,
-            channel_id=public_message.channel.id,
-            public_message_id=public_message.id,
-            role_id=role.id,
-            initiator_id=initiator.id,
-            count=count,
-            comment=comment,
-            created_at=now,
-            deadline=deadline,
-            image_url=image_url,
-            finish_when_full=finish_when_full,
-        )
-        self._last_party[initiator.id] = now
+        async with self._state_lock:
+            self.ensure_available()
+            party = self.manager.create(
+                guild_id=guild.id,
+                channel_id=public_message.channel.id,
+                public_message_id=public_message.id,
+                role_id=role.id,
+                initiator_id=initiator.id,
+                count=count,
+                comment=comment,
+                created_at=now,
+                deadline=deadline,
+                image_url=image_url,
+                finish_when_full=finish_when_full,
+            )
+            self._last_party[initiator.id] = now
+            await self._persist_locked()
         self._timers[party.id] = asyncio.create_task(
             self._finalize_after(party), name=f"party-finalize-{party.id}"
         )
@@ -522,7 +787,7 @@ class PartyCog(commands.Cog):
         delivered = await self._send_dms(party, role, initiator)
         # После рассылки нужно ещё раз обновить публичный embed — а заодно DM,
         # вдруг счётчики уже изменились пока мы рассылали.
-        if not party.finalized:
+        if not self._stopping and not party.finalized:
             await self._refresh_all_embeds(party)
         logger.info(
             f"Создано пати {party.id} (роль {role.id}, нужно {count}, "
@@ -530,7 +795,7 @@ class PartyCog(commands.Cog):
             f"DM доставлено {delivered}"
         )
 
-        if not party.finalized:
+        if not self._stopping and not party.finalized:
             await self._maybe_start_ready_check(party)
         return party
 
@@ -545,6 +810,11 @@ class PartyCog(commands.Cog):
         image: discord.Attachment | None = None,
     ) -> None:
         """Открывает модалку сбора пати (Modal v2)."""
+        if not self._loaded or self._stopping or self._state_error:
+            await safe_send_error(
+                interaction, "Сборы пока недоступны. Попробуй после восстановления бота."
+            )
+            return
         guild = interaction.guild
         if guild is None:
             await safe_send_error(interaction, "Только в конфе, чел.")
@@ -604,11 +874,7 @@ class PartyCog(commands.Cog):
             task = timers.pop(party.id, None)
             if task is not None:
                 task.cancel()
-        cancelled = await self.manager.cancel(party.id)
-        # None означает что таймер _finalize уже всё снял — просто рапортуем.
-        if cancelled is not None:
-            await self._disable_dm_buttons(cancelled)
-            await self._refresh_public_embed(cancelled)
+        await self._finalize(party, notify=False)
         await safe_send(ctx, "Сбор пати отменён.", ephemeral=True)
         logger.info(f"Пати {party.id} отменено инициатором {ctx.author.id}")
 

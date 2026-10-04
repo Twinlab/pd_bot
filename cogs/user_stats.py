@@ -32,8 +32,16 @@ from utils.wrapped.builder import (
     build_personal_wrapped,
     build_server_wrapped,
 )
+from utils.wrapped.delivery import (
+    DeliveryResult,
+    PreparedWrapped,
+    RecipientUnavailable,
+    WrappedDelivery,
+    WrappedPeriod,
+)
 from utils.wrapped.render import render_personal_card, render_server_card
 from utils.wrapped.voice import member_is_active
+from utils.wrapped_data_manager import WrappedDataManager
 
 logger = logging.getLogger("bot.cogs.user_stats")
 
@@ -58,25 +66,33 @@ class UserStatsTracker(commands.Cog):
         self._pending_voice: dict[tuple[int, date], int] = {}
         self._voice_lock = asyncio.Lock()
         self._scan_scheduled = False
+        self.wrapped_delivery = WrappedDelivery()
 
         try:
             cfg = get_settings().user_stats
             self.periodic_voice_save.change_interval(seconds=cfg.voice_periodic_save)
-            self.wrapped_scheduler.change_interval(
-                time=time(hour=cfg.schedule.hour, minute=cfg.schedule.minute, tzinfo=MOSCOW_TZ)
-            )
             self.periodic_voice_save.start()
             self.daily_transfer.start()
-            self.wrapped_scheduler.start()
             logger.info("Фоновые задачи UserStatsTracker запущены.")
         except Exception as e:
             logger.error(f"Не удалось запустить задачи UserStatsTracker: {e}", exc_info=True)
+
+    async def cog_load(self) -> None:
+        """Запускает доставку при загрузке кога в уже подключённого бота."""
+        if self.bot.is_ready() and not self.wrapped_scheduler.is_running():
+            self.wrapped_scheduler.start()
 
     async def cog_unload(self) -> None:
         """Останавливает задачи и сохраняет накопленный голос."""
         self.periodic_voice_save.cancel()
         self.daily_transfer.cancel()
+        delivery_task = self.wrapped_scheduler.get_task()
         self.wrapped_scheduler.cancel()
+        if delivery_task is not None:
+            try:
+                await delivery_task
+            except asyncio.CancelledError:
+                pass
         try:
             await self._flush_active(restart=False)
         except Exception as e:
@@ -88,6 +104,8 @@ class UserStatsTracker(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         """Сканирует голосовые каналы при старте, чтобы продолжить учёт активных сессий."""
+        if not self.wrapped_scheduler.is_running():
+            self.wrapped_scheduler.start()
         if self._scan_scheduled:
             return
         self._scan_scheduled = True
@@ -275,26 +293,30 @@ class UserStatsTracker(commands.Cog):
     async def _before_daily_transfer(self) -> None:
         await self.bot.wait_until_ready()
 
-    @tasks.loop(time=time(hour=12, minute=0, tzinfo=MOSCOW_TZ))
+    @tasks.loop(minutes=5)
     async def wrapped_scheduler(self) -> None:
-        """Раз в сутки проверяет дату и постит нужные wrapped-сводки."""
-        cfg = get_settings().user_stats
-        sched = cfg.schedule
-        today = datetime.now(MOSCOW_TZ).date()
+        """Продолжает доставку наступивших после активации периодов независимо друг от друга."""
         try:
-            if today.day == 1:
-                prev = today.replace(day=1) - timedelta(days=1)
-                await self._post_server_wrapped("monthly", prev.year, prev.month)
-            if today.month == sched.yearly_month and today.day == sched.yearly_day:
-                await self._post_server_wrapped("yearly", today.year, None)
-            if (
-                sched.personal_enabled
-                and today.month == sched.personal_month
-                and today.day == sched.personal_day
-            ):
-                await self._broadcast_personal_wrapped(today.year)
-        except Exception as e:
-            logger.error(f"Ошибка wrapped_scheduler: {e}", exc_info=True)
+            periods = await self.wrapped_delivery.due_periods(get_settings().user_stats.schedule)
+        except Exception:
+            logger.exception("Доставка Wrapped заблокирована: не удалось прочитать журнал")
+            return
+        outcomes = await asyncio.gather(
+            *(self._deliver_wrapped_period(period) for period in periods), return_exceptions=True
+        )
+        for period, outcome in zip(periods, outcomes, strict=True):
+            if isinstance(outcome, Exception):
+                logger.error(
+                    "Ошибка доставки Wrapped %s; другие направления продолжают работу",
+                    period.key,
+                    exc_info=(type(outcome), outcome, outcome.__traceback__),
+                )
+
+    async def _deliver_wrapped_period(self, period: WrappedPeriod) -> None:
+        if period.kind == "personal":
+            await self._broadcast_personal_wrapped(period.year)
+        else:
+            await self._post_server_wrapped(period.kind, period.year, period.month)
 
     @wrapped_scheduler.before_loop
     async def _before_wrapped(self) -> None:
@@ -425,52 +447,74 @@ class UserStatsTracker(commands.Cog):
         summary = await self._server_summary(scope, year, month)
         return await self._render_summary(summary)
 
-    async def _post_server_wrapped(self, scope: WrappedScope, year: int, month: int | None) -> bool:
-        channel = self._report_channel()
-        if channel is None:
-            return False
-        summary = await self._server_summary(scope, year, month)
-        png = await self._render_summary(summary)
-        view = discord.ui.View()
-        if summary.message_url:
-            view.add_item(
-                discord.ui.Button(
-                    label="Сообщение месяца" if scope == "monthly" else "Сообщение года",
-                    url=summary.message_url,
+    async def _post_server_wrapped(
+        self, scope: WrappedScope, year: int, month: int | None
+    ) -> DeliveryResult:
+        async def destination() -> discord.TextChannel:
+            channel = self._report_channel()
+            if channel is None:
+                raise RuntimeError("Канал Wrapped недоступен")
+            return channel
+
+        async def prepare() -> PreparedWrapped:
+            summary = await self._server_summary(scope, year, month)
+            png = await self._render_summary(summary)
+            view = discord.ui.View()
+            if summary.message_url:
+                view.add_item(
+                    discord.ui.Button(
+                        label="Сообщение месяца" if scope == "monthly" else "Сообщение года",
+                        url=summary.message_url,
+                    )
                 )
-            )
-        file = discord.File(BytesIO(png), filename="wrapped.png")
-        await channel.send(
-            content="🎉 Серверный Wrapped",
-            file=file,
-            view=view if view.children else None,
-            allowed_mentions=discord.AllowedMentions.none(),
+            return PreparedWrapped(png, "🎉 Серверный Wrapped", view if view.children else None)
+
+        if self.bot.user is None:
+            raise RuntimeError("Discord ещё не предоставил пользователя бота")
+        return await self.wrapped_delivery.deliver(
+            WrappedPeriod(kind=scope, year=year, month=month),
+            bot_id=self.bot.user.id,
+            destination=destination,
+            prepare=prepare,
         )
-        logger.info("Опубликован серверный wrapped (%s %s-%s).", scope, year, month)
-        return True
 
     async def _broadcast_personal_wrapped(self, year: int) -> None:
-        """Рассылает персональные карточки активным участникам в ЛС."""
+        """Продолжает сохранённую персональную рассылку, не повторяя доставленные карточки."""
         guild = self.bot.guilds[0] if self.bot.guilds else None
         if guild is None:
-            return
+            raise RuntimeError("Сервер персонального Wrapped ещё недоступен")
+        if self.bot.user is None:
+            raise RuntimeError("Discord ещё не предоставил пользователя бота")
         cfg = get_settings().user_stats
 
-        yearly = await self.stats_manager.get_yearly_totals(year)
-        yearly = self.stats_manager.merge_totals(
-            yearly, await self.stats_manager.get_daily_totals_by_prefix(str(year))
-        )
-        active_ids = [uid for uid, t in yearly.items() if t.messages > 0 or t.voice_seconds > 0]
+        async def discover() -> list[int]:
+            snapshot = await WrappedDataManager().get_year(year)
+            return [
+                uid
+                for uid, totals in snapshot.users.items()
+                if totals.messages > 0 or totals.voice_seconds > 0
+            ]
+
+        active_ids = await self.wrapped_delivery.personal_recipients(year, discover)
+        if active_ids is None:
+            return
 
         sent = 0
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
             for user_id in active_ids:
-                member = guild.get_member(user_id)
-                if member is None or member.bot:
-                    continue
-                try:
+
+                async def destination(uid: int = user_id) -> discord.DMChannel:
+                    member = guild.get_member(uid)
+                    if member is None or member.bot:
+                        raise RecipientUnavailable()
+                    return await member.create_dm()
+
+                async def prepare(uid: int = user_id) -> PreparedWrapped:
+                    member = guild.get_member(uid)
+                    if member is None or member.bot:
+                        raise RecipientUnavailable()
                     personal = await build_personal_wrapped(
-                        user_id=user_id,
+                        user_id=uid,
                         year=year,
                         stats_mgr=self.stats_manager,
                         activity_mgr=self.activity_manager,
@@ -482,16 +526,19 @@ class UserStatsTracker(commands.Cog):
                     png = await asyncio.to_thread(
                         render_personal_card, personal, member.display_name, avatar
                     )
-                    file = discord.File(BytesIO(png), filename="my_wrapped.png")
-                    await member.send(
-                        content="Твой персональный итог года на сервере!",
-                        file=file,
+                    return PreparedWrapped(png, "Твой персональный итог года на сервере!")
+
+                try:
+                    result = await self.wrapped_delivery.deliver(
+                        WrappedPeriod(kind="personal", year=year),
+                        recipient_id=user_id,
+                        bot_id=self.bot.user.id,
+                        destination=destination,
+                        prepare=prepare,
                     )
-                    sent += 1
-                except discord.Forbidden:
-                    logger.debug(f"ЛС закрыты для {user_id} — пропуск персонального wrapped.")
-                except Exception as e:
-                    logger.error(f"Ошибка отправки персонального wrapped {user_id}: {e}")
+                    sent += result == DeliveryResult.SENT
+                except Exception:
+                    logger.exception("Ошибка доставки персонального Wrapped %s/%s", year, user_id)
                 await asyncio.sleep(cfg.dm_send_delay)
         logger.info(f"Персональный wrapped разослан: {sent} из {len(active_ids)} активных.")
 
@@ -573,10 +620,15 @@ class UserStatsTracker(commands.Cog):
             await safe_send(ctx, "Месяц должен быть от 1 до 12.", ephemeral=True)
             return
         await ctx.defer(ephemeral=True)
-        ok = await self._post_server_wrapped("monthly", year, month)
+        result = await self._post_server_wrapped("monthly", year, month)
+        confirmation = "Не удалось (проверьте канал в логах)."
+        if result == DeliveryResult.SENT:
+            confirmation = "Месячный wrapped опубликован."
+        elif result == DeliveryResult.ALREADY_SENT:
+            confirmation = "Месячный wrapped уже опубликован; повтор не отправлен."
         await safe_send(
             ctx,
-            "Месячный wrapped опубликован." if ok else "Не удалось (проверьте канал в логах).",
+            confirmation,
             ephemeral=True,
         )
 
@@ -591,10 +643,15 @@ class UserStatsTracker(commands.Cog):
     async def wrapped_yearly_command(self, ctx: commands.Context, year: int) -> None:
         """Ручной запуск годового серверного wrapped."""
         await ctx.defer(ephemeral=True)
-        ok = await self._post_server_wrapped("yearly", year, None)
+        result = await self._post_server_wrapped("yearly", year, None)
+        confirmation = "Не удалось (проверьте канал в логах)."
+        if result == DeliveryResult.SENT:
+            confirmation = "Годовой wrapped опубликован."
+        elif result == DeliveryResult.ALREADY_SENT:
+            confirmation = "Годовой wrapped уже опубликован; повтор не отправлен."
         await safe_send(
             ctx,
-            "Годовой wrapped опубликован." if ok else "Не удалось (проверьте канал в логах).",
+            confirmation,
             ephemeral=True,
         )
 

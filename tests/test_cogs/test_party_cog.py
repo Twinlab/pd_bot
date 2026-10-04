@@ -11,6 +11,7 @@ from discord.ext import commands
 from cogs.party import PartyCog
 from config.settings import BotSettings
 from utils.party.manager import PartyPhase
+from utils.party.state import PartyStateStore
 from utils.party.views import (
     PartyConfirmView,
     PartyPublishView,
@@ -51,7 +52,10 @@ def bot() -> MagicMock:
 @pytest.fixture
 def cog(bot: MagicMock) -> PartyCog:
     """Свежий PartyCog с замоканным role_reaction_manager (по умолчанию пускает role.id=42)."""
-    c = PartyCog(bot)
+    state_store = MagicMock(spec=PartyStateStore)
+    state_store.save = AsyncMock()
+    c = PartyCog(bot, state_store=state_store)
+    c._loaded = True
     c.role_reaction_manager = MagicMock()
     c.role_reaction_manager.get_all_role_reactions = AsyncMock(
         return_value=[{"role_id": 42, "emoji": "🎮", "message_id": 1}]
@@ -84,6 +88,7 @@ def make_member(user_id: int, *, can_dm: bool = True, is_bot: bool = False) -> M
     if can_dm:
         sent = MagicMock(spec=discord.Message)
         sent.id = 10000 + user_id
+        sent.channel.id = 20000 + user_id
         sent.edit = AsyncMock()
         m.send = AsyncMock(return_value=sent)
     else:
@@ -118,18 +123,19 @@ class TestLifecycle:
     """Тесты безопасной выгрузки активных сборов."""
 
     @pytest.mark.asyncio
-    async def test_cog_unload_finalizes_active_party(self, cog: PartyCog) -> None:
-        """После рестарта старые публичные и DM-кнопки не остаются активными."""
+    async def test_cog_unload_preserves_active_party(self, cog: PartyCog) -> None:
+        """Штатный рестарт сохраняет сбор, не объявляя его завершённым."""
         party = _make_party(cog)
         cog._disable_dm_buttons = AsyncMock()
         cog._refresh_public_embed = AsyncMock()
 
         await cog.cog_unload()
 
-        assert party.finalized is True
-        assert cog.manager.get(party.id) is None
-        cog._disable_dm_buttons.assert_awaited_once_with(party)
-        cog._refresh_public_embed.assert_awaited_once_with(party)
+        assert party.finalized is False
+        assert cog.manager.get(party.id) is party
+        cog._disable_dm_buttons.assert_not_awaited()
+        cog._refresh_public_embed.assert_not_awaited()
+        cog._state_store.save.assert_awaited_once()
 
 
 class TestSendDMs:
@@ -803,6 +809,7 @@ class TestReadyCheck:
         party = _make_party(cog, count=3, comment="го")
         party.ready_check_started = True
         party.confirmed = [100, 200]
+        party.joined_order = [100, 200]
         party.not_confirmed = [300]
 
         await cog._finalize(party)

@@ -98,6 +98,7 @@ class Party:
     joined_order: list[int] = field(default_factory=list)
     declined_order: list[int] = field(default_factory=list)
     dm_messages: dict[int, discord.Message] = field(default_factory=dict)
+    dm_message_ids: dict[int, tuple[int, int]] = field(default_factory=dict)
     last_press: dict[int, datetime] = field(default_factory=dict)
     phase: PartyPhase = PartyPhase.COLLECTING
     confirmed: list[int] = field(default_factory=list)
@@ -105,6 +106,7 @@ class Party:
     not_confirmed: list[int] = field(default_factory=list)
     ready_check_started: bool = False
     finalized: bool = False
+    final_notice_attempted: bool = False
 
     @property
     def ready(self) -> list[int]:
@@ -352,3 +354,9 @@ class PartyManager:
     def all_active(self) -> list[Party]:
         """Снимок всех активных пати (для cog_unload)."""
         return list(self._active.values())
+
+    def restore(self, parties: list[Party]) -> None:
+        """Загружает проверенный снимок до разрешения пользовательских действий."""
+        if self._active:
+            raise RuntimeError("Нельзя восстановить снимок поверх активных сборов")
+        self._active = {party.id: party for party in parties if not party.finalized}

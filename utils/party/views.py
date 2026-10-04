@@ -9,8 +9,7 @@
   Отмена» (CV2).
 
 Каждое DM-сообщение получает свой экземпляр view: timeout привязан к
-``deadline`` пати. После таймаута Discord сам деактивирует кнопки клиентам;
-явное обновление карточки делает cog при финализации.
+``deadline`` пати. Финализатор явно снимает кнопки с сообщений.
 
 Кулдаун между нажатиями (любых кнопок) в фазе сбора — на одного пользователя
 в рамках одного пати. Значение берётся из ``settings.party.button_cooldown_seconds``.
@@ -21,11 +20,12 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import discord
 
 from config import get_settings
+from utils.error_handler import get_incident_error_message, new_incident_id
 from utils.ui import colors
 
 if TYPE_CHECKING:
@@ -62,14 +62,35 @@ class _ReadyDeclineRow(discord.ui.ActionRow["PartyView"]):
         await self.view.handle_decline(interaction)
 
 
-class PartyView(discord.ui.LayoutView):
+class _PartyStateView(discord.ui.LayoutView):
+    def __init__(self, *, cog: PartyCog, timeout: float) -> None:
+        super().__init__(timeout=timeout)
+        self.cog = cog
+        cog._views.add(self)
+
+    async def on_error(
+        self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item[Any]
+    ) -> None:
+        """Сообщает об ошибке записи без ложного подтверждения действия."""
+        incident_id = self.cog._state_error or new_incident_id()
+        logger.error(
+            "Ошибка интерфейса сбора [%s]",
+            incident_id,
+            exc_info=(type(error), error, error.__traceback__),
+            extra={"context": {"incident_id": incident_id}},
+        )
+        message = get_incident_error_message(incident_id)
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+
+
+class PartyView(_PartyStateView):
     """CV2-карточка сбора + кнопки «Готов» / «Не готов» в одном сообщении."""
 
     def __init__(self, *, cog: PartyCog, party: Party) -> None:
-        # Timeout = сколько осталось до закрытия. Discord после него отключит
-        # кнопки на клиенте — больше нажать нельзя.
-        super().__init__(timeout=_remaining_timeout(party))
-        self.cog = cog
+        super().__init__(cog=cog, timeout=_remaining_timeout(party))
         self.party_id = party.id
         container = cog._build_container(party)
         container.add_item(_ReadyDeclineRow())
@@ -77,8 +98,9 @@ class PartyView(discord.ui.LayoutView):
 
     async def _check_cooldown(self, interaction: discord.Interaction) -> bool:
         """True если можно жать; иначе шлёт ephemeral-сообщение и False."""
+        self.cog.ensure_available(self.party_id)
         party = self.cog.manager.get(self.party_id)
-        if party is None or party.finalized:
+        if party is None or party.finalized or party.deadline <= datetime.now(UTC):
             await interaction.response.send_message(
                 "Сбор уже закрыт, кнопки больше не работают.", ephemeral=True
             )
@@ -101,20 +123,24 @@ class PartyView(discord.ui.LayoutView):
 
     async def handle_ready(self, interaction: discord.Interaction) -> None:
         """Кнопка «Готов» — переносит юзера в joined."""
-        if not await self._check_cooldown(interaction):
-            return
-        await interaction.response.defer()
-        updated = await self.cog.manager.mark_ready(self.party_id, interaction.user.id)
+        async with self.cog._state_lock:
+            if not await self._check_cooldown(interaction):
+                return
+            await interaction.response.defer()
+            updated = await self.cog.manager.mark_ready(self.party_id, interaction.user.id)
+            await self.cog._persist_locked()
         if updated is not None:
             await self.cog._refresh_all_embeds(updated)
             await self.cog._maybe_start_ready_check(updated)
 
     async def handle_decline(self, interaction: discord.Interaction) -> None:
         """Кнопка «Не готов» — переносит в declined."""
-        if not await self._check_cooldown(interaction):
-            return
-        await interaction.response.defer()
-        updated = await self.cog.manager.mark_declined(self.party_id, interaction.user.id)
+        async with self.cog._state_lock:
+            if not await self._check_cooldown(interaction):
+                return
+            await interaction.response.defer()
+            updated = await self.cog.manager.mark_declined(self.party_id, interaction.user.id)
+            await self.cog._persist_locked()
         if updated is not None:
             await self.cog._refresh_all_embeds(updated)
 
@@ -133,12 +159,11 @@ class _ConfirmRow(discord.ui.ActionRow["PartyConfirmView"]):
         await self.view.handle_confirm(interaction)
 
 
-class PartyConfirmView(discord.ui.LayoutView):
+class PartyConfirmView(_PartyStateView):
     """CV2-карточка + кнопка «Подтверждаю» в DM для фазы чека готовности."""
 
     def __init__(self, *, cog: PartyCog, party: Party) -> None:
-        super().__init__(timeout=_remaining_timeout(party))
-        self.cog = cog
+        super().__init__(cog=cog, timeout=_remaining_timeout(party))
         self.party_id = party.id
         container = cog._build_container(party)
         container.add_item(_ConfirmRow())
@@ -146,20 +171,29 @@ class PartyConfirmView(discord.ui.LayoutView):
 
     async def handle_confirm(self, interaction: discord.Interaction) -> None:
         """Кнопка «Подтверждаю» — закрепляет юзера в основном составе."""
-        party = self.cog.manager.get(self.party_id)
-        if party is None or party.finalized:
-            await interaction.response.send_message(
-                "Сбор уже закрыт, подтверждать нечего.", ephemeral=True
-            )
-            return
-
-        await interaction.response.defer()
-        updated = await self.cog.manager.confirm(self.party_id, interaction.user.id)
+        async with self.cog._state_lock:
+            self.cog.ensure_available(self.party_id)
+            party = self.cog.manager.get(self.party_id)
+            now = datetime.now(UTC)
+            if party is None or party.finalized or party.deadline <= now:
+                await interaction.response.send_message(
+                    "Сбор уже закрыт, подтверждать нечего.", ephemeral=True
+                )
+                return
+            deadline = party.confirm_deadlines.get(interaction.user.id)
+            if deadline is None or deadline <= now:
+                await interaction.response.send_message(
+                    "Окно подтверждения уже закрыто.", ephemeral=True
+                )
+                return
+            await interaction.response.defer()
+            updated = await self.cog.manager.confirm(self.party_id, interaction.user.id)
+            await self.cog._persist_locked()
         if updated is not None:
             await self.cog._after_confirm(updated)
 
     async def on_timeout(self) -> None:
-        """По таймауту гасим кнопку на клиенте."""
+        """Помечает кнопку недоступной; сообщение обновляет финализатор."""
         for child in self.walk_children():
             if isinstance(child, discord.ui.Button):
                 child.disabled = True
@@ -349,7 +383,7 @@ class _PublishRow(discord.ui.ActionRow["PartyPublishView"]):
         await self.view.handle_cancel(interaction)
 
 
-class PartyPublishView(discord.ui.LayoutView):
+class PartyPublishView(_PartyStateView):
     """Превью сбора (CV2): опубликовать / изменить (переоткрыть модалку) / отмена."""
 
     def __init__(
@@ -361,7 +395,7 @@ class PartyPublishView(discord.ui.LayoutView):
         image_url: str | None,
         draft: _PartyDraft,
     ) -> None:
-        super().__init__(timeout=300.0)
+        super().__init__(cog=cog, timeout=300.0)
         self._cog = cog
         self._initiator = initiator
         self._roles = roles
@@ -390,6 +424,7 @@ class PartyPublishView(discord.ui.LayoutView):
 
     async def handle_publish(self, interaction: discord.Interaction) -> None:
         """Публикует сбор по кнопке «Опубликовать»."""
+        self._cog.ensure_available()
         guild = interaction.guild
         channel = interaction.channel
         if guild is None or not isinstance(channel, discord.abc.Messageable):

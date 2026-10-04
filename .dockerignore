@@ -6,6 +6,7 @@
 .idea
 .vscode
 .venv
+.ci-venv
 __pycache__
 *.py[cod]
 *.egg-info
