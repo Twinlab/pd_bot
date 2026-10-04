@@ -34,8 +34,8 @@ COPY utils/ utils/
 COPY main.py .
 COPY config/ config/
 
-# Только наш wheel собирается без изоляции; сторонние sdist сохраняют свои build env.
-RUN python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/app-wheel . && \
+# pip запрещает build constraints без изоляции; снимаем их только для нашего wheel.
+RUN env -u PIP_BUILD_CONSTRAINT python -m pip wheel --no-deps --no-build-isolation --wheel-dir /tmp/app-wheel . && \
     python -m pip install /tmp/app-wheel/*.whl && \
     python -m pip check && \
     python /tmp/dependency_snapshot.py check dependency-snapshot.txt
