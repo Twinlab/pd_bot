@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     from discord.types.voice import GuildVoiceState as GuildVoiceStatePayload
     from discord.types.voice import VoiceServerUpdate as VoiceServerUpdatePayload
 
+    from .ui import NowPlayingView
+
 _connect_task: asyncio.Task[None] | None = None
 
 
@@ -40,6 +42,8 @@ class MusicPlayer(wavelink.Player):
         super().__init__(*args, **kwargs)
         self.text_channel: discord.TextChannel | discord.Thread | None = None
         self.now_playing_message: discord.Message | None = None
+        self.now_playing_view: NowPlayingView | None = None
+        self.now_playing_lock = asyncio.Lock()
 
     async def on_voice_state_update(self, data: GuildVoiceStatePayload, /) -> None:
         """Завершает voice handshake независимо от порядка Gateway-событий."""

@@ -142,7 +142,9 @@ async def test_bot_registers_tyan_in_tree_and_fun_help():
         command = bot.tree.get_command("tyan")
         assert command is not None
         assert bot.get_command("tyan") is not None
-        catalog = build_help_catalog(bot.tree.get_commands())
+        catalog = build_help_catalog(
+            bot.tree.get_commands(), permissions=discord.Permissions.none()
+        )
         assert any(entry.name == "tyan" for entry in catalog["Развлечения"])
     finally:
         await bot.close()

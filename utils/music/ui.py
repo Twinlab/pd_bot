@@ -7,14 +7,16 @@ Now-playing, поиск и очередь собраны на ``LayoutView``. К
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import discord
 import wavelink
 
-from utils.error_handler import safe_send_error
+from utils.error_handler import get_incident_error_message, new_incident_id, safe_send_error
 from utils.ui import colors
 
+from .config import logger
 from .embeds import (
     _footer_for_player,
     _requester_mention,
@@ -25,6 +27,109 @@ from .embeds import (
 
 if TYPE_CHECKING:
     from .player import MusicPlayer
+
+
+class _MusicView(discord.ui.LayoutView):
+    async def on_error(
+        self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item
+    ) -> None:
+        """Связывает ошибку кнопки с записью в логе и приватным ответом."""
+        incident_id = new_incident_id()
+        logger.error(
+            "Ошибка музыкального интерфейса [incident=%s, item=%s]",
+            incident_id,
+            getattr(item, "custom_id", None),
+            exc_info=(type(error), error, error.__traceback__),
+        )
+        await safe_send_error(interaction, get_incident_error_message(incident_id))
+
+
+class _TemporaryMusicView(_MusicView):
+    def __init__(self, *, timeout: float, expiry_hint: str) -> None:
+        super().__init__(timeout=timeout)
+        self.message: discord.Message | None = None
+        self._lock = asyncio.Lock()
+        self._completed = False
+        self._expired = False
+        self._expiry_hint = expiry_hint
+
+    async def on_timeout(self) -> None:
+        """Закрывает меню, не перезаписывая результат уже начатого действия."""
+        async with self._lock:
+            if self._completed:
+                return
+            self._expired = True
+            self.stop()
+            if self.message is not None:
+                try:
+                    await self.message.edit(
+                        view=status_card("⌛ Меню закрыто", self._expiry_hint, colors.NEUTRAL)
+                    )
+                except discord.HTTPException:
+                    pass
+
+
+async def refresh_now_playing(player: MusicPlayer, *, create: bool = False) -> bool:
+    """Обновляет единственную панель; новый пост создаёт только при явном запросе."""
+    async with player.now_playing_lock:
+        if not player.connected or player.current is None:
+            return False
+        message = player.now_playing_message
+        if message is None and not create:
+            return False
+        previous = player.now_playing_view
+        if previous is not None and not previous.is_finished():
+            view = previous
+            view._render()
+        else:
+            if previous is not None:
+                # Старый ViewStore использует те же custom_id: stop нужен до edit нового view.
+                previous.stop()
+            view = NowPlayingView(player)
+        player.now_playing_view = view
+        if message is not None:
+            try:
+                await message.edit(view=view)
+                # Таймер мог завершить view, пока Discord отвечал на edit.
+                if view.is_finished():
+                    view.stop()
+                    view = NowPlayingView(player)
+                    player.now_playing_view = view
+                    await message.edit(view=view)
+                return True
+            except discord.NotFound:
+                player.now_playing_message = None
+            except discord.HTTPException as exc:
+                logger.warning("Не удалось обновить музыкальную панель: %s", exc)
+                return False
+        if create and player.text_channel is not None:
+            try:
+                player.now_playing_message = await player.text_channel.send(view=view)
+                return True
+            except discord.HTTPException as exc:
+                logger.warning("Не удалось отправить музыкальную панель: %s", exc)
+        return False
+
+
+async def finish_now_playing(
+    player: MusicPlayer, title: str, description: str, *, only_if_idle: bool = False
+) -> None:
+    """Снимает кнопки с основной панели после остановки или окончания очереди."""
+    async with player.now_playing_lock:
+        if only_if_idle and (
+            not player.connected or player.current is not None or not player.queue.is_empty
+        ):
+            return
+        if player.now_playing_view is not None:
+            player.now_playing_view.stop()
+            player.now_playing_view = None
+        if player.now_playing_message is not None:
+            try:
+                await player.now_playing_message.edit(
+                    view=status_card(title, description, colors.INFO)
+                )
+            except discord.HTTPException:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -190,12 +295,11 @@ class _NowPlayingSecondaryRow(discord.ui.ActionRow["NowPlayingView"]):
         await self.view.handle_show_queue(interaction)
 
 
-class NowPlayingView(discord.ui.LayoutView):
+class NowPlayingView(_MusicView):
     """Интерактивная карточка текущего трека с кнопками управления.
 
-    Контент и кнопки управления живут в одном ``LayoutView``: при каждом действии
-    вью перерисовывается целиком (как :class:`utils.profile.views.ProfileView`) и
-    редактирует сообщение через ``edit_message(view=self)``.
+    Контент и кнопки обновляются в одной основной панели через
+    :func:`refresh_now_playing`; команды и кнопки используют общий lock.
     """
 
     def __init__(self, player: MusicPlayer, *, timeout: float | None = 3600.0) -> None:
@@ -259,6 +363,9 @@ class NowPlayingView(discord.ui.LayoutView):
         require_current_track: bool = True,
     ) -> bool:
         """Проверка перед действием по кнопке (тот же канал + права)."""
+        if self.player.now_playing_view is not self or self.is_finished():
+            await safe_send_error(interaction, "Эта панель устарела. Откройте `/nowplaying`.")
+            return False
         member = interaction.user
         if not isinstance(member, discord.Member):
             await safe_send_error(interaction, "Эта команда доступна только на сервере.")
@@ -284,11 +391,9 @@ class NowPlayingView(discord.ui.LayoutView):
 
     async def _edit(self, interaction: discord.Interaction) -> None:
         """Перерисовывает now-playing сообщение под актуальное состояние."""
-        self._render()
-        if interaction.response.is_done():
-            await interaction.edit_original_response(view=self)
-        else:
-            await interaction.response.edit_message(view=self)
+        if not interaction.response.is_done():
+            await interaction.response.defer()
+        await refresh_now_playing(self.player)
 
     async def handle_pause(self, interaction: discord.Interaction) -> None:
         """Пауза / возобновление воспроизведения."""
@@ -312,17 +417,11 @@ class NowPlayingView(discord.ui.LayoutView):
         await interaction.response.defer()
         self.player.queue.clear()
         await self.player.disconnect()
-        self.stop()
-        try:
-            await interaction.edit_original_response(
-                view=status_card(
-                    "⏹️ Воспроизведение остановлено",
-                    "Бот покинул голосовой канал, очередь очищена.",
-                    colors.INFO,
-                )
-            )
-        except discord.HTTPException:
-            pass
+        await finish_now_playing(
+            self.player,
+            "⏹️ Воспроизведение остановлено",
+            "Бот покинул голосовой канал, очередь очищена. Добавьте трек через `/play`.",
+        )
 
     async def handle_loop(self, interaction: discord.Interaction) -> None:
         """Циклит режим повтора: off → track → queue → off."""
@@ -353,18 +452,28 @@ class NowPlayingView(discord.ui.LayoutView):
         page_size = get_settings().music.lavalink.queue_page_size
         view = QueueLayoutView(self.player, page=1, page_size=page_size)
         await interaction.response.send_message(view=view, ephemeral=True)
+        view.message = await interaction.original_response()
 
     async def on_timeout(self) -> None:
         """По таймауту убираем кнопки, оставив снимок плеера."""
-        if self.player.now_playing_message is None:
-            return
-        try:
-            await self.player.now_playing_message.edit(view=now_playing_static_view(self.player))
-        except discord.HTTPException:
-            pass
+        async with self.player.now_playing_lock:
+            if self.player.now_playing_view is not self:
+                return
+            self.stop()
+            self.player.now_playing_view = None
+            if self.player.now_playing_message is None:
+                return
+            view = now_playing_static_view(self.player)
+            view.add_item(
+                discord.ui.TextDisplay("Управление закрыто по таймауту. Откройте `/nowplaying`."),
+            )
+            try:
+                await self.player.now_playing_message.edit(view=view)
+            except discord.HTTPException:
+                pass
 
 
-class SearchLayoutView(discord.ui.LayoutView):
+class SearchLayoutView(_TemporaryMusicView):
     """CV2-меню выбора трека из результатов ``/play <текст>`` (одно сообщение)."""
 
     def __init__(
@@ -377,7 +486,9 @@ class SearchLayoutView(discord.ui.LayoutView):
         timeout: float = 60.0,
     ) -> None:
         """Собирает контейнер с заголовком поиска и Select-меню результатов."""
-        super().__init__(timeout=timeout)
+        super().__init__(
+            timeout=timeout, expiry_hint="Повторите `/play <запрос>`, чтобы выбрать трек."
+        )
         self._cog = cog
         self._requester = requester
         container: discord.ui.Container = discord.ui.Container(accent_colour=colors.NEUTRAL)
@@ -394,12 +505,19 @@ class SearchLayoutView(discord.ui.LayoutView):
         self, interaction: discord.Interaction, track: wavelink.Playable
     ) -> None:
         """Передаёт выбранный трек в ког для добавления в очередь."""
-        handler = getattr(self._cog, "_enqueue_selected_track", None)
-        if handler is None:
-            await safe_send_error(interaction, "Не удалось обработать выбор: внутренняя ошибка.")
+        if self._lock.locked():
+            await safe_send_error(interaction, "Выбор уже обрабатывается. Подождите подтверждения.")
             return
-        await handler(interaction, track, self._requester)
-        self.stop()
+        async with self._lock:
+            if self._expired or self._completed or self.is_finished():
+                await safe_send_error(interaction, "Этот поиск закрыт. Повторите `/play <запрос>`.")
+                return
+            handler = getattr(self._cog, "_enqueue_selected_track", None)
+            if handler is None:
+                raise RuntimeError("Отсутствует обработчик выбора музыкального трека")
+            if await handler(interaction, track, self._requester) is not False:
+                self._completed = True
+                self.stop()
 
 
 class _QueuePager(discord.ui.ActionRow["QueueLayoutView"]):
@@ -422,7 +540,7 @@ class _QueuePager(discord.ui.ActionRow["QueueLayoutView"]):
         await self.view.change_page(interaction, 1)
 
 
-class QueueLayoutView(discord.ui.LayoutView):
+class QueueLayoutView(_TemporaryMusicView):
     """Очередь воспроизведения с CV2-пагинацией в одном сообщении."""
 
     def __init__(
@@ -434,7 +552,9 @@ class QueueLayoutView(discord.ui.LayoutView):
         timeout: float = 120.0,
     ) -> None:
         """Создаёт вью с текущей страницей очереди."""
-        super().__init__(timeout=timeout)
+        super().__init__(
+            timeout=timeout, expiry_hint="Откройте `/queue`, чтобы увидеть свежую очередь."
+        )
         self.player = player
         self.page = page
         self.page_size = page_size
@@ -514,6 +634,11 @@ class QueueLayoutView(discord.ui.LayoutView):
 
     async def change_page(self, interaction: discord.Interaction, delta: int) -> None:
         """Сдвигает страницу на ``delta`` (``0`` — просто перечитать очередь)."""
-        self.page += delta
-        self._render()
-        await interaction.response.edit_message(view=self)
+        await interaction.response.defer()
+        async with self._lock:
+            if self._expired or self.is_finished():
+                await safe_send_error(interaction, "Это меню закрыто. Откройте `/queue`.")
+                return
+            self.page += delta
+            self._render()
+            self.message = await interaction.edit_original_response(view=self)

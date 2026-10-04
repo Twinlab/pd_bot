@@ -7,6 +7,7 @@ wavelink не покрывается — это уже e2e и требует р�
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,7 +18,9 @@ from discord.ext import commands
 
 from cogs.music import MusicCog
 from utils.music.player import MusicPlayer
+from utils.music.ui import NowPlayingView, QueueLayoutView, SearchLayoutView
 from utils.ui import colors
+from utils.ui.testing import joined_text
 
 
 @pytest.fixture
@@ -33,6 +36,10 @@ def mock_player(monkeypatch: pytest.MonkeyPatch) -> MusicPlayer:
     player = MusicPlayer.__new__(MusicPlayer)
     player.text_channel = None
     player.now_playing_message = None
+    player.now_playing_view = None
+    player.now_playing_lock = asyncio.Lock()
+    player._guild = None
+    player._volume = 50
 
     monkeypatch.setattr(type(player), "current", property(lambda self: None))
     monkeypatch.setattr(type(player), "playing", property(lambda self: False))
@@ -60,6 +67,7 @@ async def test_track_selection_acknowledges_before_enqueue(
     interaction.response.edit_message = AsyncMock()
     interaction.edit_original_response = AsyncMock()
     requester = MagicMock(spec=discord.Member)
+    requester.voice.channel = mock_player.channel
     track = MagicMock(spec=wavelink.Playable)
     card = discord.ui.LayoutView()
 
@@ -241,12 +249,12 @@ class TestCommandsGuardErrors:
             mock_err.assert_called_once()
 
     async def test_seek_rejects_invalid_position(
-        self, cog: MusicCog, mock_player: MusicPlayer
+        self, cog: MusicCog, mock_player: MusicPlayer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Сделаем плеер играющим, но с невалидным значением position
         track = SimpleNamespace(length=120_000)
-        type(mock_player).current = property(lambda self: track)  # type: ignore[assignment]
-        type(mock_player).playing = property(lambda self: True)  # type: ignore[assignment]
+        monkeypatch.setattr(type(mock_player), "current", property(lambda self: track))
+        monkeypatch.setattr(type(mock_player), "playing", property(lambda self: True))
 
         ctx = MagicMock(spec=commands.Context)
         guild = MagicMock(spec=discord.Guild)
@@ -307,6 +315,177 @@ class TestPresentation:
 
         mock_status_card.assert_called_once_with("⏸️ Пауза", "", colors.INFO)
         ctx.send.assert_awaited_once_with(view=card)
+
+
+def _track(title: str = "Song") -> MagicMock:
+    track = MagicMock(spec=wavelink.Playable)
+    track.title = title
+    track.author = "Band"
+    track.uri = "https://example.com/song"
+    track.artwork = None
+    track.source = "youtube"
+    track.length = 120_000
+    track.extras = SimpleNamespace(requester_id=None)
+    return track
+
+
+class TestCanonicalMusicPanel:
+    def _context(self, player: MusicPlayer) -> MagicMock:
+        ctx = MagicMock(spec=commands.Context)
+        ctx.author = MagicMock(spec=discord.Member)
+        ctx.author.voice.channel = player.channel
+        ctx.author.guild_permissions.administrator = True
+        ctx.guild.voice_client = player
+        ctx.send = AsyncMock()
+        ctx.defer = AsyncMock()
+        return ctx
+
+    @pytest.mark.parametrize(
+        ("command", "kwargs"),
+        [
+            ("pause", {}),
+            ("resume", {}),
+            ("loop", {"mode": "queue"}),
+            ("shuffle", {}),
+            ("clearqueue", {}),
+            ("remove", {"index": 1}),
+            ("volume", {"value": 75}),
+            ("seek", {"position": "0:30"}),
+        ],
+    )
+    async def test_slash_mutations_refresh_existing_panel(
+        self, cog, mock_player, monkeypatch, command, kwargs
+    ) -> None:
+        track = _track()
+        monkeypatch.setattr(type(mock_player), "current", property(lambda self: track))
+        monkeypatch.setattr(type(mock_player), "playing", property(lambda self: True))
+        state = {"paused": command == "resume"}
+        monkeypatch.setattr(type(mock_player), "paused", property(lambda self: state["paused"]))
+        mock_player.queue = wavelink.Queue()
+        mock_player.queue.put([_track("Next"), _track("Last")])
+        mock_player.text_channel = MagicMock(spec=discord.TextChannel)
+        mock_player.text_channel.send = AsyncMock()
+        mock_player.now_playing_message = MagicMock(spec=discord.Message)
+        mock_player.now_playing_message.edit = AsyncMock()
+        mock_player.now_playing_view = NowPlayingView(mock_player)
+
+        async def pause(value):
+            state["paused"] = value
+
+        mock_player.pause = AsyncMock(side_effect=pause)
+        mock_player.set_volume = AsyncMock()
+        mock_player.seek = AsyncMock()
+        ctx = self._context(mock_player)
+        callback = getattr(cog, command).callback.__wrapped__
+        await callback(cog, ctx, **kwargs)
+
+        ctx.defer.assert_awaited_once()
+        mock_player.now_playing_message.edit.assert_awaited_once()
+        mock_player.text_channel.send.assert_not_awaited()
+        panel = mock_player.now_playing_message.edit.call_args.kwargs["view"]
+        if command in {"pause", "resume"}:
+            assert ("⏸️" if command == "pause" else "▶️") in joined_text(panel)
+        if command == "clearqueue":
+            assert "Следующий" not in joined_text(panel)
+        if command == "remove":
+            assert "Last" in joined_text(panel)
+            assert "Next" not in joined_text(panel)
+        if command == "loop":
+            assert any(
+                isinstance(item, discord.ui.Button) and item.label == "Повтор: очередь"
+                for item in panel.walk_children()
+            )
+
+    async def test_nowplaying_reopens_same_panel_without_public_duplicate(
+        self, cog, mock_player, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(type(mock_player), "current", property(lambda self: _track()))
+        mock_player.text_channel = MagicMock(spec=discord.TextChannel)
+        mock_player.text_channel.send = AsyncMock()
+        message = MagicMock(spec=discord.Message)
+        message.edit = AsyncMock()
+        message.jump_url = "https://discord.com/channels/1/2/3"
+        mock_player.now_playing_message = message
+        mock_player.now_playing_view = NowPlayingView(mock_player)
+        mock_player.now_playing_view.stop()
+        ctx = self._context(mock_player)
+
+        await cog.nowplaying.callback.__wrapped__(cog, ctx)
+        view = mock_player.now_playing_view
+        await cog.nowplaying.callback.__wrapped__(cog, ctx)
+
+        assert mock_player.now_playing_view is view
+        assert not view.is_finished()
+        assert message.edit.await_count == 2
+        mock_player.text_channel.send.assert_not_awaited()
+        assert all(call.kwargs == {"ephemeral": True} for call in ctx.send.call_args_list)
+        assert all(message.jump_url in call.args[0] for call in ctx.send.call_args_list)
+
+    async def test_nowplaying_reports_failed_edit_instead_of_success_link(
+        self, cog, mock_player, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(type(mock_player), "current", property(lambda self: _track()))
+        mock_player.now_playing_message = MagicMock(spec=discord.Message)
+        mock_player.now_playing_message.edit = AsyncMock(
+            side_effect=discord.HTTPException(MagicMock(status=500), "unavailable")
+        )
+        ctx = self._context(mock_player)
+        with patch("cogs.music.safe_send_error", new=AsyncMock()) as error:
+            await cog.nowplaying.callback.__wrapped__(cog, ctx)
+        error.assert_awaited_once()
+        ctx.send.assert_not_awaited()
+
+    async def test_nowplaying_checks_actual_message_channel(self, cog, mock_player, monkeypatch):
+        monkeypatch.setattr(type(mock_player), "current", property(lambda self: _track()))
+        mock_player.now_playing_message = MagicMock(spec=discord.Message)
+        original_channel = MagicMock(spec=discord.TextChannel)
+        original_channel.permissions_for.return_value.view_channel = False
+        mock_player.now_playing_message.channel = original_channel
+        mock_player.text_channel = MagicMock(spec=discord.TextChannel)
+        mock_player.text_channel.permissions_for.return_value.view_channel = True
+        ctx = self._context(mock_player)
+        with (
+            patch("cogs.music.safe_send_error", new=AsyncMock()) as error,
+            patch.object(cog, "_publish_now_playing", new=AsyncMock()) as refresh,
+        ):
+            await cog.nowplaying.callback.__wrapped__(cog, ctx)
+        error.assert_awaited_once()
+        refresh.assert_not_awaited()
+
+    async def test_slash_stop_closes_canonical_panel(self, cog, mock_player) -> None:
+        mock_player.now_playing_message = MagicMock(spec=discord.Message)
+        mock_player.now_playing_message.edit = AsyncMock()
+        view = NowPlayingView(mock_player)
+        mock_player.now_playing_view = view
+        mock_player.disconnect = AsyncMock()
+        await cog.stop.callback.__wrapped__(cog, self._context(mock_player))
+        assert view.is_finished()
+        assert mock_player.now_playing_view is None
+        card = mock_player.now_playing_message.edit.call_args.kwargs["view"]
+        assert "остановлено" in joined_text(card)
+
+    @pytest.mark.parametrize("command", ["stop", "clearqueue", "volume"])
+    def test_admin_metadata_matches_runtime_restrictions(self, cog, command):
+        assert getattr(cog, command).app_command.default_permissions.administrator
+
+    async def test_queue_command_binds_sent_message(self, cog, mock_player, monkeypatch):
+        monkeypatch.setattr(type(mock_player), "current", property(lambda self: _track()))
+        ctx = self._context(mock_player)
+        await cog.queue.callback.__wrapped__(cog, ctx)
+        view = ctx.send.call_args.kwargs["view"]
+        assert isinstance(view, QueueLayoutView)
+        assert view.message is ctx.send.return_value
+
+    async def test_search_command_binds_sent_message(self, cog, mock_player):
+        ctx = self._context(mock_player)
+        with (
+            patch.object(cog, "_ensure_player", new=AsyncMock(return_value=mock_player)),
+            patch("wavelink.Playable.search", new=AsyncMock(return_value=[_track(), _track("Two")])),
+        ):
+            await cog.play.callback.__wrapped__(cog, ctx, query="Song")
+        view = ctx.send.call_args.kwargs["view"]
+        assert isinstance(view, SearchLayoutView)
+        assert view.message is ctx.send.return_value
 
     async def test_send_added_uses_card(self, cog: MusicCog, mock_player: MusicPlayer) -> None:
         ctx = MagicMock(spec=commands.Context)

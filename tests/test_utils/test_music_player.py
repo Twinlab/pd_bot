@@ -90,8 +90,7 @@ class TestCanControl:
         track.extras = SimpleNamespace(
             requester_id=current_requester_id if current_requester_id is not None else None
         )
-        # Подменяем property current → атрибут на инстансе.
-        type(player).current = property(lambda self: track)  # type: ignore[assignment]
+        player._current = track
         return player
 
     def test_admin_can_always_control(self, admin_member: MagicMock) -> None:

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
@@ -16,7 +17,9 @@ from utils.music.ui import (
     SearchLayoutView,
     SearchSelect,
     build_now_playing_container,
+    finish_now_playing,
     now_playing_static_view,
+    refresh_now_playing,
 )
 from utils.ui import colors
 from utils.ui.testing import accent_colours, joined_text
@@ -105,10 +108,13 @@ def _cv2_player(
     player = MusicPlayer.__new__(MusicPlayer)
     player.text_channel = None
     player.now_playing_message = None
-    type(player).current = property(lambda self, _t=current: _t)  # type: ignore[assignment]
-    type(player).paused = property(lambda self, _v=paused: _v)  # type: ignore[assignment]
-    type(player).connected = property(lambda self, _c=connected: _c)  # type: ignore[assignment]
-    type(player).volume = property(lambda self, _v=volume: _v)  # type: ignore[assignment]
+    player.now_playing_view = None
+    player.now_playing_lock = asyncio.Lock()
+    player._current = current
+    player._paused = paused
+    player._connected = connected
+    player._volume = volume
+    player.channel = MagicMock(spec=discord.VoiceChannel)
 
     tracks = queue_tracks or []
     queue = MagicMock(spec=wavelink.Queue)
@@ -121,7 +127,7 @@ def _cv2_player(
 
     guild = MagicMock(spec=discord.Guild)
     guild.get_member = MagicMock(return_value=None)
-    type(player).guild = property(lambda self, _g=guild: _g)  # type: ignore[assignment]
+    player._guild = guild
     return player
 
 
@@ -235,6 +241,7 @@ class TestMusicInteractions:
         player.now_playing_message = MagicMock()
         player.now_playing_message.edit = AsyncMock()
         view = NowPlayingView(player)
+        player.now_playing_view = view
         view._validate = AsyncMock(return_value=True)
         interaction = MagicMock(spec=discord.Interaction)
         interaction.response.is_done.return_value = False
@@ -255,9 +262,9 @@ class TestMusicInteractions:
         await getattr(view, handler)(interaction)
 
         operation_mock.assert_awaited_once()
-        assert interaction.edit_original_response.await_count == int(edits_card)
+        interaction.edit_original_response.assert_not_awaited()
         interaction.response.edit_message.assert_not_awaited()
-        player.now_playing_message.edit.assert_not_awaited()
+        assert player.now_playing_message.edit.await_count == int(edits_card)
 
 
 class TestSearchLayoutView:
@@ -317,3 +324,253 @@ class TestQueueLayoutView:
         text = joined_text(view)
         assert "T0" in text
         assert "T9" in text
+
+
+class TestPanelLifecycle:
+    def _player(self) -> MusicPlayer:
+        player = _cv2_player(current=_make_track())
+        player.text_channel = MagicMock(spec=discord.TextChannel)
+        player.text_channel.send = AsyncMock()
+        player.now_playing_message = MagicMock(spec=discord.Message)
+        player.now_playing_message.edit = AsyncMock()
+        player.now_playing_view = NowPlayingView(player)
+        return player
+
+    async def test_refresh_reuses_live_view_and_message(self) -> None:
+        player = self._player()
+        view = player.now_playing_view
+        player._paused = True
+        player.queue.mode = wavelink.QueueMode.loop_all
+
+        assert await refresh_now_playing(player, create=True)
+
+        assert player.now_playing_view is view
+        assert _button_by_id(view, "music:pause_resume").label == "Продолжить"
+        assert _button_by_id(view, "music:loop").label == "Повтор: очередь"
+        player.now_playing_message.edit.assert_awaited_once_with(view=view)
+        player.text_channel.send.assert_not_awaited()
+
+    async def test_parallel_initial_publications_create_one_message(self) -> None:
+        player = self._player()
+        message = player.now_playing_message
+        player.now_playing_message = None
+
+        async def send(**kwargs):
+            await asyncio.sleep(0)
+            return message
+
+        player.text_channel.send.side_effect = send
+        await asyncio.gather(
+            refresh_now_playing(player, create=True), refresh_now_playing(player, create=True)
+        )
+        player.text_channel.send.assert_awaited_once()
+        message.edit.assert_awaited_once()
+
+    async def test_http_failure_keeps_controls_and_does_not_duplicate(self) -> None:
+        player = self._player()
+        previous = player.now_playing_view
+        player.now_playing_message.edit.side_effect = discord.HTTPException(
+            MagicMock(status=500), "unavailable"
+        )
+
+        assert not await refresh_now_playing(player, create=True)
+
+        assert player.now_playing_view is previous
+        assert not previous.is_finished()
+        player.text_channel.send.assert_not_awaited()
+
+    async def test_deleted_panel_can_be_recreated(self) -> None:
+        player = self._player()
+        player.now_playing_message.edit.side_effect = discord.NotFound(
+            MagicMock(status=404), "deleted"
+        )
+        replacement = MagicMock(spec=discord.Message)
+        player.text_channel.send.return_value = replacement
+
+        assert await refresh_now_playing(player, create=True)
+        assert player.now_playing_message is replacement
+        player.text_channel.send.assert_awaited_once()
+
+    async def test_finished_view_is_stopped_before_new_handlers_register(self) -> None:
+        from discord.ui.view import ViewStore
+
+        player = self._player()
+        old_view = player.now_playing_view
+        store = ViewStore(MagicMock())
+        store.add_view(old_view, message_id=123)
+        old_view.stop()
+
+        async def edit(*, view):
+            assert old_view.is_finished()
+            store.add_view(view, message_id=123)
+
+        player.now_playing_message.edit.side_effect = edit
+        assert await refresh_now_playing(player)
+        new_view = player.now_playing_view
+        assert new_view is not old_view
+        assert store._views[123][(2, "music:pause_resume")].view is new_view
+        await old_view.on_timeout()
+        assert player.now_playing_message.edit.await_count == 1
+        new_view.stop()
+
+    async def test_timeout_during_edit_cannot_close_refreshed_panel(self) -> None:
+        from discord.ui.view import ViewStore
+
+        player = self._player()
+        old_view = player.now_playing_view
+        store = ViewStore(MagicMock())
+        store.add_view(old_view, message_id=123)
+        timeout_task = None
+
+        async def edit(*, view):
+            nonlocal timeout_task
+            if view is old_view:
+                old_view._dispatch_timeout()
+                timeout_task = next(
+                    task
+                    for task in asyncio.all_tasks()
+                    if task.get_name() == f"discord-ui-view-timeout-{old_view.id}"
+                )
+                await asyncio.sleep(0)
+            if not view.is_finished():
+                store.add_view(view, message_id=123)
+
+        player.now_playing_message.edit.side_effect = edit
+        assert await refresh_now_playing(player)
+        await timeout_task
+        assert player.now_playing_view is not old_view
+        assert not player.now_playing_view.is_finished()
+        assert player.now_playing_message.edit.await_count == 2
+        assert store._views[123][(2, "music:pause_resume")].view is player.now_playing_view
+        player.now_playing_view.stop()
+
+    async def test_stop_cannot_be_overwritten_by_old_timeout(self) -> None:
+        player = self._player()
+        old_view = player.now_playing_view
+        await finish_now_playing(player, "Остановлено", "Начните с `/play`.")
+        await old_view.on_timeout()
+
+        assert player.now_playing_view is None
+        assert old_view.is_finished()
+        card = player.now_playing_message.edit.call_args.kwargs["view"]
+        assert "Остановлено" in joined_text(card)
+        assert not any(isinstance(item, discord.ui.Button) for item in card.walk_children())
+        player.now_playing_message.edit.assert_awaited_once()
+
+    async def test_queue_end_rechecks_state_after_waiting_for_edit(self) -> None:
+        player = self._player()
+        player._current = None
+        await player.now_playing_lock.acquire()
+        closing = asyncio.create_task(
+            finish_now_playing(player, "Конец", "", only_if_idle=True)
+        )
+        await asyncio.sleep(0)
+        player._current = _make_track(title="Next")
+        player.now_playing_lock.release()
+        await closing
+        player.now_playing_message.edit.assert_not_awaited()
+        assert not player.now_playing_view.is_finished()
+
+    async def test_button_completion_renders_after_concurrent_refresh(self) -> None:
+        player = self._player()
+        view = player.now_playing_view
+        view._validate = AsyncMock(return_value=True)
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response.defer = AsyncMock()
+        interaction.response.is_done.return_value = True
+
+        async def pause(paused):
+            await refresh_now_playing(player)
+            player._paused = paused
+
+        player.pause = AsyncMock(side_effect=pause)
+        await view.handle_pause(interaction)
+        assert _button_by_id(player.now_playing_view, "music:pause_resume").label == "Продолжить"
+
+
+class TestTemporaryMenuLifecycle:
+    @pytest.mark.parametrize("kind", ["search", "queue"])
+    async def test_timeout_removes_controls_and_explains_reopening(self, kind: str) -> None:
+        member = MagicMock(spec=discord.Member)
+        member.id = 7
+        view = (
+            SearchLayoutView(MagicMock(), [_make_track()], member, "q")
+            if kind == "search"
+            else QueueLayoutView(_cv2_player(queue_tracks=[_make_track()] * 15))
+        )
+        view.message = MagicMock(spec=discord.Message)
+        view.message.edit = AsyncMock()
+        await view.on_timeout()
+
+        card = view.message.edit.call_args.kwargs["view"]
+        assert ("/play" if kind == "search" else "/queue") in joined_text(card)
+        assert not any(
+            isinstance(item, (discord.ui.Button, discord.ui.Select)) for item in card.walk_children()
+        )
+        assert view.is_finished()
+
+    async def test_completed_selection_wins_over_timeout_and_double_click(self) -> None:
+        started = asyncio.Event()
+        finish = asyncio.Event()
+        cog = MagicMock()
+
+        async def enqueue(*args):
+            started.set()
+            await finish.wait()
+            return True
+
+        cog._enqueue_selected_track = AsyncMock(side_effect=enqueue)
+        member = MagicMock(spec=discord.Member)
+        member.id = 7
+        track = _make_track()
+        view = SearchLayoutView(cog, [track], member, "q")
+        view.message = MagicMock(spec=discord.Message)
+        view.message.edit = AsyncMock()
+        first = asyncio.create_task(view.handle_selection(MagicMock(), track))
+        await started.wait()
+        with patch("utils.music.ui.safe_send_error", new=AsyncMock()) as error:
+            await view.handle_selection(MagicMock(), track)
+            error.assert_awaited_once()
+        timeout = asyncio.create_task(view.on_timeout())
+        await asyncio.sleep(0)
+        finish.set()
+        await asyncio.gather(first, timeout)
+
+        cog._enqueue_selected_track.assert_awaited_once()
+        view.message.edit.assert_not_awaited()
+
+    async def test_queue_acknowledges_before_waiting_for_timeout(self) -> None:
+        view = QueueLayoutView(_cv2_player(queue_tracks=[_make_track()] * 15))
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response.defer = AsyncMock()
+        interaction.edit_original_response = AsyncMock()
+        await view._lock.acquire()
+        task = asyncio.create_task(view.change_page(interaction, 1))
+        await asyncio.sleep(0)
+        interaction.response.defer.assert_awaited_once()
+        view._expired = True
+        view._lock.release()
+        with patch("utils.music.ui.safe_send_error", new=AsyncMock()) as error:
+            await task
+            error.assert_awaited_once()
+        interaction.edit_original_response.assert_not_awaited()
+
+    async def test_queue_button_binds_ephemeral_response(self) -> None:
+        player = _cv2_player(current=_make_track())
+        view = NowPlayingView(player)
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.response.send_message = AsyncMock()
+        interaction.original_response = AsyncMock()
+        await view.handle_show_queue(interaction)
+        queue_view = interaction.response.send_message.call_args.kwargs["view"]
+        assert queue_view.message is interaction.original_response.return_value
+
+    async def test_callback_error_uses_incident_reply(self) -> None:
+        view = QueueLayoutView(_cv2_player())
+        interaction = MagicMock(spec=discord.Interaction)
+        with (
+            patch("utils.music.ui.safe_send_error", new=AsyncMock()) as reply,
+            patch("utils.music.ui.new_incident_id", return_value="music-test"),
+        ):
+            await view.on_error(interaction, RuntimeError("broken"), MagicMock())
+        assert "music-test" in reply.call_args.args[1]
