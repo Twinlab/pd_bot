@@ -70,4 +70,5 @@ nav:
       - Эксплуатация: deployment.md
   - Разработчикам:
       - Архитектура: architecture.md
+      - API кабинета: portal-api.md
       - Разработка: style-guide.md
