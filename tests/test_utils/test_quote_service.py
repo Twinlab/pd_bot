@@ -41,6 +41,7 @@ def guild() -> MagicMock:
     """Один сервер: никаких запросов реальной гильдии или её истории."""
     value = MagicMock(spec=discord.Guild)
     value.id = 1
+    value.owner_id = 999
     channel = make_channel(10)
     value.channels = [channel]
     value.threads = []
@@ -456,11 +457,12 @@ async def test_unauthorized_dynamic_delete_does_not_open_confirmation(
 ) -> None:
     pending = await service.prepare(interaction, message)
     await service.commit(interaction, pending)
-    interaction.client.get_cog.return_value = MagicMock(quotes=service)
-    await DeleteQuoteButton(message.id).callback(interaction)
+    author = make_interaction(interaction.guild, message.author.id)
+    author.client.get_cog.return_value = MagicMock(quotes=service)
+    await DeleteQuoteButton(message.id).callback(author)
     assert await service.store.get(message.id) == pending.record
-    interaction.edit_original_response.assert_not_awaited()
-    assert "автор или модератор" in error_reply[1].call_args.args[1]
+    author.edit_original_response.assert_not_awaited()
+    assert "кто её сохранил" in error_reply[1].call_args.args[1]
 
 
 async def test_delete_confirmation_rechecks_current_permissions(
@@ -468,19 +470,19 @@ async def test_delete_confirmation_rechecks_current_permissions(
 ) -> None:
     pending = await service.prepare(interaction, message)
     await service.commit(interaction, pending)
-    interaction.permissions.manage_messages = True
-    assert await service.removable(interaction, message.id) == pending.record
-    view = QuoteDeleteConfirmView(service, interaction, message.id)
-    interaction.permissions.manage_messages = False
-    with pytest.raises(ValueError, match="автор или модератор"):
-        await view.confirm.callback(interaction)
+    owner = make_interaction(interaction.guild, interaction.guild.owner_id)
+    assert await service.removable(owner, message.id) == pending.record
+    view = QuoteDeleteConfirmView(service, owner, message.id)
+    interaction.guild.owner_id = 555
+    with pytest.raises(ValueError, match="кто её сохранил"):
+        await view.confirm.callback(owner)
     assert await service.store.get(message.id) == pending.record
-    interaction.permissions.manage_messages = True
-    await view.confirm.callback(interaction)
+    interaction.guild.owner_id = owner.user.id
+    await view.confirm.callback(owner)
     assert await service.store.get(message.id) is None
     assert view.is_finished()
     assert (
-        "Ранее отправленные копии" in interaction.edit_original_response.call_args.kwargs["content"]
+        "Ранее отправленные копии" in owner.edit_original_response.call_args.kwargs["content"]
     )
 
 
@@ -489,7 +491,7 @@ async def test_delete_confirmation_cannot_be_taken_over(
 ) -> None:
     pending = await service.prepare(interaction, message)
     await service.commit(interaction, pending)
-    author = make_interaction(guild, message.author.id)
+    author = make_interaction(guild, interaction.user.id)
     view = QuoteDeleteConfirmView(service, author, message.id)
     intruder = make_interaction(guild, 999)
     intruder.permissions.manage_messages = True
@@ -507,7 +509,7 @@ async def test_dynamic_item_rebuild_resolves_fresh_service_after_restart(
     await service.commit(interaction, pending)
     service.closed = True
     fresh = QuoteService(service.config, 1, store=QuoteStore(service.store.root, min_free_bytes=0))
-    author = make_interaction(guild, message.author.id)
+    author = make_interaction(guild, interaction.user.id)
     author.client.get_cog.return_value = MagicMock(quotes=fresh)
     custom_id = f"quote:delete:{message.id}"
     item = discord.ui.Button(custom_id=custom_id)

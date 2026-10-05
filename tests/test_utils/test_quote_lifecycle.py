@@ -117,7 +117,7 @@ async def test_close_waits_for_delete_and_rejects_queued_deletion(
 ) -> None:
     pending = await service.prepare(interaction, message)
     await service.commit(interaction, pending)
-    author = make_interaction(interaction.guild, message.author.id)
+    author = make_interaction(interaction.guild, interaction.user.id)
     entered = asyncio.Event()
     release = asyncio.Event()
     original_remove = service.store.remove
@@ -154,7 +154,7 @@ async def test_removable_rechecks_closed_state_after_index_read(
 ) -> None:
     pending = await service.prepare(interaction, message)
     await service.commit(interaction, pending)
-    author = make_interaction(interaction.guild, message.author.id)
+    author = make_interaction(interaction.guild, interaction.user.id)
     entered = asyncio.Event()
     release = asyncio.Event()
     original_get = service.store.get
@@ -177,13 +177,14 @@ async def test_removable_rechecks_closed_state_after_index_read(
     assert await service.store.get(message.id) == pending.record
 
 
-async def test_delete_rechecks_moderator_permissions_before_remove(
+async def test_delete_rechecks_server_owner_before_remove(
     service: QuoteService, interaction: MagicMock, message: MagicMock, rendering
 ) -> None:
     pending = await service.prepare(interaction, message)
     await service.commit(interaction, pending)
     moderator = make_interaction(interaction.guild, message.author.id + 1)
     moderator.permissions = discord.Permissions(manage_messages=True)
+    interaction.guild.owner_id = moderator.user.id
     entered = asyncio.Event()
     release = asyncio.Event()
     original_get = service.store.get
@@ -199,9 +200,9 @@ async def test_delete_rechecks_moderator_permissions_before_remove(
     ):
         deletion = asyncio.create_task(service.delete(moderator, message.id))
         await asyncio.wait_for(entered.wait(), timeout=2)
-        moderator.permissions = discord.Permissions.none()
+        interaction.guild.owner_id = 999
         release.set()
-        with pytest.raises(ValueError, match="автор или модератор"):
+        with pytest.raises(ValueError, match="кто её сохранил"):
             await deletion
         removing.assert_not_awaited()
     assert await service.store.get(message.id) == pending.record

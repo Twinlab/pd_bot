@@ -85,11 +85,21 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./assets:/app/assets
+      - type: bind
+        source: /etc/pdroom/portal-bot
+        target: /run/pdroom-portal
+        read_only: true
+        bind:
+          create_host_path: false
       # .env файл пробрасывается автоматически через env_file
     env_file:
       - .env
     environment:
       - BOT_ENVIRONMENT=production
+      - PORTAL_API__ENABLED=true
+      - PORTAL_API__HOST=0.0.0.0
+      - PORTAL_API__PORT=8091
+      - PORTAL_API__TOKEN_FILE=/run/pdroom-portal/token
       - TZ=Europe/Moscow
       # Передаём боту координаты Lavalink-ноды.
       - LAVALINK_HOST=${LAVALINK_HOST:-lavalink}
@@ -101,7 +111,10 @@ services:
           cpus: '1.0'
           memory: 1G
     networks:
-      - pd_bot_net
+      pd_bot_net:
+      portal:
+        aliases:
+          - pd-bot-api
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
@@ -122,6 +135,9 @@ services:
       - pd_bot_net
 
 networks:
+  portal:
+    name: pdroom_portal
+    external: true
   pd_bot_net:
     name: pd_bot_net
     driver: bridge

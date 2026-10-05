@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml  # type: ignore
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 from utils.tyan.config import TyanConfig
@@ -632,6 +632,22 @@ class Messages(BaseModel):
     }
 
 
+class PortalApiConfig(BaseModel):
+    """Закрытый интерфейс кабинета; включается только явной конфигурацией."""
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = Field(default=8091, ge=1, le=65535)
+    token: SecretStr | None = Field(default=None, repr=False)
+    token_file: Path | None = None
+    max_concurrent: int = Field(default=4, ge=1, le=16)
+    request_timeout: float = Field(default=10, gt=0, le=30)
+    member_cache_seconds: float = Field(default=15, ge=0, le=30)
+    member_cache_size: int = Field(default=512, ge=1, le=4096)
+    requests_per_minute: int = Field(default=240, ge=1, le=6000)
+    user_requests_per_minute: int = Field(default=90, ge=1, le=1000)
+
+
 class BotSettings(BaseSettings):
     """Основные настройки бота.
 
@@ -698,6 +714,7 @@ class BotSettings(BaseSettings):
     reactions: ReactionsConfig = ReactionsConfig()
     top_reactions: TopReactionsConfig = TopReactionsConfig()
     party: PartyConfig = PartyConfig()
+    portal_api: PortalApiConfig = PortalApiConfig()
 
     model_config = {
         "env_file": ".env",

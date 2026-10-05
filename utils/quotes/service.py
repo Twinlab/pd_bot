@@ -28,6 +28,14 @@ logger = logging.getLogger("bot.quotes")
 _CUSTOM_EMOJI = re.compile(r"<a?:([A-Za-z0-9_]{1,32}):\d+>")
 
 
+class QuotePermissionError(ValueError):
+    """Пользователь не может управлять этой цитатой."""
+
+
+class QuoteSourceUnavailableError(ValueError):
+    """Источник больше нельзя показывать в веб-кабинете."""
+
+
 @dataclass(frozen=True)
 class PendingQuote:
     """Карточка в памяти до подтверждения пользователем."""
@@ -110,12 +118,13 @@ class QuoteService:
 
     async def visible_records(self, guild: discord.Guild | None) -> list[QuoteRecord]:
         """Возвращает только записи из до сих пор открытых каналов этой гильдии."""
-        allowed = self.public_channels(guild)
-        if guild is None or not allowed:
+        if guild is None:
             return []
+        records = await self.store.list_records()
+        allowed = self.public_channels(guild)
         return [
             record
-            for record in await self.store.list_records()
+            for record in records
             if record.guild_id == guild.id and record.channel_id in allowed
         ]
 
@@ -274,7 +283,23 @@ class QuoteService:
     async def removable(
         self, interaction: discord.Interaction, message_id: int
     ) -> QuoteRecord | None:
-        """Проверяет владельца по индексу, не доверяя содержимому custom_id."""
+        """Проверяет создателя или владельца сервера для Discord-кнопки."""
+        return await self.removable_by(interaction.guild, interaction.user.id, message_id)
+
+    @staticmethod
+    def can_delete(record: QuoteRecord, actor_id: int, owner_id: int | None) -> bool:
+        """Автор слов и право manage_messages не дают права удаления карточки."""
+        return actor_id == record.saved_by or actor_id == owner_id
+
+    async def removable_by(
+        self,
+        guild: discord.Guild | None,
+        actor_id: int,
+        message_id: int,
+        *,
+        require_visible: bool = False,
+    ) -> QuoteRecord | None:
+        """Проверяет общую политику сайта и Discord по свежей записи индекса."""
         if self.closed:
             raise ValueError("Цитаты перезагружаются. Попробуй ещё раз чуть позже.")
         record = await self.store.get(message_id)
@@ -282,16 +307,33 @@ class QuoteService:
             raise ValueError("Цитаты перезагружаются. Попробуй ещё раз чуть позже.")
         if record is None:
             return None
-        if interaction.guild_id != record.guild_id:
-            raise ValueError("Цитата относится к другому серверу.")
-        if interaction.user.id != record.author_id and not interaction.permissions.manage_messages:
-            raise ValueError("Удалить цитату из коллекции может её автор или модератор.")
+        if guild is None or guild.id != record.guild_id:
+            raise QuotePermissionError("Цитата относится к другому серверу.")
+        if require_visible and record.channel_id not in self.public_channels(guild):
+            raise QuoteSourceUnavailableError("Источник цитаты больше не общедоступен.")
+        if not self.can_delete(record, actor_id, guild.owner_id):
+            raise QuotePermissionError(
+                "Удалить цитату может тот, кто её сохранил, или владелец сервера."
+            )
         return record
 
     async def delete(self, interaction: discord.Interaction, message_id: int) -> bool:
-        """Удаляет с повторной авторизацией и ожиданием записи при выгрузке кога."""
+        """Удаляет из Discord с общей политикой и блокировкой записи."""
+        return await self.delete_by(interaction.guild, interaction.user.id, message_id)
+
+    async def delete_by(
+        self,
+        guild: discord.Guild | None,
+        actor_id: int,
+        message_id: int,
+        *,
+        require_visible: bool = False,
+    ) -> bool:
+        """Удаляет из любого интерфейса через единственную блокировку хранилища."""
         async with self._writes:
-            record = await self.removable(interaction, message_id)
+            record = await self.removable_by(
+                guild, actor_id, message_id, require_visible=require_visible
+            )
             return await self.store.remove(message_id) if record is not None else False
 
     async def close(self) -> None:

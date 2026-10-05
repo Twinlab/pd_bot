@@ -152,7 +152,7 @@ class DeleteQuoteButton(
         return cls(int(match["message_id"]))
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        """Проверяет автора и открывает личное подтверждение удаления."""
+        """Проверяет создателя или владельца сервера и открывает подтверждение."""
         try:
             await interaction.response.defer(ephemeral=True, thinking=True)
             cog = cast("FunCog | None", cast(commands.Bot, interaction.client).get_cog("FunCog"))
@@ -203,7 +203,7 @@ class QuoteDeleteConfirmView(discord.ui.View):
 
     @discord.ui.button(label="Удалить цитату", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        """Удаляет только после повторной проверки владельца или модератора."""
+        """Удаляет после повторной проверки создателя или владельца сервера."""
         if not await self.interaction_check(interaction):
             return
         await interaction.response.defer()
