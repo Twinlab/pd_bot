@@ -110,7 +110,9 @@ def command_error_handler[F: Callable[..., Any]](func: F) -> F:
     """
 
     @functools.wraps(func)
-    async def wrapper(self: Any, ctx: commands.Context, *args: Any, **kwargs: Any) -> Any:
+    async def wrapper(
+        self: Any, ctx: commands.Context | discord.Interaction, *args: Any, **kwargs: Any
+    ) -> Any:
         try:
             return await func(self, ctx, *args, **kwargs)
         except (SystemExit, KeyboardInterrupt):
@@ -118,11 +120,12 @@ def command_error_handler[F: Callable[..., Any]](func: F) -> F:
         except Exception as error:
             incident_id = None if is_expected_user_error(error) else new_incident_id()
             command_name = ctx.command.name if ctx.command else "unknown"
+            author = ctx.user if isinstance(ctx, discord.Interaction) else ctx.author
             context = {
                 "command": command_name,
-                "author": f"{ctx.author} ({ctx.author.id})",
+                "author": f"{author} ({author.id})",
                 "guild": f"{ctx.guild} ({ctx.guild.id})" if ctx.guild else "DM",
-                "channel": f"{ctx.channel} ({ctx.channel.id})",
+                "channel": f"{ctx.channel} ({ctx.channel.id})" if ctx.channel else "unknown",
                 "user_message_content": (
                     ctx.message.content if hasattr(ctx, "message") and ctx.message else "No message"
                 ),
@@ -146,7 +149,7 @@ def command_error_handler[F: Callable[..., Any]](func: F) -> F:
                 self.bot.metrics.record_error(
                     command_name=command_name,
                     error_type=type(error).__name__,
-                    user_id=ctx.author.id,
+                    user_id=author.id,
                 )
 
             return None

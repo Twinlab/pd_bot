@@ -364,6 +364,12 @@ class QuotesConfig(BaseModel):
     supported_extensions: list[str] = [".jpg", ".jpeg", ".png", ".gif", ".webp"]
     view_timeout: int = 300  # 5 минут
     max_folders_in_select: int = 25  # Discord лимит для select options
+    generated_path: str = "data/quotes"
+    max_total_bytes: int = Field(default=256 * 1024 * 1024, ge=1024 * 1024)
+    max_card_bytes: int = Field(default=256 * 1024, ge=64 * 1024, le=1024 * 1024)
+    min_free_bytes: int = Field(default=2 * 1024 * 1024 * 1024, ge=0)
+    preview_timeout: int = Field(default=180, ge=30, le=300)
+    max_pending_previews: int = Field(default=12, ge=1, le=50)
 
 
 class FunConfig(BaseModel):

@@ -194,6 +194,12 @@ fun:
       - ".webp"
     view_timeout: 300  # 5 минут
     max_folders_in_select: 25  # Discord лимит для select options
+    generated_path: "data/quotes"
+    max_total_bytes: 268435456  # 256 МиБ; старая коллекция assets/quotes отдельно
+    max_card_bytes: 262144
+    min_free_bytes: 2147483648
+    preview_timeout: 180
+    max_pending_previews: 12
 
 activity:
   view_timeout: 86400

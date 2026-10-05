@@ -4,10 +4,10 @@
 включая тестирование команды, автокомплита и интеграционные тесты.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
+import pytest
 from discord.ext import commands
 
 from cogs.fun import FunCog
@@ -208,9 +208,7 @@ class TestQuoteCommandIntegration:
     @pytest.mark.asyncio
     @patch("cogs.fun.validate_folder_exists")
     @patch("cogs.fun.send_random_quote_image")
-    async def test_quote_command_full_flow_with_user(
-        self, mock_send, mock_validate, fun_cog
-    ):
+    async def test_quote_command_full_flow_with_user(self, mock_send, mock_validate, fun_cog):
         """Тест полного потока команды quote с указанием пользователя."""
         # Настройка моков для успешного выполнения
         mock_validate.return_value = True
@@ -266,34 +264,29 @@ class TestAddQuoteContextMenu:
     """Тесты контекст-меню «В цитаты»."""
 
     @pytest.mark.asyncio
-    @patch("cogs.fun.add_quote_from_message")
-    async def test_success(self, mock_add, fun_cog):
-        """Успешное добавление шлёт эфемерное подтверждение с именем папки."""
-        mock_add.return_value = "Coolguy"
+    async def test_success(self, fun_cog):
+        """Меню передаёт сообщение в личный предпросмотр без прямого сохранения."""
+        service = MagicMock()
+        service.start_preview = AsyncMock()
+        fun_cog._quotes = service
         interaction = MagicMock(spec=discord.Interaction)
-        interaction.response = MagicMock()
-        interaction.response.send_message = AsyncMock()
         message = MagicMock(spec=discord.Message)
 
         await fun_cog.add_quote_context_menu(interaction, message)
 
-        mock_add.assert_awaited_once_with(message)
-        content = interaction.response.send_message.await_args.args[0]
-        assert "Coolguy" in content
-        assert interaction.response.send_message.await_args.kwargs["ephemeral"] is True
+        service.start_preview.assert_awaited_once_with(interaction, message)
+        service.commit.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("cogs.fun.safe_send_error", new_callable=AsyncMock)
-    @patch("cogs.fun.add_quote_from_message")
-    async def test_no_image_reports_error(self, mock_add, mock_err, fun_cog):
-        """Если картинки нет — уходит safe_send_error, без падения."""
-        from utils.quotes_utils import NoImagesFoundError
-
-        mock_add.side_effect = NoImagesFoundError("В сообщении нет картинки для цитаты.")
+    async def test_invalid_source_reports_error(self, mock_err, fun_cog):
+        """Отказ проверки источника показывается через общий обработчик ответа."""
+        service = MagicMock()
+        service.start_preview = AsyncMock(side_effect=ValueError("Выбери текстовое сообщение."))
+        fun_cog._quotes = service
         interaction = MagicMock(spec=discord.Interaction)
         message = MagicMock(spec=discord.Message)
 
         await fun_cog.add_quote_context_menu(interaction, message)
 
-        mock_err.assert_awaited_once()
-        assert "картинк" in mock_err.await_args.args[1]
+        mock_err.assert_awaited_once_with(interaction, "Выбери текстовое сообщение.")

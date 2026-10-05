@@ -5,7 +5,7 @@
 - snipe: Показ последнего удаленного сообщения в канале
 - penis: Генерация случайного размера пениса для пользователя
 - avatar: Отображение аватара пользователя
-- quote: Отправка случайных изображений из папок
+- quote: Случайная карточка из старой коллекции или сохранённых сообщений
 
 Также модуль отслеживает удаленные сообщения для функции snipe.
 """
@@ -17,14 +17,15 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from config.settings import get_settings
 from utils.avatar_utils import display_avatar
 from utils.deathbattle_utils import run_battle
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.penis_utils import measure_penis
+from utils.quotes.service import QuoteService
+from utils.quotes.store import QuoteRecord, QuoteStoreError
+from utils.quotes.views import DeleteQuoteButton
 from utils.quotes_utils import (
-    NoImagesFoundError,
-    QuotesError,
-    add_quote_from_message,
     scan_quotes_folders,
     send_random_quote_image,
     validate_folder_exists,
@@ -57,29 +58,35 @@ class FunCog(commands.Cog):
         self.bot: commands.Bot = bot
         self.tyan_catalog = load_catalog()
         self.tyan_manager = TyanDataManager()
-        # Контекст-меню «В цитаты» заморожено: текущая реализация лишь копирует
-        # картинку-вложение, а хочется полноценную «скриншот-цитату» (рендер
-        # текста сообщения в карточку). Колбэк и хелпер сохранены, но в дерево
-        # не регистрируются — вернёмся отдельной задачей.
+        self._quotes: QuoteService | None = None
+        self.quote_menu = app_commands.ContextMenu(
+            name="В цитаты", callback=self.add_quote_context_menu
+        )
+
+    @property
+    def quotes(self) -> QuoteService:
+        """Лениво создаёт общее хранилище и ограниченный рендер цитат."""
+        if self._quotes is None:
+            settings = get_settings()
+            self._quotes = QuoteService(settings.fun.quotes, settings.guild_id)
+        return self._quotes
+
+    async def cog_load(self) -> None:
+        """Регистрирует меню сообщений и один обработчик постоянных кнопок."""
+        self.bot.tree.add_command(self.quote_menu)
+        self.bot.add_dynamic_items(DeleteQuoteButton)
 
     @app_commands.guild_only()
+    @app_commands.checks.cooldown(1, 30.0, key=lambda interaction: interaction.user.id)
+    @command_error_handler
     async def add_quote_context_menu(
         self, interaction: discord.Interaction, message: discord.Message
     ) -> None:
-        """Контекст-меню (ПКМ по сообщению) «В цитаты»: сохраняет картинку в цитаты автора.
-
-        Заморожено — не регистрируется в ``bot.tree`` (см. ``__init__``). Логика и
-        тесты сохранены для будущего расширения до «скриншот-цитаты».
-        """
+        """Показывает личный предпросмотр текстовой цитаты перед сохранением."""
         try:
-            folder = await add_quote_from_message(message)
-        except (NoImagesFoundError, QuotesError) as e:
-            await safe_send_error(interaction, str(e))
-            return
-        await interaction.response.send_message(
-            f"Добавил в цитаты `{folder}` ✅ — теперь доступно через `/quote {folder}`.",
-            ephemeral=True,
-        )
+            await self.quotes.start_preview(interaction, message)
+        except (ValueError, QuoteStoreError) as error:
+            await safe_send_error(interaction, str(error))
 
     @commands.Cog.listener()
     async def on_message_delete(self, message: discord.Message) -> None:
@@ -176,8 +183,9 @@ class FunCog(commands.Cog):
         """
         await display_avatar(ctx, mentioned_user)
 
-    @commands.hybrid_command(description="Отправляет рандомную цитату указанного юзера")
+    @commands.hybrid_command(description="Показывает случайную цитату из коллекции сервера")
     @discord.app_commands.describe(user="Чьи цитаты показать (по умолчанию — случайный участник)")
+    @commands.cooldown(1, 5.0, commands.BucketType.user)
     @command_error_handler
     async def quote(self, ctx: commands.Context, user: str | None = None) -> None:
         """Отправляет случайную цитату пользователя.
@@ -187,10 +195,17 @@ class FunCog(commands.Cog):
 
         Args:
             ctx: Контекст команды.
-            user: Юзернейм (опционально).
+            user: Имя старой коллекции или автор из подсказок (опционально).
         """
+        try:
+            records = await self.quotes.visible_records(ctx.guild) if ctx.guild is not None else []
+            if records or (user is not None and user.startswith("user:")):
+                await self._send_collected_quote(ctx, user, records)
+                return
+        except (ValueError, QuoteStoreError) as error:
+            await safe_send_error(ctx, str(error))
+            return
         if user is None:
-            # Отправляем случайную цитату любого пользователя
             available_users = scan_quotes_folders()
 
             if not available_users:
@@ -210,6 +225,60 @@ class FunCog(commands.Cog):
             # Отправляем случайную цитату указанного пользователя
             await send_random_quote_image(ctx, user, embed=False)
 
+    async def _send_collected_quote(
+        self, ctx: commands.Context, user: str | None, records: list[QuoteRecord]
+    ) -> None:
+        if user is not None and user.startswith("user:"):
+            candidates = [record for record in records if user == f"user:{record.author_id}"]
+            if not candidates:
+                await safe_send_error(ctx, "Доступных цитат этого автора пока нет.")
+                return
+            await self.quotes.send_record(ctx, random.choice(candidates))
+            return
+        legacy = scan_quotes_folders()
+        groups: dict[str, list[QuoteRecord]] = {name: [] for name in legacy}
+        for record in records:
+            key = next(
+                (name for name in legacy if name.casefold() == record.author_name.casefold()),
+                f"user:{record.author_id}",
+            )
+            groups.setdefault(key, []).append(record)
+        selected = user
+        if selected is None and groups:
+            selected = random.choice(list(groups))
+        if selected not in groups:
+            selected = next(
+                (
+                    key
+                    for key, items in groups.items()
+                    if user is not None
+                    and (
+                        key.casefold() == user.casefold()
+                        or any(
+                            user.casefold()
+                            in {
+                                record.author_name.casefold(),
+                                record.author_display_name.casefold(),
+                            }
+                            or user == f"user:{record.author_id}"
+                            for record in items
+                        )
+                    )
+                ),
+                None,
+            )
+        if selected is None:
+            await safe_send_error(ctx, "Доступных цитат этого автора пока нет.")
+            return
+        pool: list[QuoteRecord | None] = list(groups[selected])
+        if selected in legacy:
+            pool.append(None)
+        chosen = random.choice(pool)
+        if chosen is None:
+            await send_random_quote_image(ctx, selected, embed=False)
+        else:
+            await self.quotes.send_record(ctx, chosen)
+
     @quote.autocomplete("user")
     async def quote_autocomplete(
         self, interaction: discord.Interaction, current: str
@@ -226,20 +295,22 @@ class FunCog(commands.Cog):
         try:
             available_users = scan_quotes_folders()
 
-            # Фильтруем пользователей по текущему вводу (регистронезависимо)
-            if current:
-                filtered_users = [
-                    user for user in available_users if current.lower() in user.lower()
-                ]
-            else:
-                filtered_users = available_users
-
-            # Ограничиваем до 25 вариантов (лимит Discord)
-            choices = []
-            for user in filtered_users[:25]:
-                choices.append(discord.app_commands.Choice(name=user, value=user))
-
-            return choices
+            choices = [
+                app_commands.Choice(name=name[:100], value=name)
+                for name in available_users
+                if current.casefold() in name.casefold()
+            ]
+            if isinstance(interaction.guild, discord.Guild):
+                authors: dict[int, QuoteRecord] = {}
+                for record in await self.quotes.visible_records(interaction.guild):
+                    authors.setdefault(record.author_id, record)
+                for author_id, record in authors.items():
+                    label = f"{record.author_display_name} (@{record.author_name})"
+                    if current.casefold() in label.casefold():
+                        choices.append(
+                            app_commands.Choice(name=label[:100], value=f"user:{author_id}")
+                        )
+            return choices[:25]
 
         except Exception as e:
             logger.error(f"Ошибка в автокомплите quote: {e}", exc_info=True)
@@ -247,6 +318,22 @@ class FunCog(commands.Cog):
 
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога."""
+        self.bot.tree.remove_command(self.quote_menu.name, type=self.quote_menu.type)
+        guild_id = getattr(getattr(self.bot, "settings", None), "guild_id", None)
+        if isinstance(guild_id, int):
+            guild = discord.Object(id=guild_id)
+            if (
+                self.bot.tree.get_command(
+                    self.quote_menu.name, guild=guild, type=self.quote_menu.type
+                )
+                is self.quote_menu
+            ):
+                self.bot.tree.remove_command(
+                    self.quote_menu.name, guild=guild, type=self.quote_menu.type
+                )
+        self.bot.remove_dynamic_items(DeleteQuoteButton)
+        if self._quotes is not None:
+            await self._quotes.close()
         logger.info(f"Ког {self.__class__.__name__} выгружен.")
 
 

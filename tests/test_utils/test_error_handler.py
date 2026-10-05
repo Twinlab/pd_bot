@@ -1,12 +1,11 @@
 """Тесты для модуля error_handler."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
-from discord.ext import commands
-
 from discord import app_commands
+from discord.ext import commands
 
 from utils.error_handler import (
     command_error_handler,
@@ -20,9 +19,34 @@ from utils.error_handler import (
 class TestCommandErrorHandler:
     """Тесты для декоратора command_error_handler."""
 
+    async def test_interaction_failure_reports_error_and_metrics(self):
+        """У контекстного меню автор находится в user, а не в Context.author."""
+
+        @command_error_handler
+        async def failing_command(cog, interaction):
+            raise RuntimeError("private failure detail")
+
+        interaction = MagicMock(spec=discord.Interaction)
+        interaction.user = MagicMock(id=123)
+        interaction.command = MagicMock(name="В цитаты")
+        interaction.command.name = "В цитаты"
+        interaction.guild = None
+        interaction.channel = None
+        interaction.message = None
+        cog = MagicMock()
+        with patch("utils.error_handler.safe_send_error", new_callable=AsyncMock) as reply:
+            await failing_command(cog, interaction)
+
+        reply.assert_awaited_once()
+        assert "private failure detail" not in reply.call_args.args[1]
+        cog.bot.metrics.record_error.assert_called_once_with(
+            command_name="В цитаты", error_type="RuntimeError", user_id=123
+        )
+
     @pytest.mark.asyncio
     async def test_command_error_handler_success(self):
         """Тест успешного выполнения команды."""
+
         # Создаем мок-функцию, которая не вызывает исключений
         async def mock_command(self, ctx, *args, **kwargs):
             return "success"
@@ -46,6 +70,7 @@ class TestCommandErrorHandler:
     @pytest.mark.asyncio
     async def test_command_error_handler_missing_argument(self):
         """Тест обработки исключения commands.MissingRequiredArgument."""
+
         # Создаем мок-функцию, которая вызывает исключение
         async def mock_command(self, ctx, *args, **kwargs):
             param = MagicMock()
@@ -67,8 +92,9 @@ class TestCommandErrorHandler:
         ctx_mock.message = MagicMock()
 
         # Патчим функцию safe_send_error
-        with patch("utils.error_handler.safe_send_error") as mock_safe_send_error, patch(
-            "utils.error_handler.logger"
+        with (
+            patch("utils.error_handler.safe_send_error") as mock_safe_send_error,
+            patch("utils.error_handler.logger"),
         ):
             # Вызываем декорированную функцию
             await decorated(self_mock, ctx_mock)
@@ -80,6 +106,7 @@ class TestCommandErrorHandler:
     @pytest.mark.asyncio
     async def test_command_error_handler_bad_argument(self):
         """Тест обработки исключения commands.BadArgument."""
+
         # Создаем мок-функцию, которая вызывает исключение
         async def mock_command(self, ctx, *args, **kwargs):
             raise commands.BadArgument("Неверный аргумент")
@@ -99,8 +126,9 @@ class TestCommandErrorHandler:
         ctx_mock.message = MagicMock()
 
         # Патчим функцию safe_send_error
-        with patch("utils.error_handler.safe_send_error") as mock_safe_send_error, patch(
-            "utils.error_handler.logger"
+        with (
+            patch("utils.error_handler.safe_send_error") as mock_safe_send_error,
+            patch("utils.error_handler.logger"),
         ):
             # Вызываем декорированную функцию
             await decorated(self_mock, ctx_mock)
@@ -112,6 +140,7 @@ class TestCommandErrorHandler:
     @pytest.mark.asyncio
     async def test_command_error_handler_missing_permissions(self):
         """Тест обработки исключения commands.MissingPermissions."""
+
         # Создаем мок-функцию, которая вызывает исключение
         async def mock_command(self, ctx, *args, **kwargs):
             raise commands.MissingPermissions(["manage_messages"])
@@ -131,8 +160,9 @@ class TestCommandErrorHandler:
         ctx_mock.message = MagicMock()
 
         # Патчим функцию safe_send_error
-        with patch("utils.error_handler.safe_send_error") as mock_safe_send_error, patch(
-            "utils.error_handler.logger"
+        with (
+            patch("utils.error_handler.safe_send_error") as mock_safe_send_error,
+            patch("utils.error_handler.logger"),
         ):
             # Вызываем декорированную функцию
             await decorated(self_mock, ctx_mock)
@@ -144,6 +174,7 @@ class TestCommandErrorHandler:
     @pytest.mark.asyncio
     async def test_command_error_handler_command_invoke_error(self):
         """Тест обработки исключения commands.CommandInvokeError."""
+
         # Создаем мок-функцию, которая вызывает исключение
         async def mock_command(self, ctx, *args, **kwargs):
             original_error = ValueError("Original Error")
