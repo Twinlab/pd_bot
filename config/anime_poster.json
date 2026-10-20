@@ -1,0 +1,42 @@
+{
+  "min_score": 50,
+  "limit": 100,
+  "cache_size": 2000,
+  "extra_tag_chance": 0.3,
+  "ratings": [
+    "g",
+    "s"
+  ],
+  "base_tags": [
+    "1girl",
+    "2girls"
+  ],
+  "extra_tags": [
+    "genshin_impact",
+    "persona",
+    "danganronpa",
+    "zenless_zone_zero"
+  ],
+  "excluded_tags": [
+    "guro",
+    "comic",
+    "monochrome",
+    "no_humans",
+    "chibi",
+    "1boy",
+    "pokemon",
+    "digimon",
+    "babydoll",
+    "loli",
+    "flat_chest",
+    "huge_breasts",
+    "large_breasts"
+  ],
+  "schedule": {
+    "morning_hour": 10,
+    "morning_minute": 0,
+    "evening_hour": 18,
+    "evening_minute": 0
+  },
+  "color": 39423
+}

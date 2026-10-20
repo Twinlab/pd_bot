@@ -1,0 +1,78 @@
+name: Anime webhook poster
+
+on:
+  schedule:
+    - cron: "0 10 * * *"
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Сначала initialize-history, затем preview, затем publish"
+        type: choice
+        default: preview
+        options:
+          - initialize-history
+          - preview
+          - publish
+          - confirm-sent
+          - confirm-not-sent
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: anime-webhook-poster
+  cancel-in-progress: false
+
+jobs:
+  post:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      MODE: ${{ inputs.mode || 'publish' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Check webhook configuration
+        if: env.MODE == 'publish'
+        env:
+          ANIME_WEBHOOK_URL: ${{ secrets.ANIME_WEBHOOK_URL }}
+        run: |
+          python -c 'import os, re; assert re.fullmatch(r"https://discord\.com/api(?:/v\d+)?/webhooks/\d+/[\w-]+", os.environ["ANIME_WEBHOOK_URL"].strip()), "Configure ANIME_WEBHOOK_URL first"'
+      - name: Restore history and prepare
+        id: prepare
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ANIME_SCHEDULE: ${{ github.event.schedule }}
+          DANBOORU_LOGIN: ${{ secrets.DANBOORU_LOGIN }}
+          DANBOORU_API_KEY: ${{ secrets.DANBOORU_API_KEY }}
+        run: python ops/anime_poster.py prepare --mode "$MODE"
+      - name: Persist reservation before sending
+        if: env.MODE != 'preview'
+        uses: actions/upload-artifact@v7
+        with:
+          name: anime-poster-state-${{ github.run_id }}-${{ github.run_attempt }}-prepared
+          path: .anime-poster/state.json
+          if-no-files-found: error
+          retention-days: 90
+          include-hidden-files: true
+      - name: Publish to Discord
+        if: env.MODE == 'publish'
+        env:
+          ANIME_WEBHOOK_URL: ${{ secrets.ANIME_WEBHOOK_URL }}
+        run: python ops/anime_poster.py send
+      - name: Persist result
+        if: ${{ always() && steps.prepare.outcome == 'success' && env.MODE != 'preview' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: anime-poster-state-${{ github.run_id }}-${{ github.run_attempt }}-result
+          path: .anime-poster/state.json
+          if-no-files-found: error
+          retention-days: 90
+          include-hidden-files: true
