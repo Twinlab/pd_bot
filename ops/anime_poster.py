@@ -24,6 +24,12 @@ ARTIFACT_PREFIX = "anime-poster-state-"
 MAX_STATE_BYTES = 2 * 1024**2
 
 
+class _ApiError(RuntimeError):
+    def __init__(self, status: int) -> None:
+        super().__init__(f"API вернул HTTP {status}")
+        self.status = status
+
+
 class _ArtifactRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(
         self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
@@ -58,7 +64,7 @@ def request_json(
             raise RuntimeError("Слишком большой ответ API")
         return json.loads(raw)
     except urllib.error.HTTPError as error:
-        raise RuntimeError(f"API вернул HTTP {error.code}") from None
+        raise _ApiError(error.code) from None
     except (OSError, ValueError):
         raise RuntimeError("Сбой сети или некорректный ответ API") from None
 
@@ -151,36 +157,108 @@ def restore_state(seed: Path, *, initialize: bool = False) -> dict[str, Any]:
     raise RuntimeError("Слишком много артефактов для безопасного поиска журнала")
 
 
-def select_post(config: dict[str, Any], seen: set[int]) -> dict[str, Any]:
-    """Выбирает новый пост с теми же фильтрами качества, что и автопостинг бота."""
+def normalize_filters(rating: str, tag: str) -> tuple[str | None, str | None]:
+    """Проверяет ручные параметры и запрещает подмену метатегов поиска."""
+    rating = rating.strip().lower()
+    tag = tag.strip()
+    if rating not in {"", "auto", "g", "s", "q", "e"}:
+        raise ValueError("Рейтинг должен быть auto, g, s, q или e")
+    if tag and (
+        len(tag) > 200
+        or tag.startswith(("-", "~"))
+        or any(char.isspace() or char in ":{}" for char in tag)
+    ):
+        raise ValueError(
+            "Укажите один тег Danbooru без пробелов и метатегов, например genshin_impact"
+        )
+    return (None if rating in {"", "auto"} else rating), tag or None
+
+
+def _fetch_posts(config: dict[str, Any], tags: str, page: int | None = None) -> Any:
+    params = {"tags": tags, "limit": str(config["limit"])}
+    if page is not None:
+        params["page"] = str(page)
+    login, key = os.getenv("DANBOORU_LOGIN"), os.getenv("DANBOORU_API_KEY")
+    if login and key:
+        params.update(login=login, api_key=key)
+    return request_json(API + "?" + urllib.parse.urlencode(params))
+
+
+def _select_tagged_post(
+    config: dict[str, Any], seen: set[int], *, rating: str, tag: str
+) -> dict[str, Any]:
+    order, page = "order:random", 1
+    for _ in range(5):
+        tags = f"{tag} {order} rating:{rating} score:>={config['min_score']}"
+        try:
+            posts = _fetch_posts(config, tags, page if order == "order:id_desc" else None)
+        except _ApiError as error:
+            if error.status == 500 and order == "order:random":
+                order = "order:id_desc"
+            else:
+                logger.warning("Поиск Danbooru не удался; следующая попытка")
+            time.sleep(1)
+            continue
+        except RuntimeError:
+            logger.warning("Поиск Danbooru не удался; следующая попытка")
+            time.sleep(1)
+            continue
+        # Как в /post_anime: явный тег заменяет ограничения базового автоподбора.
+        candidates = filter_posts(
+            posts, config, seen, rating, require_girl=False, apply_excluded=False
+        )
+        if candidates:
+            return random.choice(candidates)
+        if order == "order:id_desc":
+            if not posts:
+                break
+            page += 1
+    raise RuntimeError("Не найдены новые картинки по выбранному тегу и рейтингу")
+
+
+def select_post(
+    config: dict[str, Any], seen: set[int], *, rating: str | None = None, tag: str | None = None
+) -> dict[str, Any]:
+    """Выбирает новый пост по конфигу или ручным параметрам одного запуска."""
+    rating, tag = normalize_filters(rating or "auto", tag or "")
+    if tag is not None:
+        return _select_tagged_post(
+            config, seen, rating=rating or random.choice(config["ratings"]), tag=tag
+        )
     for extra in (True, False):
         for _ in range(5):
-            rating = random.choice(config["ratings"])
+            chosen_rating = rating or random.choice(config["ratings"])
             franchise = None
             if extra and config["extra_tags"] and random.random() < config["extra_tag_chance"]:
                 franchise = random.choice(config["extra_tags"])
             if franchise:
-                tags = f"{franchise} order:random rating:{rating} score:>={config['min_score']}"
+                tags = (
+                    f"{franchise} order:random rating:{chosen_rating} score:>={config['min_score']}"
+                )
             else:
-                tags = f"{random.choice(config['base_tags'])} order:rank rating:{rating}"
-            params = {"tags": tags, "limit": str(config["limit"])}
-            login, key = os.getenv("DANBOORU_LOGIN"), os.getenv("DANBOORU_API_KEY")
-            if login and key:
-                params.update(login=login, api_key=key)
+                tags = f"{random.choice(config['base_tags'])} order:rank rating:{chosen_rating}"
             try:
-                posts = request_json(API + "?" + urllib.parse.urlencode(params))
+                posts = _fetch_posts(config, tags)
             except RuntimeError:
                 logger.warning("Поиск Danbooru не удался; следующая попытка")
                 time.sleep(1)
                 continue
-            candidates = filter_posts(posts, config, seen, rating, require_girl=bool(franchise))
+            candidates = filter_posts(
+                posts, config, seen, chosen_rating, require_girl=bool(franchise)
+            )
             if candidates:
                 return random.choice(candidates)
     raise RuntimeError("Не найдены новые картинки, соответствующие фильтрам")
 
 
 def filter_posts(
-    posts: Any, config: dict[str, Any], seen: set[int], rating: str, *, require_girl: bool
+    posts: Any,
+    config: dict[str, Any],
+    seen: set[int],
+    rating: str,
+    *,
+    require_girl: bool,
+    apply_excluded: bool = True,
 ) -> list[dict[str, Any]]:
     """Отбрасывает повторы, неподходящие рейтинги, теги и форматы изображений."""
     if not isinstance(posts, list):
@@ -204,7 +282,7 @@ def filter_posts(
         if type(score) is not int or score < config["min_score"]:
             continue
         tags = set(str(post.get("tag_string") or "").split())
-        if tags & set(config["excluded_tags"]):
+        if apply_excluded and tags & set(config["excluded_tags"]):
             continue
         if require_girl and not tags & set(config["base_tags"]):
             continue
@@ -264,7 +342,13 @@ def complete_pending(state: dict[str, Any]) -> None:
 
 
 def prepare(
-    state: dict[str, Any], config: dict[str, Any], *, mode: str, slot: str
+    state: dict[str, Any],
+    config: dict[str, Any],
+    *,
+    mode: str,
+    slot: str,
+    rating: str | None = None,
+    tag: str | None = None,
 ) -> dict[str, Any]:
     """Резервирует отправку до HTTP-запроса; неопределённость требует ручной проверки."""
     if mode == "confirm-sent":
@@ -281,7 +365,7 @@ def prepare(
         raise RuntimeError("Есть незавершённая отправка. Проверьте канал и подтвердите результат")
     if mode == "initialize-history" or slot in state["slots"]:
         return state
-    post = select_post(config, set(state["posted_ids"]))
+    post = select_post(config, set(state["posted_ids"]), rating=rating, tag=tag)
     logger.info(
         "Выбран Danbooru #%s, score=%s, rating=%s", post["id"], post["score"], post["rating"]
     )
@@ -320,11 +404,16 @@ def main() -> None:
         choices=["initialize-history", "preview", "publish", "confirm-sent", "confirm-not-sent"],
     )
     parser.add_argument("--state", type=Path, default=Path(".anime-poster/state.json"))
+    parser.add_argument("--rating", default=os.getenv("ANIME_RATING", "auto"))
+    parser.add_argument("--tag", default=os.getenv("ANIME_TAG", ""))
     args = parser.parse_args()
+    rating, tag = normalize_filters(args.rating, args.tag)
+    if os.getenv("ANIME_SCHEDULE"):
+        rating, tag = None, None
     config = json.loads(Path("config/anime_poster.json").read_text(encoding="utf-8"))
     if args.phase == "local-preview":
         state = load_state(Path("ops/anime-poster-seed.json").read_bytes())
-        prepare(state, config, mode="preview", slot="local-preview")
+        prepare(state, config, mode="preview", slot="local-preview", rating=rating, tag=tag)
         return
     if args.phase == "prepare":
         state = restore_state(
@@ -335,7 +424,7 @@ def main() -> None:
             slot = f"{datetime.now(UTC).date()}:{event}"
         else:
             slot = f"manual:{os.environ['GITHUB_RUN_ID']}"
-        state = prepare(state, config, mode=args.mode, slot=slot)
+        state = prepare(state, config, mode=args.mode, slot=slot, rating=rating, tag=tag)
     else:
         state = load_state(args.state.read_bytes())
         state = send(state, config, os.environ["ANIME_WEBHOOK_URL"].strip())

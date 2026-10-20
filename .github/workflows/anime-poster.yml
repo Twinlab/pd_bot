@@ -17,6 +17,22 @@ on:
           - confirm-sent
           - confirm-not-sent
 
+      rating:
+        description: "Рейтинг: auto — из конфига; g / s / q / e — для одного запуска"
+        type: choice
+        default: auto
+        options:
+          - auto
+          - g
+          - s
+          - q
+          - e
+      tag:
+        description: "Один тег Danbooru, например genshin_impact; пусто — автоподбор"
+        type: string
+        required: false
+        default: ""
+
 permissions:
   contents: read
   actions: read
@@ -50,6 +66,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ANIME_SCHEDULE: ${{ github.event.schedule }}
+          ANIME_RATING: ${{ inputs.rating || 'auto' }}
+          ANIME_TAG: ${{ inputs.tag || '' }}
           DANBOORU_LOGIN: ${{ secrets.DANBOORU_LOGIN }}
           DANBOORU_API_KEY: ${{ secrets.DANBOORU_API_KEY }}
         run: python ops/anime_poster.py prepare --mode "$MODE"
