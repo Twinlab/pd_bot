@@ -68,6 +68,7 @@ nav:
   - Владельцам:
       - Начало работы: getting-started.md
       - Эксплуатация: deployment.md
+      - Аниме-постинг без VM: anime-webhook.md
   - Разработчикам:
       - Архитектура: architecture.md
       - API кабинета: portal-api.md
