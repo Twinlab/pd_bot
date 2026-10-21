@@ -108,7 +108,9 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
-def restore_state(seed: Path, *, initialize: bool = False) -> dict[str, Any]:
+def restore_state(
+    seed: Path, *, initialize: bool = False, reconcile: bool = False
+) -> dict[str, Any]:
     """Восстанавливает новейший снимок Actions; потеря истории блокирует отправку."""
     repository = os.environ["GITHUB_REPOSITORY"]
     headers = {
@@ -116,45 +118,71 @@ def restore_state(seed: Path, *, initialize: bool = False) -> dict[str, Any]:
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     }
+    latest: dict[str, Any] | None = None
+    snapshots: list[dict[str, Any]] = []
+    # ID и порядок страниц GitHub не гарантируют хронологию создания снимков.
     for page in range(1, 101):
         result = request_json(
             f"https://api.github.com/repos/{repository}/actions/artifacts?per_page=100&page={page}",
             headers=headers,
         )
         artifacts = result["artifacts"]
-        candidates = [
-            a
-            for a in artifacts
-            if a["name"].startswith(ARTIFACT_PREFIX)
-            and a.get("workflow_run", {}).get("head_branch") == "main"
-        ]
-        if candidates:
-            latest = max(candidates, key=lambda a: a["id"])
-            if initialize:
-                raise RuntimeError("История уже существует; повторная инициализация запрещена")
-            if latest["expired"]:
-                raise RuntimeError("Срок хранения журнала истёк; восстановите историю вручную")
-            request = urllib.request.Request(latest["archive_download_url"], headers=headers)
-            try:
-                with urllib.request.build_opener(_ArtifactRedirect()).open(
-                    request, timeout=30
-                ) as response:
-                    raw = response.read(MAX_STATE_BYTES + 1)
-            except OSError:
-                raise RuntimeError("Не удалось скачать журнал; отправка запрещена") from None
-            if len(raw) > MAX_STATE_BYTES:
-                raise RuntimeError("Архив журнала слишком большой")
-            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
-                if archive.namelist() != ["state.json"]:
-                    raise ValueError("Неожиданное содержимое архива журнала")
-                if archive.getinfo("state.json").file_size > MAX_STATE_BYTES:
-                    raise ValueError("Журнал слишком большой")
-                return load_state(archive.read("state.json"))
+        for artifact in artifacts:
+            if not artifact["name"].startswith(ARTIFACT_PREFIX):
+                continue
+            if artifact.get("workflow_run", {}).get("head_branch") != "main":
+                continue
+            if reconcile and not artifact["expired"] and artifact["name"].endswith("-result"):
+                snapshots.append(artifact)
+            order = (artifact["created_at"], artifact["name"].endswith("-result"))
+            if latest is None or order > (latest["created_at"], latest["name"].endswith("-result")):
+                latest = artifact
         if len(artifacts) < 100:
-            if initialize:
-                return load_state(seed.read_bytes())
-            raise RuntimeError("Журнал не найден. Сначала выполните initialize-history")
-    raise RuntimeError("Слишком много артефактов для безопасного поиска журнала")
+            break
+    else:
+        raise RuntimeError("Слишком много артефактов для безопасного поиска журнала")
+    if latest is None:
+        if initialize:
+            return load_state(seed.read_bytes())
+        raise RuntimeError("Журнал не найден. Сначала выполните initialize-history")
+    if initialize:
+        raise RuntimeError("История уже существует; повторная инициализация запрещена")
+    if latest["expired"]:
+        raise RuntimeError("Срок хранения журнала истёк; восстановите историю вручную")
+    state = _download_snapshot(latest, headers)
+    if reconcile:
+        ids: list[int] = []
+        slots: list[str] = []
+        for artifact in sorted(snapshots, key=lambda a: a["created_at"]):
+            previous = (
+                state if artifact["id"] == latest["id"] else _download_snapshot(artifact, headers)
+            )
+            # Резервирование в старом снимке не доказывает доставку его pending-поста.
+            ids.extend(previous["posted_ids"])
+            slots.extend(previous["slots"])
+        for key, values in (("posted_ids", ids), ("slots", slots)):
+            state[key] = list(dict.fromkeys([*values, *state[key]]))[-2000:]
+        logger.info(
+            "История сведена: %s постов, %s слотов", len(state["posted_ids"]), len(state["slots"])
+        )
+    return state
+
+
+def _download_snapshot(artifact: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+    request = urllib.request.Request(artifact["archive_download_url"], headers=headers)
+    try:
+        with urllib.request.build_opener(_ArtifactRedirect()).open(request, timeout=30) as response:
+            raw = response.read(MAX_STATE_BYTES + 1)
+    except OSError:
+        raise RuntimeError("Не удалось скачать журнал; отправка запрещена") from None
+    if len(raw) > MAX_STATE_BYTES:
+        raise RuntimeError("Архив журнала слишком большой")
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        if archive.namelist() != ["state.json"]:
+            raise ValueError("Неожиданное содержимое архива журнала")
+        if archive.getinfo("state.json").file_size > MAX_STATE_BYTES:
+            raise ValueError("Журнал слишком большой")
+        return load_state(archive.read("state.json"))
 
 
 def normalize_filters(rating: str, tag: str) -> tuple[str | None, str | None]:
@@ -432,6 +460,7 @@ def main() -> None:
             "preview",
             "publish",
             "scheduled",
+            "reconcile-history",
             "confirm-sent",
             "confirm-not-sent",
         ],
@@ -449,8 +478,14 @@ def main() -> None:
         return
     if args.phase == "prepare":
         state = restore_state(
-            Path("ops/anime-poster-seed.json"), initialize=args.mode == "initialize-history"
+            Path("ops/anime-poster-seed.json"),
+            initialize=args.mode == "initialize-history",
+            reconcile=args.mode == "reconcile-history",
         )
+        if args.mode == "reconcile-history":
+            save_state(args.state, state)
+            _workflow_outputs(persist=True, send=False)
+            return
         before = json.dumps(state, sort_keys=True)
         if scheduled:
             slot = due_slot(state, config, datetime.now(UTC))

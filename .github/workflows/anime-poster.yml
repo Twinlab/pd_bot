@@ -14,6 +14,7 @@ on:
           - preview
           - publish
           - scheduled
+          - reconcile-history
           - confirm-sent
           - confirm-not-sent
 

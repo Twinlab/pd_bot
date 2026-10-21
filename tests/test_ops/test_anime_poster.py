@@ -170,11 +170,17 @@ def test_newest_pending_artifact_wins_over_previous_success(tmp_path, state, mon
     artifact = {
         "id": 20,
         "name": "anime-poster-state-1-prepared",
+        "created_at": "2026-10-21T14:51:00Z",
         "expired": False,
         "archive_download_url": "https://api.github.com/artifact/zip",
         "workflow_run": {"head_branch": "main"},
     }
-    old = {**artifact, "id": 10}
+    old = {
+        **artifact,
+        "id": 999,
+        "created_at": "2026-10-21T14:50:58Z",
+        "archive_download_url": "https://api.github.com/old/zip",
+    }
     raw = io.BytesIO()
     with zipfile.ZipFile(raw, "w") as archive:
         archive.writestr("state.json", json.dumps(state))
@@ -215,6 +221,7 @@ def test_expired_history_never_resets_to_seed(tmp_path, monkeypatch):
     artifact = {
         "id": 20,
         "name": "anime-poster-state-1-result",
+        "created_at": "2026-10-21T14:51:00Z",
         "expired": True,
         "workflow_run": {"head_branch": "main"},
     }
@@ -553,3 +560,110 @@ def test_workflow_checks_every_quarter_hour_and_only_uploads_changed_state():
     assert all("steps.prepare.outputs.persist" in s["if"] for s in uploads)
     send = next(s for s in steps if s.get("name") == "Publish to Discord")
     assert send["if"] == "steps.prepare.outputs.send == 'true'"
+
+
+@pytest.mark.parametrize(
+    "second_page,same_timestamp,pending_latest",
+    [(False, False, False), (True, False, False), (False, True, False), (True, False, True)],
+)
+def test_restore_orders_snapshots_by_creation_across_all_pages(
+    tmp_path, state, selected, monkeypatch, second_page, same_timestamp, pending_latest
+):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    old = {
+        "id": 999,
+        "name": "anime-poster-state-1-prepared",
+        "created_at": "2026-10-21T14:50:58Z",
+        "expired": False,
+        "workflow_run": {"head_branch": "main"},
+        "archive_download_url": "https://api.github.com/old/zip",
+    }
+    latest = {
+        **old,
+        "id": 20,
+        "created_at": old["created_at"] if same_timestamp else "2026-10-21T14:51:00Z",
+        "name": "anime-poster-state-1-result",
+        "archive_download_url": "https://api.github.com/latest/zip",
+    }
+    if pending_latest:
+        old["name"] = "anime-poster-state-1-result"
+        latest["name"] = "anime-poster-state-2-prepared"
+        state["pending"] = {"slot": "later", "post": selected, "started_at": "now"}
+    pages = [{"artifacts": [latest, old]}]
+    if second_page:
+        pages = [{"artifacts": [old] + [{"name": "other"}] * 99}, {"artifacts": [latest]}]
+    raw = io.BytesIO()
+    with zipfile.ZipFile(raw, "w") as archive:
+        archive.writestr("state.json", json.dumps(state))
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = raw.getvalue()
+    with (
+        patch.object(poster, "request_json", side_effect=pages) as listing,
+        patch.object(
+            poster.urllib.request.OpenerDirector, "open", return_value=response
+        ) as download,
+    ):
+        assert poster.restore_state(tmp_path / "missing") == state
+    assert download.call_args.args[0].full_url == latest["archive_download_url"]
+    assert listing.call_count == len(pages)
+
+
+def test_reconcile_recovers_confirmed_history_without_confirming_pending(
+    tmp_path, state, selected, monkeypatch
+):
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    old = {
+        "id": 99,
+        "name": "anime-poster-state-1-result",
+        "created_at": "2026-10-20T18:22:00Z",
+        "expired": False,
+        "workflow_run": {"head_branch": "main"},
+    }
+    latest = {
+        **old,
+        "id": 20,
+        "name": "anime-poster-state-2-result",
+        "created_at": "2026-10-21T14:51:00Z",
+    }
+    previous = {**state, "posted_ids": [1, 12415446], "slots": ["manual:earlier"]}
+    current = {
+        **state,
+        "posted_ids": [1, 5064770],
+        "slots": ["scheduled:today:morning"],
+        "pending": {"slot": "uncertain", "post": selected, "started_at": "now"},
+    }
+    with (
+        patch.object(poster, "request_json", return_value={"artifacts": [old, latest]}),
+        patch.object(poster, "_download_snapshot", side_effect=[current, previous]),
+    ):
+        restored = poster.restore_state(tmp_path / "missing", reconcile=True)
+    assert set(restored["posted_ids"]) == {1, 12415446, 5064770}
+    assert set(restored["slots"]) == {"manual:earlier", "scheduled:today:morning"}
+    assert restored["pending"] == current["pending"]
+    assert selected["id"] not in restored["posted_ids"]
+
+
+def test_reconcile_mode_only_persists_history(tmp_path, monkeypatch, state):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "poster",
+            "prepare",
+            "--mode",
+            "reconcile-history",
+            "--state",
+            str(tmp_path / "state.json"),
+        ],
+    )
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
+    with (
+        patch.object(poster, "restore_state", return_value=state) as restore,
+        patch.object(poster, "prepare") as prepare,
+    ):
+        poster.main()
+    assert restore.call_args.kwargs["reconcile"] is True
+    prepare.assert_not_called()
+    assert poster.load_state((tmp_path / "state.json").read_bytes()) == state
+    assert (tmp_path / "output").read_text() == "persist=true\nsend=false\n"
