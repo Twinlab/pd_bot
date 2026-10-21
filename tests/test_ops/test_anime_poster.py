@@ -364,6 +364,7 @@ def test_schedule_ignores_manual_filter_environment(tmp_path, monkeypatch, state
     )
     with (
         patch.object(poster, "restore_state", return_value=state),
+        patch.object(poster, "due_slot", return_value="scheduled:2026-10-21:morning"),
         patch.object(poster, "prepare", return_value=state) as prepare,
     ):
         poster.main()
@@ -385,3 +386,170 @@ def test_manual_filter_inputs_pass_via_environment_not_shell():
     step = next(s for s in workflow["jobs"]["post"]["steps"] if s.get("id") == "prepare")
     assert "inputs.tag" in step["env"]["ANIME_TAG"]
     assert "inputs.tag" not in step["run"]
+
+
+@pytest.fixture
+def scheduled_config(config):
+    return {
+        **config,
+        "schedule": {
+            "morning_hour": 10,
+            "morning_minute": 0,
+            "evening_hour": 18,
+            "evening_minute": 0,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "timestamp,expected",
+    [
+        ("2026-10-21T09:59:59+00:00", None),
+        ("2026-10-21T10:00:00+00:00", "scheduled:2026-10-21:morning"),
+        ("2026-10-21T14:45:00+00:00", "scheduled:2026-10-21:morning"),
+        ("2026-10-21T23:59:59+00:00", "scheduled:2026-10-21:morning"),
+        ("2026-10-22T00:01:00+00:00", None),
+        ("2026-10-21T13:00:00+03:00", "scheduled:2026-10-21:morning"),
+    ],
+)
+def test_schedule_selects_only_due_current_day_slots(state, scheduled_config, timestamp, expected):
+    from datetime import datetime
+
+    assert poster.due_slot(state, scheduled_config, datetime.fromisoformat(timestamp)) == expected
+
+
+def test_completed_morning_is_not_repeated(state, scheduled_config):
+    from datetime import datetime
+
+    state["slots"] = ["scheduled:2026-10-21:morning"]
+    assert (
+        poster.due_slot(
+            state, scheduled_config, datetime.fromisoformat("2026-10-21T17:59:00+00:00")
+        )
+        is None
+    )
+    assert (
+        poster.due_slot(
+            state, scheduled_config, datetime.fromisoformat("2026-10-21T18:00:00+00:00")
+        )
+        == "scheduled:2026-10-21:evening"
+    )
+
+
+def test_manual_publish_does_not_consume_scheduled_slot(state, scheduled_config):
+    from datetime import datetime
+
+    state["slots"] = ["manual:123"]
+    assert (
+        poster.due_slot(
+            state, scheduled_config, datetime.fromisoformat("2026-10-21T12:00:00+00:00")
+        )
+        == "scheduled:2026-10-21:morning"
+    )
+
+
+def test_legacy_schedule_history_prevents_repeat_after_migration(state, scheduled_config):
+    from datetime import datetime
+
+    state["slots"] = ["2026-10-21:0 10 * * *", "2026-10-21:0 18 * * *"]
+    assert (
+        poster.due_slot(
+            state, scheduled_config, datetime.fromisoformat("2026-10-21T22:00:00+00:00")
+        )
+        is None
+    )
+
+
+def test_pending_delivery_blocks_scheduled_retries(state, selected, scheduled_config):
+    from datetime import UTC, datetime
+
+    state["pending"] = {
+        "slot": "scheduled:2026-10-21:morning",
+        "post": selected,
+        "started_at": "now",
+    }
+    with pytest.raises(RuntimeError, match="незавершённая"):
+        poster.due_slot(state, scheduled_config, datetime(2026, 10, 21, 22, tzinfo=UTC))
+
+
+def test_schedule_refuses_naive_datetime(state, scheduled_config):
+    from datetime import datetime
+
+    with pytest.raises(ValueError, match="часовым поясом"):
+        poster.due_slot(state, scheduled_config, datetime(2026, 10, 21, 12))
+
+
+def test_two_late_slots_are_delivered_one_at_a_time(state, selected, scheduled_config):
+    from datetime import UTC, datetime
+
+    now = datetime(2026, 10, 21, 22, tzinfo=UTC)
+    first = poster.due_slot(state, scheduled_config, now)
+    state["pending"] = {"slot": first, "post": selected, "started_at": "now"}
+    poster.complete_pending(state)
+    second = poster.due_slot(state, scheduled_config, now)
+    assert second == "scheduled:2026-10-21:evening"
+    state["pending"] = {"slot": second, "post": {**selected, "id": 3}, "started_at": "now"}
+    poster.complete_pending(state)
+    assert poster.due_slot(state, scheduled_config, now) is None
+
+
+def test_noop_check_skips_search_state_and_send(tmp_path, monkeypatch, state):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["poster", "prepare", "--mode", "scheduled", "--state", str(tmp_path / "state.json")],
+    )
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
+    with (
+        patch.object(poster, "restore_state", return_value=state),
+        patch.object(poster, "due_slot", return_value=None),
+        patch.object(poster, "prepare") as prepare,
+    ):
+        poster.main()
+    prepare.assert_not_called()
+    assert not (tmp_path / "state.json").exists()
+    assert (tmp_path / "output").read_text() == "persist=false\nsend=false\n"
+
+
+def test_scheduled_mode_reserves_canonical_slot_without_manual_filters(
+    tmp_path, monkeypatch, state, selected
+):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["poster", "prepare", "--mode", "scheduled", "--state", str(tmp_path / "state.json")],
+    )
+    monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "output"))
+    monkeypatch.setenv("ANIME_RATING", "e")
+    monkeypatch.setenv("ANIME_TAG", "ignored_tag")
+    with (
+        patch.object(poster, "restore_state", return_value=state),
+        patch.object(poster, "due_slot", return_value="scheduled:2026-10-21:morning"),
+        patch.object(poster, "select_post", return_value=selected) as select,
+    ):
+        poster.main()
+    select.assert_called_once_with(
+        poster.json.loads(poster.Path("config/anime_poster.json").read_text(encoding="utf-8")),
+        {1},
+        rating=None,
+        tag=None,
+    )
+    saved = poster.load_state((tmp_path / "state.json").read_bytes())
+    assert saved["pending"]["slot"] == "scheduled:2026-10-21:morning"
+    assert (tmp_path / "output").read_text() == "persist=true\nsend=true\n"
+
+
+def test_workflow_checks_every_quarter_hour_and_only_uploads_changed_state():
+    from pathlib import Path
+
+    import yaml
+
+    workflow = yaml.load(
+        Path(".github/workflows/anime-poster.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    assert workflow["on"]["schedule"] == [{"cron": "7,22,37,52 * * * *"}]
+    assert "'scheduled'" in workflow["jobs"]["post"]["env"]["MODE"]
+    steps = workflow["jobs"]["post"]["steps"]
+    uploads = [s for s in steps if "actions/upload-artifact" in s.get("uses", "")]
+    assert all("steps.prepare.outputs.persist" in s["if"] for s in uploads)
+    send = next(s for s in steps if s.get("name") == "Publish to Discord")
+    assert send["if"] == "steps.prepare.outputs.send == 'true'"

@@ -394,6 +394,32 @@ def send(state: dict[str, Any], config: dict[str, Any], webhook: str) -> dict[st
     return state
 
 
+def due_slot(state: dict[str, Any], config: dict[str, Any], now: datetime) -> str | None:
+    """Возвращает первый пропущенный слот текущего UTC-дня; прошлые дни не догоняет."""
+    if state["pending"] is not None:
+        raise RuntimeError("Есть незавершённая отправка. Проверьте канал и подтвердите результат")
+    if now.tzinfo is None:
+        raise ValueError("Для проверки расписания требуется время с часовым поясом")
+    now = now.astimezone(UTC)
+    schedule = config["schedule"]
+    for name in ("morning", "evening"):
+        hour = schedule[f"{name}_hour"]
+        minute = schedule[f"{name}_minute"]
+        target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        slot = f"scheduled:{now.date()}:{name}"
+        legacy_slot = f"{now.date()}:{minute} {hour} * * *"
+        if target <= now and slot not in state["slots"] and legacy_slot not in state["slots"]:
+            return slot
+    return None
+
+
+def _workflow_outputs(*, persist: bool, send: bool) -> None:
+    output = os.getenv("GITHUB_OUTPUT")
+    if output:
+        with Path(output).open("a", encoding="utf-8") as stream:
+            stream.write(f"persist={str(persist).lower()}\nsend={str(send).lower()}\n")
+
+
 def main() -> None:
     """Запускает подготовку или отправку отдельного задания GitHub Actions."""
     parser = argparse.ArgumentParser()
@@ -401,15 +427,21 @@ def main() -> None:
     parser.add_argument(
         "--mode",
         default="preview",
-        choices=["initialize-history", "preview", "publish", "confirm-sent", "confirm-not-sent"],
+        choices=[
+            "initialize-history",
+            "preview",
+            "publish",
+            "scheduled",
+            "confirm-sent",
+            "confirm-not-sent",
+        ],
     )
     parser.add_argument("--state", type=Path, default=Path(".anime-poster/state.json"))
     parser.add_argument("--rating", default=os.getenv("ANIME_RATING", "auto"))
     parser.add_argument("--tag", default=os.getenv("ANIME_TAG", ""))
     args = parser.parse_args()
-    rating, tag = normalize_filters(args.rating, args.tag)
-    if os.getenv("ANIME_SCHEDULE"):
-        rating, tag = None, None
+    scheduled = args.mode == "scheduled" or bool(os.getenv("ANIME_SCHEDULE"))
+    rating, tag = (None, None) if scheduled else normalize_filters(args.rating, args.tag)
     config = json.loads(Path("config/anime_poster.json").read_text(encoding="utf-8"))
     if args.phase == "local-preview":
         state = load_state(Path("ops/anime-poster-seed.json").read_bytes())
@@ -419,12 +451,21 @@ def main() -> None:
         state = restore_state(
             Path("ops/anime-poster-seed.json"), initialize=args.mode == "initialize-history"
         )
-        event = os.getenv("ANIME_SCHEDULE", "")
-        if event:
-            slot = f"{datetime.now(UTC).date()}:{event}"
+        before = json.dumps(state, sort_keys=True)
+        if scheduled:
+            slot = due_slot(state, config, datetime.now(UTC))
+            if slot is None:
+                logger.info("Плановая публикация сейчас не требуется; поиск и отправка пропущены")
+                _workflow_outputs(persist=False, send=False)
+                return
         else:
             slot = f"manual:{os.environ['GITHUB_RUN_ID']}"
-        state = prepare(state, config, mode=args.mode, slot=slot, rating=rating, tag=tag)
+        mode = "publish" if args.mode == "scheduled" else args.mode
+        state = prepare(state, config, mode=mode, slot=slot, rating=rating, tag=tag)
+        changed = before != json.dumps(state, sort_keys=True) or mode == "initialize-history"
+        _workflow_outputs(persist=changed, send=mode == "publish" and state["pending"] is not None)
+        if not changed:
+            return
     else:
         state = load_state(args.state.read_bytes())
         state = send(state, config, os.environ["ANIME_WEBHOOK_URL"].strip())

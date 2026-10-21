@@ -2,8 +2,7 @@ name: Anime webhook poster
 
 on:
   schedule:
-    - cron: "0 10 * * *"
-    - cron: "0 18 * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -14,6 +13,7 @@ on:
           - initialize-history
           - preview
           - publish
+          - scheduled
           - confirm-sent
           - confirm-not-sent
 
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     env:
-      MODE: ${{ inputs.mode || 'publish' }}
+      MODE: ${{ inputs.mode || 'scheduled' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -56,7 +56,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Check webhook configuration
-        if: env.MODE == 'publish'
+        if: env.MODE == 'publish' || env.MODE == 'scheduled'
         env:
           ANIME_WEBHOOK_URL: ${{ secrets.ANIME_WEBHOOK_URL }}
         run: |
@@ -72,7 +72,7 @@ jobs:
           DANBOORU_API_KEY: ${{ secrets.DANBOORU_API_KEY }}
         run: python ops/anime_poster.py prepare --mode "$MODE"
       - name: Persist reservation before sending
-        if: env.MODE != 'preview'
+        if: steps.prepare.outputs.persist == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: anime-poster-state-${{ github.run_id }}-${{ github.run_attempt }}-prepared
@@ -81,12 +81,12 @@ jobs:
           retention-days: 90
           include-hidden-files: true
       - name: Publish to Discord
-        if: env.MODE == 'publish'
+        if: steps.prepare.outputs.send == 'true'
         env:
           ANIME_WEBHOOK_URL: ${{ secrets.ANIME_WEBHOOK_URL }}
         run: python ops/anime_poster.py send
       - name: Persist result
-        if: ${{ always() && steps.prepare.outcome == 'success' && env.MODE != 'preview' }}
+        if: ${{ always() && steps.prepare.outcome == 'success' && steps.prepare.outputs.persist == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: anime-poster-state-${{ github.run_id }}-${{ github.run_attempt }}-result
