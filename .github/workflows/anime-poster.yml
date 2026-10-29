@@ -1,8 +1,6 @@
-name: Anime webhook poster
+name: Anime webhook poster (manual recovery only)
 
 on:
-  schedule:
-    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       mode:

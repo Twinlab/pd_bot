@@ -13,6 +13,16 @@ from cogs.activity import ActivityTracker
 from utils.activity_data_manager import ActivityDataManager
 
 
+@pytest.fixture(autouse=True)
+def no_background_delivery():
+    with (
+        patch("discord.ext.tasks.Loop.start"),
+        patch("cogs.activity.run_automatic_daily_report", new=AsyncMock()),
+        patch("cogs.activity.run_automatic_monthly_report", new=AsyncMock()),
+    ):
+        yield
+
+
 class TestActivityTrackerInit:
     """Тесты для инициализации и выгрузки ActivityTracker."""
 

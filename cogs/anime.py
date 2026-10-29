@@ -13,10 +13,13 @@
 """
 
 import asyncio
+import json
 import logging
 import random
+import re
 from collections import deque
-from datetime import UTC, time
+from datetime import UTC, datetime, time
+from pathlib import Path
 from time import time as unix_now
 from typing import Any, Literal, NamedTuple
 
@@ -27,6 +30,7 @@ from discord.ext import commands, tasks
 from config import get_settings
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
 from utils.models import AnimeCache
+from utils.scheduled_delivery import ScheduledDelivery
 from utils.ui import image_card
 
 logger: logging.Logger = logging.getLogger("bot.cogs.anime")
@@ -117,9 +121,12 @@ class AnimeCog(commands.Cog):
         settings = get_settings()
         self.channel_id: int | None = settings.channels.anime
         self.cache_size: int = settings.anime.cache_size
+        self.schedule_enabled: bool = settings.anime.schedule.enabled
         self.post_cache: deque[int] = deque(maxlen=self.cache_size)
         self._cache_loaded: bool = False
         self._post_lock = asyncio.Lock()
+        self._last_api_status = 0
+        self.delivery = ScheduledDelivery(Path("data/anime_delivery.json"))
 
         if not self.channel_id:
             logger.error("Канал для публикации аниме не настроен или не найден.")
@@ -142,8 +149,11 @@ class AnimeCog(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self) -> None:
         """Запускает ежедневные публикации после готовности Discord-клиента."""
-        if not self.channel_id:
+        if not self.channel_id or not self.schedule_enabled:
             return
+
+        if not self.retry_scheduled.is_running():
+            self.retry_scheduled.start()
 
         scheduled_posts = (
             ("morning_post", self.morning_post, self._morning_time),
@@ -162,7 +172,10 @@ class AnimeCog(commands.Cog):
     def _get_session(self) -> aiohttp.ClientSession:
         """Возвращает переиспользуемую aiohttp-сессию с User-Agent для Danbooru."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(headers={"User-Agent": USER_AGENT})
+            self._session = aiohttp.ClientSession(
+                headers={"User-Agent": USER_AGENT},
+                timeout=aiohttp.ClientTimeout(total=20, connect=10),
+            )
         return self._session
 
     async def _load_cache_from_db(self) -> None:
@@ -186,6 +199,7 @@ class AnimeCog(commands.Cog):
     async def cog_unload(self) -> None:
         """Вызывается при выгрузке кога, останавливает задачи и закрывает сессию."""
         logger.info("Остановка задач публикации аниме...")
+        self.retry_scheduled.cancel()
         if self.morning_post.is_running():
             self.morning_post.cancel()
         if self.evening_post.is_running():
@@ -221,6 +235,8 @@ class AnimeCog(commands.Cog):
             posts = await self._fetch_danbooru_posts(
                 settings, rating=self._pick_rating(settings, rating), tag=tag, use_extra=True
             )
+            if self._last_api_status in {401, 403, 429}:
+                return None
             candidate = self._pick_fresh(posts)
             if candidate:
                 logger.info(
@@ -236,6 +252,8 @@ class AnimeCog(commands.Cog):
                 posts = await self._fetch_danbooru_posts(
                     settings, rating=self._pick_rating(settings, rating), tag=None, use_extra=False
                 )
+                if self._last_api_status in {401, 403, 429}:
+                    return None
                 candidate = self._pick_fresh(posts)
                 if candidate:
                     logger.info(f"Найден новый пост в fallback (ID: {candidate.post_id})")
@@ -301,6 +319,14 @@ class AnimeCog(commands.Cog):
             {"tags": " ".join(search_tags), "limit": str(settings.anime.limit)},
         )
         if status != 200:
+            if status in {500, 502, 503}:
+                latest_tags = [
+                    "order:id_desc" if item.startswith("order:") else item for item in search_tags
+                ]
+                status, data = await self._request_danbooru(
+                    settings, {"tags": " ".join(latest_tags), "limit": str(settings.anime.limit)}
+                )
+        if status != 200:
             return []
         return self._parse_posts(data, settings, rating, require_girl=require_girl)
 
@@ -312,6 +338,11 @@ class AnimeCog(commands.Cog):
         При не-200 (или сетевой ошибке — тогда status=0) список пустой. Логин/ключ
         подставляются автоматически, если заданы в настройках.
         """
+        self._last_api_status = 0
+        if bool(settings.danbooru_login) != bool(settings.danbooru_api_key):
+            logger.error("Для Danbooru нужны оба поля: DANBOORU_LOGIN и DANBOORU_API_KEY")
+            self._last_api_status = 401
+            return 401, []
         if settings.danbooru_login and settings.danbooru_api_key:
             params = {
                 **params,
@@ -322,12 +353,18 @@ class AnimeCog(commands.Cog):
         session = self._get_session()
         try:
             async with session.get(DANBOORU_API_URL, params=params) as response:
+                self._last_api_status = response.status
                 if response.status != 200:
-                    logger.warning(f"Danbooru вернул HTTP {response.status}")
+                    logger.warning(
+                        "Danbooru: HTTP %s, авторизация=%s, Cloudflare challenge=%s",
+                        response.status,
+                        bool(settings.danbooru_login and settings.danbooru_api_key),
+                        response.headers.get("cf-mitigated") == "challenge",
+                    )
                     return response.status, []
                 data = await response.json()
         except Exception as e:
-            logger.warning(f"Ошибка запроса к Danbooru: {e}")
+            logger.warning("Сбой запроса к Danbooru: %s", type(e).__name__)
             return 0, []
 
         if not isinstance(data, list):
@@ -518,17 +555,85 @@ class AnimeCog(commands.Cog):
 
     # --- Фоновые задачи ---
 
+    async def _deliver_scheduled(self, slot: str) -> None:
+        async with self._post_lock:
+            channel = self.bot.get_channel(self.channel_id)
+            if not isinstance(channel, discord.TextChannel) or self.bot.user is None:
+                return
+
+            async def prepare() -> list[dict[str, Any]]:
+                post = await self.get_anime_image()
+                if post is None:
+                    raise RuntimeError(
+                        "Источник не вернул подходящий арт; слот остаётся неотправленным"
+                    )
+                return [post._asdict()]
+
+            async def send(part: dict[str, Any]) -> discord.Message:
+                post = AnimePost(**part)
+                return await channel.send(
+                    view=_build_post_view(post, get_settings().get_discord_color("default")),
+                    allowed_mentions=discord.AllowedMentions.none(),
+                )
+
+            def matches(part: dict[str, Any], message: discord.Message) -> bool:
+                source = DANBOORU_POST_URL.format(post_id=part["post_id"])
+                components = json.dumps([component.to_dict() for component in message.components])
+                return (
+                    re.search(re.escape(source) + r"(?!\d)", components + message.content)
+                    is not None
+                )
+
+            parts = await self.delivery.deliver(
+                slot,
+                channel=channel,
+                bot_id=self.bot.user.id,
+                prepare=prepare,
+                send=send,
+                matches=matches,
+            )
+            if parts:
+                post_id = parts[0]["post_id"]
+                if post_id not in self.post_cache:
+                    await AnimeCache.get_or_create(
+                        post_id=post_id, defaults={"added_at": int(unix_now())}
+                    )
+                    self.post_cache.append(post_id)
+
+    @tasks.loop(minutes=5)
+    async def retry_scheduled(self) -> None:
+        """Догоняет слоты текущего дня после сбоя; первый запуск не повторяет старые арты."""
+        if not self.schedule_enabled:
+            return
+        try:
+            activated = await self.delivery.activation_time()
+            now = datetime.now(UTC)
+            for name, clock in (("morning", self._morning_time), ("evening", self._evening_time)):
+                due = datetime.combine(now.date(), clock)
+                if activated <= due <= now:
+                    try:
+                        await self._deliver_scheduled(f"{now.date()}:{name}")
+                    except Exception:
+                        logger.exception("Аниме-слот %s не доставлен; повтор через 5 минут", name)
+        except Exception:
+            logger.exception("Не удалось прочитать журнал расписания аниме")
+
+    @retry_scheduled.before_loop
+    async def before_retry_scheduled(self) -> None:
+        """Ожидает подключения к Discord перед проверкой истории и расписания."""
+        await self.bot.wait_until_ready()
+
     @tasks.loop(time=time(hour=10, minute=0, tzinfo=UTC))
     async def morning_post(self) -> None:
         """Ежедневная утренняя публикация."""
         logger.info("Запуск утренней публикации аниме...")
-        await self.post_anime_image()
+        await self.retry_scheduled()
 
     @tasks.loop(time=time(hour=18, minute=0, tzinfo=UTC))
     async def evening_post(self) -> None:
         """Ежедневная вечерняя публикация."""
         logger.info("Запуск вечерней публикации аниме...")
-        await self.post_anime_image()
+        await self.retry_scheduled()
 
     @morning_post.before_loop
     async def before_morning_post(self) -> None:
@@ -606,9 +711,20 @@ class AnimeCog(commands.Cog):
                 ephemeral=True,
             )
         else:
+            source_errors = {
+                401: "Danbooru отклонил авторизацию. Нужно проверить логин и API-ключ.",
+                403: "Danbooru сейчас не даёт боту доступ к картинкам (HTTP 403). Попробуй позже.",
+                429: "Danbooru ограничил частоту запросов. Попробуй немного позже.",
+                500: "Danbooru сейчас отвечает с ошибкой сервера. Попробуй позже.",
+                502: "Danbooru сейчас отвечает с ошибкой сервера. Попробуй позже.",
+                503: "Danbooru сейчас отвечает с ошибкой сервера. Попробуй позже.",
+            }
             await safe_send_error(
                 ctx,
-                "Не удалось опубликовать аниме-изображение. Проверьте логи для подробностей.",
+                source_errors.get(
+                    self._last_api_status,
+                    "Не удалось опубликовать аниме-изображение. Проверьте логи для подробностей.",
+                ),
             )
 
     async def _check_channel_exists(self) -> bool:

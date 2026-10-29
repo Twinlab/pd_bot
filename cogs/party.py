@@ -561,6 +561,13 @@ class PartyCog(commands.Cog):
     async def _finalize_after(self, party: Party) -> None:
         """Таймер закрытия пати. Отменяется через `task.cancel()` в `cog_unload`."""
         try:
+            if not party.finish_when_full and not party.reminder_attempted:
+                reminder_at = party.deadline - timedelta(minutes=5)
+                await asyncio.sleep(max(0.0, (reminder_at - datetime.now(UTC)).total_seconds()))
+                try:
+                    await self._remind_start(party)
+                except Exception:
+                    logger.exception("Не удалось напомнить о сборе %s", party.id)
             seconds = max(0.0, (party.deadline - datetime.now(UTC)).total_seconds())
             await asyncio.sleep(seconds)
         except asyncio.CancelledError:
@@ -569,6 +576,37 @@ class PartyCog(commands.Cog):
             await self._finalize(party)
         except Exception:
             logger.exception("Не удалось завершить сбор %s", party.id)
+
+    async def _remind_start(self, party: Party) -> None:
+        async with self._state_lock:
+            self.ensure_available()
+            if party.finalized or party.reminder_attempted or party.deadline <= datetime.now(UTC):
+                return
+            party.reminder_attempted = True
+            recipients = list(party.joined_order)
+            await self._persist_locked()
+
+        guild = self.bot.get_guild(party.guild_id)
+        timestamp = int(party.deadline.timestamp())
+        text = (
+            f"Скоро играем: <t:{timestamp}:t> · <t:{timestamp}:R>.\n"
+            f"https://discord.com/channels/{party.guild_id}/{party.channel_id}/{party.public_message_id}"
+        )
+
+        async def notify(user_id: int) -> None:
+            message = party.dm_messages.get(user_id)
+            target = message.channel if message else (guild.get_member(user_id) if guild else None)
+            if target is None or user_id not in party.joined_order or party.finalized:
+                return
+            try:
+                async with asyncio.timeout(10):
+                    await target.send(text, allowed_mentions=discord.AllowedMentions.none())
+            except (TimeoutError, discord.HTTPException):
+                logger.info(
+                    "Не удалось доставить напоминание сбора %s участнику %s", party.id, user_id
+                )
+
+        await asyncio.gather(*(notify(user_id) for user_id in recipients))
 
     async def _finalize(self, party: Party, *, notify: bool = True) -> None:
         """Финализирует пати: пингует готовых, обновляет embed, чистит state."""
@@ -689,11 +727,10 @@ class PartyCog(commands.Cog):
         *,
         role: discord.Role | None,
         initiator: discord.Member,
-        duration: timedelta,
+        starts_at: datetime,
         count: int,
         comment: str,
         image_url: str | None,
-        finish_when_full: bool,
     ) -> discord.ui.Container:
         """Строит CV2-контейнер-превью сбора (как он будет выглядеть после публикации)."""
         now = datetime.now(UTC)
@@ -707,9 +744,9 @@ class PartyCog(commands.Cog):
             count=count,
             comment=comment,
             created_at=now,
-            deadline=now + duration,
+            deadline=starts_at,
             image_url=image_url,
-            finish_when_full=finish_when_full,
+            finish_when_full=False,
             joined_order=[initiator.id],
         )
         settings = get_settings()
@@ -732,11 +769,10 @@ class PartyCog(commands.Cog):
         channel: discord.abc.Messageable,
         role: discord.Role,
         initiator: discord.Member,
-        duration: timedelta,
+        starts_at: datetime,
         count: int,
         comment: str,
         image_url: str | None,
-        finish_when_full: bool,
     ) -> Party | None:
         """Публикует сбор в канал, рассылает DM и заводит таймер финализации.
 
@@ -745,7 +781,9 @@ class PartyCog(commands.Cog):
         если публичное сообщение отправить не удалось.
         """
         now = datetime.now(UTC)
-        deadline = now + duration
+        deadline = starts_at
+        if deadline.tzinfo is None or deadline <= now:
+            raise ValueError("Время сбора уже прошло или не содержит часовой пояс")
         self.ensure_available()
 
         placeholder_view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
@@ -774,7 +812,7 @@ class PartyCog(commands.Cog):
                 created_at=now,
                 deadline=deadline,
                 image_url=image_url,
-                finish_when_full=finish_when_full,
+                finish_when_full=False,
             )
             self._last_party[initiator.id] = now
             await self._persist_locked()
@@ -791,7 +829,7 @@ class PartyCog(commands.Cog):
             await self._refresh_all_embeds(party)
         logger.info(
             f"Создано пати {party.id} (роль {role.id}, нужно {count}, "
-            f"дедлайн {deadline.isoformat()}, finish_when_full={finish_when_full}): "
+            f"начало {deadline.isoformat()}): "
             f"DM доставлено {delivered}"
         )
 

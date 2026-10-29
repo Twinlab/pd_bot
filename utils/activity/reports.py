@@ -4,15 +4,15 @@
 об игровой активности пользователей в указанный канал Discord.
 """
 
-import asyncio
 import logging
-from collections import defaultdict  # Используется в _get_monthly_summary_text
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import discord
 
 from utils.activity_data_manager import ActivityDataManager
+from utils.scheduled_delivery import ScheduledDelivery
 from utils.time_utils import MOSCOW_TZ
 
 from .helpers import format_time_short
@@ -65,71 +65,88 @@ async def _get_report_channel(bot: discord.Client) -> discord.TextChannel | None
     return channel
 
 
+async def _send_report_part(
+    bot: discord.Client, channel: discord.TextChannel, part: dict[str, Any]
+) -> discord.Message:
+    if part.get("kind") == "daily":
+        data = {int(uid): games for uid, games in part["data"].items()}
+        view = ActivityView(bot, data, report_type="daily", date_str=f" ({part['date']})")
+        message = await channel.send(
+            content=view.get_current_content(),
+            view=view,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+        view.message = message
+        return message
+    return await channel.send(part["content"], allowed_mentions=discord.AllowedMentions.none())
+
+
+def _matches_report_part(part: dict[str, Any], message: discord.Message) -> bool:
+    if part.get("kind") == "daily":
+        return message.content.startswith(
+            f"# 📊 Ежедневный отчет игровой активности ({part['date']})\n"
+        )
+    return bool(message.content == part["content"])
+
+
 async def send_daily_report(
     target_date: date,
     bot: discord.Client,
     data_manager: ActivityDataManager,
     channel: discord.TextChannel | None = None,
+    *,
+    delivery: ScheduledDelivery | None = None,
 ) -> bool:
-    """Получает данные за указанную дату и отправляет ежедневный отчет в виде ActivityView.
+    """Отправляет дневную статистику; автоматическая доставка сохраняет снимок.
 
     Args:
-        target_date: Дата, за которую нужно отправить отчет.
-        bot: Экземпляр бота Discord.
-        data_manager: Экземпляр ActivityDataManager.
-        channel: Канал для отправки отчета. Если None, будет использован канал из bot.settings.
+        target_date: Московская дата отчёта.
+        bot: Бот с настройками и участниками сервера.
+        data_manager: Источник статистики.
+        channel: Канал; по умолчанию канал отчётов.
+        delivery: Журнал автоматических публикаций или None для ручного запроса.
 
     Returns:
-        True, если отчет успешно отправлен (или данных не было), False при ошибке.
+        True после полной доставки, False при ошибке или неопределённом результате.
     """
-    logger.info(f"Запрос на отправку ежедневного отчета за {target_date.isoformat()}")
-
-    # Если канал не указан, получаем его из конфигурации
+    channel = channel or await _get_report_channel(bot)
     if channel is None:
-        channel = await _get_report_channel(bot)
-        if not channel:
-            return False  # Ошибка уже залогирована в _get_report_channel
+        return False
+
+    async def prepare() -> list[dict[str, Any]]:
+        data = await data_manager.get_daily_stats(target_date, strict=True)
+        if not data:
+            return [{"content": f"За {target_date:%d.%m.%Y} никто не играл в игры 😢"}]
+        return [{"kind": "daily", "date": f"{target_date:%d.%m.%Y}", "data": data}]
+
+    async def send(part: dict[str, Any]) -> discord.Message:
+        return await _send_report_part(bot, channel, part)
 
     try:
-        daily_data = await data_manager.get_daily_stats(target_date)
-
-        if not daily_data:
-            await channel.send(f"За {target_date.strftime('%d.%m.%Y')} никто не играл в игры 😢")
-            logger.info(
-                f"Отправлено уведомление об отсутствии данных для ежедневного отчета "
-                f"за {target_date.isoformat()}."
+        if delivery is not None:
+            if bot.user is None:
+                return False
+            result = await delivery.deliver(
+                f"daily:{target_date}",
+                channel=channel,
+                bot_id=bot.user.id,
+                prepare=prepare,
+                send=send,
+                matches=_matches_report_part,
             )
-            return True  # Считаем успехом, т.к. обработали случай отсутствия данных
-        else:
-            # Форматируем дату для отображения в отчете
-            formatted_date = target_date.strftime("%d.%m.%Y")
-            # Используем ActivityView для интерактивного отчета
-            view = ActivityView(
-                bot, daily_data, report_type="daily", date_str=f" ({formatted_date})"
-            )
-            message = await channel.send(content=view.get_current_content(), view=view)
-            view.message = (
-                message  # Сохраняем сообщение для возможности отключения кнопок по таймауту
-            )
-            logger.info(f"Отправлен ежедневный отчет за {target_date.isoformat()}")
-            return True
-    except Exception as e:
-        logger.error(
-            f"Ошибка при получении данных или отправке ежедневного отчета "
-            f"за {target_date.isoformat()}: {e}",
-            exc_info=True,
-        )
-        try:
-            # Попытка уведомить об ошибке в тот же канал
-            await channel.send(
-                f"Не удалось сформировать ежедневный отчет за "
-                f"{target_date.strftime('%d.%m.%Y')}. "
-                "Попробуйте позже или обратитесь к администратору."
-            )
-        except Exception as send_e:
-            logger.error(
-                f"Не удалось отправить сообщение об ошибке генерации ежедневного отчета: {send_e}"
-            )
+            return result is not None
+        for part in await prepare():
+            await send(part)
+        return True
+    except Exception:
+        logger.exception("Не удалось доставить дневной отчёт за %s", target_date)
+        if delivery is None:
+            try:
+                await channel.send(
+                    f"Не удалось сформировать ежедневный отчет за {target_date:%d.%m.%Y}. Попробуйте позже или обратитесь к администратору."
+                )
+            except Exception:
+                logger.warning("Канал дневного отчёта недоступен")
         return False
 
 
@@ -197,297 +214,197 @@ def _get_monthly_summary_text(data: dict[int, dict[str, int]], month: int, year:
     return summary
 
 
+def _monthly_parts(
+    bot: discord.Client,
+    channel: discord.TextChannel,
+    data: dict[int, dict[str, int]],
+    year: int,
+    month: int,
+) -> list[str]:
+    month_name = MONTH_NAMES_RU[month]
+    if not data:
+        return [f"Нет данных об активности за {month_name} {year} 😢"]
+    settings = getattr(bot, "settings", None)
+    threshold = settings.timeouts.activity_monthly_min_time if settings is not None else 1800
+    users = []
+    for user_id, activities in data.items():
+        member = channel.guild.get_member(user_id)
+        name = member.name if member else f"Пользователь {user_id}"
+        games = {game: seconds for game, seconds in activities.items() if seconds >= threshold}
+        users.append((name, games, sum(activities.values())))
+    lines = []
+    for name, games, total in sorted(users, key=lambda row: row[0].lower()):
+        listed = ", ".join(
+            f"{game} ({format_time_short(seconds)})"
+            for game, seconds in sorted(games.items(), key=lambda item: item[1], reverse=True)
+        )
+        lines.append(f"**{name}** (*{format_time_short(total)}*): {listed}\n")
+    top = "## 🏆 Топ-3 игрока по игровому времени\n" + "".join(
+        f"{index}. **{name}** (*{format_time_short(total)}*)\n"
+        for index, (name, _, total) in enumerate(
+            sorted(users, key=lambda row: row[2], reverse=True)[:3], 1
+        )
+    )
+    summary = _get_monthly_summary_text(data, month, year)
+    header = f"# 📊 Ежемесячный отчет за {month_name} {year}\n\n"
+    section = "## 👤 Активность всех пользователей\n*(Показаны только игры с временем более 30 минут)*\n\n"
+    complete = header + section + "".join(lines) + top + summary
+    if len(complete) <= 1900:
+        return [complete]
+    chunks = [header, section]
+    buffer = ""
+    for line in [*lines, top, summary]:
+        while len(line) > 1900:
+            if buffer:
+                chunks.append(buffer)
+                buffer = ""
+            chunks.append(line[:1900])
+            line = line[1900:]
+        if len(buffer) + len(line) > 1900:
+            chunks.append(buffer)
+            buffer = ""
+        buffer += line
+    if buffer:
+        chunks.append(buffer)
+    return chunks
+
+
 async def send_monthly_report(
     year: int,
     month: int,
     bot: discord.Client,
     data_manager: ActivityDataManager,
     channel: discord.TextChannel | None = None,
+    *,
+    delivery: ScheduledDelivery | None = None,
 ) -> bool:
-    """Получает данные за указанный месяц/год и отправляет ежемесячный отчет.
+    """Отправляет месячный отчёт, сохраняя прогресс каждой части при автоматической доставке.
 
     Args:
-        year: Год.
-        month: Месяц.
-        bot: Экземпляр бота Discord.
-        data_manager: Экземпляр ActivityDataManager.
-        channel: Канал для отправки отчета. Если None, будет использован канал из bot.settings.
+        year: Год отчёта.
+        month: Месяц отчёта.
+        bot: Бот с настройками и участниками сервера.
+        data_manager: Источник статистики.
+        channel: Канал; по умолчанию канал отчётов.
+        delivery: Журнал автоматических публикаций или None для ручного запроса.
 
     Returns:
-        True, если отчет успешно отправлен (или данных не было), False при ошибке.
+        True после полной доставки, False при ошибке или ожидании проверки истории.
     """
-    month_name = MONTH_NAMES_RU.get(month, f"Месяц {month}")
-    logger.info(f"Запрос на отправку ежемесячного отчета за {month_name} {year}")
-
-    # Если канал не указан, получаем его из конфигурации
+    channel = channel or await _get_report_channel(bot)
     if channel is None:
-        channel = await _get_report_channel(bot)
-        if not channel:
-            return False
+        return False
+
+    async def prepare() -> list[dict[str, Any]]:
+        data = await data_manager.get_aggregated_monthly_stats(
+            year, month, strict=True, include_pending=True
+        )
+        chunks = _monthly_parts(bot, channel, data, year, month)
+        return [
+            {
+                "content": (
+                    f"-# {MONTH_NAMES_RU[month]} {year} · часть {index}/{len(chunks)}\n"
+                    if delivery and len(chunks) > 1
+                    else ""
+                )
+                + chunk
+            }
+            for index, chunk in enumerate(chunks, 1)
+        ]
+
+    async def send(part: dict[str, Any]) -> discord.Message:
+        return await _send_report_part(bot, channel, part)
 
     try:
-        # Загружаем агрегированные данные за указанный месяц из БД
-        data = await data_manager.get_aggregated_monthly_stats(year, month)
-
-        if not data:
-            await channel.send(f"Нет данных об активности за {month_name} {year} 😢")
-            logger.info(
-                f"Отправлено уведомление об отсутствии данных для ежемесячного отчета "
-                f"за {year}-{month:02d}."
+        if delivery is not None:
+            if bot.user is None:
+                return False
+            result = await delivery.deliver(
+                f"monthly:{year}-{month:02d}",
+                channel=channel,
+                bot_id=bot.user.id,
+                prepare=prepare,
+                send=send,
+                matches=_matches_report_part,
             )
-            return True  # Считаем успехом
-
-        # Формируем заголовок и основную часть отчета
-        header = f"# 📊 Ежемесячный отчет за {month_name} {year}\n\n"
-        content = "## 👤 Активность всех пользователей\n"
-        content += "*(Показаны только игры с временем более 30 минут)*\n\n"
-        guild = channel.guild  # Получаем гильдию из канала для поиска участников
-
-        # Получаем имена пользователей для сортировки по алфавиту
-        users_with_names = []
-        # Порог берём из bot.settings, дефолт 1800 секунд (30 минут).
-        settings = getattr(bot, "settings", None)
-        min_time_threshold = (
-            settings.timeouts.activity_monthly_min_time if settings is not None else 1800
-        )
-
-        for user_id, activities in data.items():
-            member = guild.get_member(user_id)
-            username = member.name if member else f"Пользователь {user_id}"
-            # Фильтруем игры с временем менее заданного порога
-            filtered_activities = {
-                game: time for game, time in activities.items() if time >= min_time_threshold
-            }
-            total_time = sum(activities.values())  # Общее время считаем по всем играм
-            users_with_names.append((user_id, filtered_activities, username, total_time))
-
-        # Сортируем пользователей по имени (алфавитный порядок)
-        sorted_users = sorted(users_with_names, key=lambda x: x[2].lower())
-
-        # Находим топ-3 игроков по игровому времени
-        top_players = sorted(users_with_names, key=lambda x: x[3], reverse=True)[:3]
-
-        # Формируем содержимое отчета для всех пользователей
-        all_users_content = ""
-        for _, activities, username, total_time_user in sorted_users:
-            # Формируем строку для пользователя с курсивом для времени
-            user_line = f"**{username}** (*{format_time_short(total_time_user)}*): "
-
-            # Сортируем игры пользователя по времени
-            sorted_activities = sorted(activities.items(), key=lambda item: item[1], reverse=True)
-
-            # Используем краткий формат времени для отдельных игр
-            games_list = [
-                f"{game_name} ({format_time_short(time_spent)})"
-                for game_name, time_spent in sorted_activities
-            ]
-
-            all_users_content += user_line + ", ".join(games_list) + "\n"
-
-        # Формируем информацию о топ-3 игроках
-        top_players_text = "## 🏆 Топ-3 игрока по игровому времени\n"
-        for i, (_, _, username, total_time) in enumerate(top_players, 1):
-            top_players_text += f"{i}. **{username}** (*{format_time_short(total_time)}*)\n"
-
-        # Добавляем общую статистику
-        summary_text = _get_monthly_summary_text(data, month, year)
-
-        # Отправка сообщения (с разбивкой, если длинное)
-        full_content = content + all_users_content + top_players_text + summary_text
-
-        if len(header + full_content) <= 2000:
-            await channel.send(header + full_content)
-        else:
-            # Отправляем заголовок
-            await channel.send(header)
-
-            # Разбиваем содержимое на части, чтобы не разрывать информацию о пользователях
-            # Максимальная длина сообщения Discord
-            max_message_length = 1900  # Оставляем запас для форматирования
-
-            # Сначала отправляем заголовок содержимого
-            await channel.send(content)
-
-            # Разбиваем пользователей на части
-            current_chunk = ""
-            lines = all_users_content.split("\n")
-
-            for line in lines:
-                if not line:  # Пропускаем пустые строки
-                    continue
-
-                if len(current_chunk) + len(line) + 1 > max_message_length:  # +1 для "\n"
-                    await channel.send(current_chunk)
-                    current_chunk = line + "\n"
-                    # Получаем настройки задержки
-                    from config.settings import get_settings
-
-                    settings = get_settings()
-                    await asyncio.sleep(
-                        settings.activity.reports.chunk_delay
-                    )  # Задержка из настроек
-                else:
-                    current_chunk += line + "\n"
-
-            # Отправляем последний чанк с пользователями, если он есть
-            if current_chunk:
-                await channel.send(current_chunk)
-
-            # Отправляем топ-3 игроков и общую статистику
-            final_part = top_players_text + summary_text
-            if len(final_part) <= 2000:
-                await channel.send(final_part)
-            else:
-                await channel.send(top_players_text)
-                await channel.send(summary_text)
-
-        logger.info(f"Отправлен ежемесячный отчет за {month_name} {year}")
+            return result is not None
+        for part in await prepare():
+            await send(part)
         return True
-
-    except Exception as e:
-        logger.error(
-            f"Ошибка при получении данных или отправке ежемесячного отчета "
-            f"за {year}-{month:02d}: {e}",
-            exc_info=True,
-        )
-        try:
-            await channel.send(
-                f"Не удалось сформировать ежемесячный отчет за {month_name} {year}. "
-                "Попробуйте позже или обратитесь к администратору."
-            )
-        except Exception as send_e:
-            logger.error(
-                f"Не удалось отправить сообщение об ошибке генерации ежемесячного отчета: {send_e}"
-            )
+    except Exception:
+        logger.exception("Не удалось доставить месячный отчёт за %s-%02d", year, month)
+        if delivery is None:
+            try:
+                await channel.send(
+                    f"Не удалось сформировать ежемесячный отчет за {MONTH_NAMES_RU.get(month, month)} {year}. Попробуйте позже."
+                )
+            except Exception:
+                logger.warning("Канал месячного отчёта недоступен")
         return False
 
 
-# --- Функции для автоматического запуска из Cog ---
-
-
-async def run_automatic_daily_report(cog_instance: "ActivityTracker") -> None:
-    """Выполняет полную логику автоматического ежедневного отчета.
-
-    1. Обновляет текущие сессии.
-    2. Находит все неархивированные даты до сегодняшней.
-    3. Публикует один отчет за вчера и переносит в месяц все накопившиеся даты.
-
-    Args:
-        cog_instance: Экземпляр кога ActivityTracker (для доступа к bot, data_manager, config,
-        update_current_activities).
-    """
-    bot = cog_instance.bot
-    data_manager = cog_instance.data_manager
-
+async def run_automatic_daily_report(
+    cog_instance: "ActivityTracker", *, flush: bool = True
+) -> None:
+    """Доставляет новые и недоставленные дни, затем переносит их в месячные итоги."""
     try:
-        # Получаем текущую дату в московском часовом поясе
-        moscow_now = datetime.now(MOSCOW_TZ)
-        today = moscow_now.date()
+        today = datetime.now(MOSCOW_TZ).date()
         yesterday = today - timedelta(days=1)
-        logger.info(
-            f"Запуск автоматической обработки ежедневного отчета. "
-            f"Текущая дата (МСК): {today.isoformat()}, вчерашняя дата: {yesterday.isoformat()}"
+        manager = cog_instance.data_manager
+        delivery = getattr(cog_instance, "report_delivery", None)
+        first_day = (
+            (await delivery.activation_time()).astimezone(MOSCOW_TZ).date()
+            if delivery
+            else yesterday
         )
-
-        # 1. Обновляем текущие сессии перед обработкой
-        logger.debug("run_automatic_daily_report: Обновление текущих активностей...")
-        await cog_instance.update_current_activities()
-        logger.debug("run_automatic_daily_report: Обновление текущих активностей завершено.")
-
-        pending_dates = await data_manager.get_pending_daily_dates(today)
-        dates_to_archive = sorted({yesterday, *pending_dates})
-
-        try:
-            report_sent = await send_daily_report(yesterday, bot, data_manager)
-        except Exception:
-            report_sent = False
-            logger.exception(
-                "run_automatic_daily_report: Необработанная ошибка отправки отчёта за %s.",
-                yesterday.isoformat(),
-            )
-
-        if not report_sent:
-            logger.error(
-                "run_automatic_daily_report: Отчёт за %s не отправлен; "
-                "архивирование статистики всё равно будет выполнено.",
-                yesterday.isoformat(),
-            )
-
-        stale_dates = [target_date for target_date in dates_to_archive if target_date < yesterday]
-        if stale_dates:
-            logger.info(
-                "run_automatic_daily_report: %s старых дат будут архивированы "
-                "без повторной публикации.",
-                len(stale_dates),
-            )
-
-        for target_date in dates_to_archive:
-            logger.info(
-                "run_automatic_daily_report: Запуск переноса данных за %s...",
-                target_date.isoformat(),
-            )
-            transfer_success = await data_manager.transfer_daily_to_monthly(target_date)
-            if not transfer_success:
-                logger.error(
-                    "run_automatic_daily_report: Не удалось перенести дневные данные "
-                    "за %s в месячную статистику!",
-                    target_date.isoformat(),
-                )
-            else:
-                logger.info(
-                    "run_automatic_daily_report: Дневные данные за %s "
-                    "успешно перенесены и удалены.",
-                    target_date.isoformat(),
-                )
-
-    except Exception as e:
-        # Логируем общую ошибку выполнения задачи
-        logger.error(
-            f"Критическая ошибка при выполнении автоматического ежедневного отчета: {e}",
-            exc_info=True,
+        if flush:
+            await cog_instance.update_current_activities()
+        pending = await delivery.pending_keys("daily:") if delivery else []
+        dates = sorted(
+            {
+                yesterday,
+                *await manager.get_pending_daily_dates(today),
+                *(date.fromisoformat(key.removeprefix("daily:")) for key in pending),
+            }
         )
+        for target in dates:
+            if target >= first_day:
+                sent = await send_daily_report(target, cog_instance.bot, manager, delivery=delivery)
+                if not sent:
+                    logger.warning(
+                        "Отчёт за %s не доставлен; дневные данные сохранены для повтора", target
+                    )
+                    continue
+            if not await manager.transfer_daily_to_monthly(target):
+                logger.error("Не удалось архивировать дневную статистику за %s", target)
+    except Exception:
+        logger.exception("Не удалось обработать автоматические дневные отчёты")
 
 
 async def run_automatic_monthly_report(cog_instance: "ActivityTracker") -> None:
-    """Выполняет логику автоматического ежемесячного отчета.
-
-    1. Проверяет, является ли сегодня 1-е число.
-    2. Определяет предыдущий месяц/год.
-    3. Отправляет отчет за предыдущий месяц.
-
-    Args:
-        cog_instance: Экземпляр кога ActivityTracker (для доступа к bot, data_manager, config).
-    """
-    bot = cog_instance.bot
-    data_manager = cog_instance.data_manager
-
+    """Догоняет месячную публикацию после пропущенного запуска первого числа."""
     try:
-        # Получаем текущую дату в московском часовом поясе
-        moscow_now = datetime.now(MOSCOW_TZ)
-        today = moscow_now.date()
-        logger.info(
-            f"run_automatic_monthly_report: Проверка даты. Текущая дата (МСК): "
-            f"{today.isoformat()}, день месяца: {today.day}"
-        )
-        if today.day != 1:
-            logger.debug("run_automatic_monthly_report: Сегодня не 1-е число, отчет пропускается.")
-            return  # Запускаем только первого числа
-
-        logger.info(
-            "run_automatic_monthly_report: Запуск формирования ежемесячного отчета "
-            "за предыдущий месяц."
-        )
-        # Определяем предыдущий месяц и год
-        first_day_of_current_month = today.replace(day=1)
-        last_day_of_prev_month = first_day_of_current_month - timedelta(days=1)
-        prev_month = last_day_of_prev_month.month
-        prev_year = last_day_of_prev_month.year
-
-        # Отправляем отчет
-        await send_monthly_report(prev_year, prev_month, bot, data_manager)
-
-    except Exception as e:
-        logger.error(
-            f"Критическая ошибка при выполнении автоматического ежемесячного отчета: {e}",
-            exc_info=True,
-        )
+        now = datetime.now(MOSCOW_TZ)
+        due = now.replace(day=1, hour=12, minute=0, second=0, microsecond=0)
+        delivery = getattr(cog_instance, "report_delivery", None)
+        periods: set[tuple[int, int]] = set()
+        if delivery:
+            for key in await delivery.pending_keys("monthly:"):
+                period = date.fromisoformat(key.removeprefix("monthly:") + "-01")
+                periods.add((period.year, period.month))
+            due_now = (await delivery.activation_time()) <= due <= now
+        else:
+            due_now = now.day == 1
+        if due_now:
+            previous = now.date().replace(day=1) - timedelta(days=1)
+            periods.add((previous.year, previous.month))
+        for year, month in sorted(periods):
+            await send_monthly_report(
+                year,
+                month,
+                cog_instance.bot,
+                cog_instance.data_manager,
+                delivery=delivery,
+            )
+    except Exception:
+        logger.exception("Не удалось обработать автоматический месячный отчёт")

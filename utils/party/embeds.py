@@ -13,6 +13,7 @@ from collections.abc import Callable
 import discord
 
 from utils.party.manager import Party, PartyPhase
+from utils.time_utils import MOSCOW_TZ
 from utils.ui import colors
 
 MemberResolver = Callable[[int], discord.Member | discord.User | None]
@@ -199,11 +200,12 @@ def build_party_container(
     description_parts.append(
         "**Завершение:** после набора и подтверждения состава"
         if party.finish_when_full
-        else "**Завершение:** по дедлайну"
+        else "**Запись открыта до начала игры**"
     )
     deadline_unix = int(party.deadline.timestamp())
+    start_moscow = party.deadline.astimezone(MOSCOW_TZ)
     description_parts.append(
-        f"Закрыт <t:{deadline_unix}:R>" if finalized else f"Закрытие <t:{deadline_unix}:R>"
+        f"**Играем:** {start_moscow:%d.%m в %H:%M} МСК · <t:{deadline_unix}:R>"
     )
     container.add_item(discord.ui.TextDisplay("\n".join(description_parts)))
 

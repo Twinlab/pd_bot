@@ -132,7 +132,8 @@ class TestBuildPartyContainer:
             )
         )
 
-        assert "по дедлайну" in joined_text(waiting_view)
+        assert "до начала игры" in joined_text(waiting_view)
+        assert "МСК" in joined_text(waiting_view)
         assert "после набора и подтверждения" in joined_text(early_view)
 
     def test_comment_and_image_rendered(self) -> None:

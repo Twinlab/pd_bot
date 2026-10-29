@@ -107,6 +107,7 @@ class Party:
     ready_check_started: bool = False
     finalized: bool = False
     final_notice_attempted: bool = False
+    reminder_attempted: bool = False
 
     @property
     def ready(self) -> list[int]:

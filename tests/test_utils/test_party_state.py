@@ -52,6 +52,13 @@ def snapshot(party: Party) -> PartySnapshot:
     )
 
 
+def test_old_snapshot_defaults_to_unattempted_reminder(snapshot):
+    raw = snapshot.model_dump(mode="json")
+    raw["parties"][0].pop("reminder_attempted")
+    restored = PartySnapshot.model_validate_json(json.dumps(raw))
+    assert restored.parties[0].to_party().reminder_attempted is False
+
+
 def test_missing_file_loads_empty_snapshot_without_creating_data(tmp_path: Path) -> None:
     path = tmp_path / "missing" / "party_state.json"
     loaded = PartyStateStore(path).load()

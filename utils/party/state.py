@@ -44,6 +44,7 @@ class PartyRecord(BaseModel):
     ready_check_started: bool
     finalized: bool
     final_notice_attempted: bool
+    reminder_attempted: bool = False
 
     @model_validator(mode="after")
     def validate_roster(self) -> Self:

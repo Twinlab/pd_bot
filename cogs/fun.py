@@ -32,6 +32,7 @@ from utils.quotes_utils import (
 )
 from utils.snipe_utils import save_deleted_message, show_sniped_message
 from utils.tyan.catalog import load_catalog
+from utils.tyan.history import TyanHistoryButton, send_tyan_history
 from utils.tyan.presentation import build_tyan_card
 from utils.tyan_data_manager import TyanDataManager
 
@@ -72,9 +73,10 @@ class FunCog(commands.Cog):
         return self._quotes
 
     async def cog_load(self) -> None:
-        """Регистрирует меню сообщений и один обработчик постоянных кнопок."""
+        """Регистрирует меню сообщений и обработчики постоянных кнопок."""
         self.bot.tree.add_command(self.quote_menu)
         self.bot.add_dynamic_items(DeleteQuoteButton)
+        self.bot.add_dynamic_items(TyanHistoryButton)
 
     @app_commands.guild_only()
     @app_commands.checks.cooldown(1, 30.0, key=lambda interaction: interaction.user.id)
@@ -167,6 +169,15 @@ class FunCog(commands.Cog):
         await safe_send(
             ctx, view=build_tyan_card(roll), allowed_mentions=discord.AllowedMentions.none()
         )
+
+    @commands.hybrid_command(description="Посмотреть историю своих тянок")
+    @commands.guild_only()
+    @app_commands.guild_only()
+    @commands.cooldown(1, 3.0, commands.BucketType.user)
+    @command_error_handler
+    async def tyan_history(self, ctx: commands.Context) -> None:
+        """Открывает сохранённые выдачи автора от новых к старым."""
+        await send_tyan_history(ctx)
 
     @commands.hybrid_command(description="Показывает аватар пользователя")
     @discord.app_commands.describe(mentioned_user="Чей аватар показать (по умолчанию — твой)")
@@ -332,6 +343,7 @@ class FunCog(commands.Cog):
                     self.quote_menu.name, guild=guild, type=self.quote_menu.type
                 )
         self.bot.remove_dynamic_items(DeleteQuoteButton)
+        self.bot.remove_dynamic_items(TyanHistoryButton)
         if self._quotes is not None:
             await self._quotes.close()
         logger.info(f"Ког {self.__class__.__name__} выгружен.")

@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import discord
 
+from utils.tyan.history import TyanHistoryButton
 from utils.tyan.types import Roll
 
 
@@ -22,4 +23,5 @@ def build_tyan_card(roll: Roll) -> discord.ui.LayoutView:
     )
     view: discord.ui.LayoutView = discord.ui.LayoutView(timeout=None)
     view.add_item(container)
+    view.add_item(discord.ui.ActionRow(TyanHistoryButton()))
     return view

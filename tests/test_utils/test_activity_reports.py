@@ -85,6 +85,7 @@ def mock_cog(mock_bot, mock_data_manager):
     cog = MagicMock()
     cog.bot = mock_bot
     cog.data_manager = mock_data_manager
+    cog.report_delivery = None
     cog.update_current_activities = AsyncMock()
     return cog
 
@@ -259,7 +260,10 @@ async def test_send_daily_report_with_data(
         assert call_args.kwargs["report_type"] == "daily"
         assert "date_str" in call_args.kwargs  # Проверяем наличие параметра date_str
         # Проверяем, что было отправлено сообщение с контентом и view
-        mock_channel.send.assert_called_once_with(content="Test Content", view=mock_view)
+        mock_channel.send.assert_called_once()
+        assert mock_channel.send.call_args.kwargs["content"] == "Test Content"
+        assert mock_channel.send.call_args.kwargs["view"] is mock_view
+        assert mock_channel.send.call_args.kwargs["allowed_mentions"].to_dict() == {"parse": []}
         # Проверяем, что сообщение было сохранено в view
         assert mock_view.message is mock_channel.send.return_value
 
@@ -339,11 +343,7 @@ async def test_send_monthly_report_long_content(
     mock_bot.get_channel.return_value = mock_channel
     mock_data_manager.get_aggregated_monthly_stats.return_value = long_activity_data
 
-    # Мокаем _get_monthly_summary_text и asyncio.sleep
-    with (
-        patch("utils.activity.reports._get_monthly_summary_text") as mock_summary,
-        patch("utils.activity.reports.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
-    ):
+    with patch("utils.activity.reports._get_monthly_summary_text") as mock_summary:
         mock_summary.return_value = "## 📊 Общая статистика\nТестовая статистика"
 
         result = await send_monthly_report(2024, 5, mock_bot, mock_data_manager)
@@ -353,8 +353,7 @@ async def test_send_monthly_report_long_content(
         # (заголовок + заголовок контента + чанки + финальная часть)
         # Точное число зависит от данных, но должно быть > 3
         assert mock_channel.send.call_count > 3
-        # Проверяем, что sleep вызывался между чанками
-        assert mock_sleep.called
+        assert all(len(call.args[0]) <= 2000 for call in mock_channel.send.call_args_list)
 
         # Дополнительно: проверим, что первый вызов - это заголовок
         assert "# 📊 Ежемесячный отчет" in mock_channel.send.call_args_list[0].args[0]
@@ -432,8 +431,8 @@ async def test_run_automatic_daily_report_transfer_failure(mock_cog, mock_channe
 
 
 @pytest.mark.asyncio
-async def test_run_automatic_daily_report_archives_data_when_send_fails(mock_cog, mock_channel):
-    """Архивирует дневные данные независимо от результата отправки в Discord."""
+async def test_run_automatic_daily_report_keeps_data_when_send_fails(mock_cog, mock_channel):
+    """Недоставленные дневные данные остаются доступными для повторной отправки."""
     with patch("utils.activity.reports.datetime") as mock_datetime:
         mock_now = MagicMock()
         mock_now.date.return_value = date(2025, 5, 2)
@@ -448,12 +447,12 @@ async def test_run_automatic_daily_report_archives_data_when_send_fails(mock_cog
         ):
             await run_automatic_daily_report(mock_cog)
 
-    mock_cog.data_manager.transfer_daily_to_monthly.assert_awaited_once_with(date(2025, 5, 1))
+    mock_cog.data_manager.transfer_daily_to_monthly.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_run_automatic_daily_report_archives_data_when_send_raises(mock_cog, mock_channel):
-    """Необработанная ошибка доставки не блокирует перенос дневной статистики."""
+async def test_run_automatic_daily_report_keeps_data_when_send_raises(mock_cog, mock_channel):
+    """Ошибка доставки не уничтожает исходную дневную статистику."""
     with patch("utils.activity.reports.datetime") as mock_datetime:
         mock_now = MagicMock()
         mock_now.date.return_value = date(2025, 5, 2)
@@ -465,7 +464,7 @@ async def test_run_automatic_daily_report_archives_data_when_send_raises(mock_co
         ):
             await run_automatic_daily_report(mock_cog)
 
-    mock_cog.data_manager.transfer_daily_to_monthly.assert_awaited_once_with(date(2025, 5, 1))
+    mock_cog.data_manager.transfer_daily_to_monthly.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -532,6 +531,7 @@ async def test_run_automatic_monthly_report_first_day(mock_cog, mock_channel):
         # Настраиваем date() для mock_now, чтобы вернуть 1-е число
         mock_today = MagicMock()
         mock_today.day = 1  # 1-е число
+        mock_now.day = 1
         mock_now.date.return_value = mock_today
 
         # Создаем мок для replace

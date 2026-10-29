@@ -3,7 +3,7 @@
 import logging
 import random
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import cast
 
 from tortoise.transactions import in_transaction
@@ -42,6 +42,26 @@ def _to_roll(row: TyanRoll) -> Roll:
 
 class TyanDataManager:
     """Сохраняет выдачу до ответа в Discord, чтобы повторный вызов не давал переброс."""
+
+    async def get_history(
+        self, user_id: int, *, before: date | None = None, limit: int = 2
+    ) -> list[Roll]:
+        """Читает сохранённые выдачи от новых к старым, не создавая сегодняшнюю.
+
+        Args:
+            user_id: Владелец истории.
+            before: Исключительная граница для перехода к более старым выдачам.
+            limit: Размер страницы, от 1 до 100.
+
+        Returns:
+            Исходные снимки выдач, включая редкие события.
+        """
+        if not 1 <= limit <= 100:
+            raise ValueError("Размер страницы должен быть от 1 до 100")
+        query = TyanRoll.filter(discord_user_id=user_id)
+        if before is not None:
+            query = query.filter(date__lt=before)
+        return [_to_roll(row) for row in await query.order_by("-date", "-id").limit(limit)]
 
     async def get_daily_roll(
         self,

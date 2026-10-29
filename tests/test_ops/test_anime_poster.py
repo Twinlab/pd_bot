@@ -544,7 +544,7 @@ def test_scheduled_mode_reserves_canonical_slot_without_manual_filters(
     assert (tmp_path / "output").read_text() == "persist=true\nsend=true\n"
 
 
-def test_workflow_checks_every_quarter_hour_and_only_uploads_changed_state():
+def test_workflow_is_manual_only_and_only_uploads_changed_state():
     from pathlib import Path
 
     import yaml
@@ -553,7 +553,8 @@ def test_workflow_checks_every_quarter_hour_and_only_uploads_changed_state():
         Path(".github/workflows/anime-poster.yml").read_text(encoding="utf-8"),
         Loader=yaml.BaseLoader,
     )
-    assert workflow["on"]["schedule"] == [{"cron": "7,22,37,52 * * * *"}]
+    assert set(workflow["on"]) == {"workflow_dispatch"}
+    assert workflow["on"]["workflow_dispatch"]["inputs"]["mode"]["default"] == "preview"
     assert "'scheduled'" in workflow["jobs"]["post"]["env"]["MODE"]
     steps = workflow["jobs"]["post"]["steps"]
     uploads = [s for s in steps if "actions/upload-artifact" in s.get("uses", "")]

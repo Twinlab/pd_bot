@@ -15,6 +15,7 @@
 import asyncio
 import logging
 from datetime import UTC, date, datetime, time
+from pathlib import Path
 
 import discord
 from discord import app_commands
@@ -32,6 +33,7 @@ from utils.activity.reports import (
 from utils.activity.views import ActivityView
 from utils.activity_data_manager import ActivityDataManager
 from utils.error_handler import command_error_handler, safe_send, safe_send_error
+from utils.scheduled_delivery import ScheduledDelivery
 from utils.time_utils import MOSCOW_TZ, moscow_today, split_interval_by_local_date
 
 logger: logging.Logger = logging.getLogger("bot.cogs.activity")
@@ -62,6 +64,7 @@ class ActivityTracker(commands.Cog):
         """
         self.bot: commands.Bot = bot
         self.data_manager: ActivityDataManager = ActivityDataManager()
+        self.report_delivery = ScheduledDelivery(Path("data/activity_delivery.json"))
         logger.info("Инициализация ActivityDataManager завершена.")
 
         # {user_id: (game_name, start_time_utc)}
@@ -416,6 +419,8 @@ class ActivityTracker(commands.Cog):
             # Вызываем метод обновления, который работает с self.current_activities
             await self.update_current_activities()
             logger.debug("periodic_save: Периодическое сохранение завершено.")
+            await run_automatic_daily_report(self, flush=False)
+            await run_automatic_monthly_report(self)
         except Exception as e:
             # Логируем ошибку, но задача должна продолжать работать
             logger.error(f"Ошибка в задаче periodic_save: {e}", exc_info=True)

@@ -3,8 +3,8 @@
 * :class:`PartyView` — карточка сбора + кнопки «Готов» / «Не готов» в DM
   (фаза сбора). Контент и кнопки живут в одном ``LayoutView``.
 * :class:`PartyConfirmView` — карточка + кнопка «Подтверждаю» в DM (фаза чека).
-* :class:`PartySetupModal` — единая модалка ``/party`` (Modal v2): роль + время +
-  состав + коммент + режим завершения в одном окне.
+* :class:`PartySetupModal` — единая модалка ``/party`` (Modal v2): роль + день +
+  время по Москве + состав + комментарий.
 * :class:`PartyPublishView` — превью сбора с кнопками «Опубликовать / Изменить /
   Отмена» (CV2).
 
@@ -26,6 +26,8 @@ import discord
 
 from config import get_settings
 from utils.error_handler import get_incident_error_message, new_incident_id
+from utils.party.duration import parse_start_time
+from utils.time_utils import MOSCOW_TZ
 from utils.ui import colors
 
 if TYPE_CHECKING:
@@ -204,19 +206,13 @@ class _PartyDraft:
     """Снимок параметров сбора между сабмитом модалки и публикацией."""
 
     role_id: int
-    minutes: int
+    starts_at: datetime
     count: int
     comment: str
-    finish_when_full: bool = False
 
 
 class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
-    """Единая модалка сбора: роль, время, состав, комментарий и завершение.
-
-    Заменяет трёхшаговый мастер: роль — ``Select``, время и состав — ``TextInput``
-    (ручной ввод числа, валидируется по лимитам), комментарий — ``TextInput``,
-    режим завершения — ``Select``.
-    """
+    """Сбор на выбранные день и время по Москве."""
 
     def __init__(
         self,
@@ -246,11 +242,30 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
                 for r in roles[:25]
             ],
         )
-        self._duration_input: discord.ui.TextInput[PartySetupModal] = discord.ui.TextInput(
+        today = datetime.now(MOSCOW_TZ).date()
+        selected_day = defaults.starts_at.astimezone(MOSCOW_TZ).date() if defaults else today
+        day_count = min(25, max(1, (s.max_duration_minutes + 1439) // 1440 + 1))
+        self._day_select: discord.ui.Select[PartySetupModal] = discord.ui.Select(
             required=True,
-            max_length=4,
-            placeholder="например, 30",
-            default=str(defaults.minutes) if defaults else None,
+            placeholder="Выбери день",
+            options=[
+                discord.SelectOption(
+                    label=("Сегодня" if offset == 0 else "Завтра" if offset == 1 else "")
+                    + (" · " if offset < 2 else "")
+                    + (today + timedelta(days=offset)).strftime("%d.%m.%Y"),
+                    value=(today + timedelta(days=offset)).isoformat(),
+                    default=today + timedelta(days=offset) == selected_day,
+                )
+                for offset in range(day_count)
+            ],
+        )
+        self._time_input: discord.ui.TextInput[PartySetupModal] = discord.ui.TextInput(
+            required=True,
+            max_length=5,
+            placeholder="21:30",
+            default=defaults.starts_at.astimezone(MOSCOW_TZ).strftime("%H:%M")
+            if defaults
+            else None,
         )
         self._size_input: discord.ui.TextInput[PartySetupModal] = discord.ui.TextInput(
             required=True,
@@ -262,25 +277,8 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
             style=discord.TextStyle.paragraph,
             required=False,
             max_length=500,
-            placeholder="Что собираем, во сколько, условия…",
+            placeholder="Режим игры, условия, пожелания…",
             default=(defaults.comment if defaults else None) or None,
-        )
-        self._finish_select: discord.ui.Select[PartySetupModal] = discord.ui.Select(
-            required=True,
-            options=[
-                discord.SelectOption(
-                    label="Ждать дедлайна",
-                    value="false",
-                    description="Сбор продолжится, даже когда основной состав заполнен",
-                    default=defaults is None or not defaults.finish_when_full,
-                ),
-                discord.SelectOption(
-                    label="Завершить после набора",
-                    value="true",
-                    description="Запустить подтверждение после заполнения состава",
-                    default=defaults is not None and defaults.finish_when_full,
-                ),
-            ],
         )
 
         self.add_item(
@@ -290,9 +288,15 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
         )
         self.add_item(
             discord.ui.Label(
-                text="Через сколько закрыть (минут)",
-                description=f"От {s.min_duration_minutes} до {s.max_duration_minutes}",
-                component=self._duration_input,
+                text="День игры",
+                component=self._day_select,
+            )
+        )
+        self.add_item(
+            discord.ui.Label(
+                text="Начало по Москве",
+                description="ЧЧ:ММ, например 21:30",
+                component=self._time_input,
             )
         )
         self.add_item(
@@ -305,31 +309,27 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
         self.add_item(
             discord.ui.Label(
                 text="Комментарий",
-                description="Что собираем, во сколько, условия",
+                description="Режим игры и пожелания",
                 component=self._comment_input,
-            )
-        )
-        self.add_item(
-            discord.ui.Label(
-                text="Досрочное завершение",
-                description="Нужно ли закрыть сбор сразу после набора состава",
-                component=self._finish_select,
             )
         )
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        """Валидирует минуты и состав, собирает черновик и показывает превью."""
+        """Фиксирует время игры в черновике и показывает предпросмотр."""
         s = get_settings().party
         try:
-            minutes = int((self._duration_input.value or "").strip())
-        except ValueError:
-            await interaction.response.send_message("Время — это число минут.", ephemeral=True)
-            return
-        if not (s.min_duration_minutes <= minutes <= s.max_duration_minutes):
-            await interaction.response.send_message(
-                f"Время — от {s.min_duration_minutes} до {s.max_duration_minutes} минут.",
-                ephemeral=True,
+            starts_at = parse_start_time(
+                self._day_select.values[0],
+                self._time_input.value or "",
+                now=datetime.now(UTC),
+                min_minutes=s.min_duration_minutes,
+                max_minutes=s.max_duration_minutes,
             )
+        except IndexError:
+            await interaction.response.send_message("Выбери день игры.", ephemeral=True)
+            return
+        except ValueError as error:
+            await interaction.response.send_message(str(error), ephemeral=True)
             return
 
         try:
@@ -346,10 +346,9 @@ class PartySetupModal(discord.ui.Modal, title="Сбор пати"):
 
         draft = _PartyDraft(
             role_id=int(self._role_select.values[0]),
-            minutes=minutes,
+            starts_at=starts_at,
             count=count,
             comment=(self._comment_input.value or "").strip(),
-            finish_when_full=self._finish_select.values[0] == "true",
         )
         if self._roles.get(draft.role_id) is None:
             await interaction.response.send_message("Роль не найдена.", ephemeral=True)
@@ -406,11 +405,10 @@ class PartyPublishView(_PartyStateView):
         container = cog.build_party_preview_container(
             role=role,
             initiator=initiator,
-            duration=timedelta(minutes=draft.minutes),
+            starts_at=draft.starts_at,
             count=draft.count,
             comment=draft.comment,
             image_url=image_url,
-            finish_when_full=draft.finish_when_full,
         )
         container.add_item(_PublishRow())
         self.add_item(container)
@@ -471,6 +469,12 @@ class PartyPublishView(_PartyStateView):
 
             if self.is_finished():
                 return
+            if self._draft.starts_at - datetime.now(UTC) < timedelta(minutes=1):
+                await interaction.followup.send(
+                    "До начала осталось меньше минуты. Нажми «Изменить» и выбери другое время.",
+                    ephemeral=True,
+                )
+                return
             self.stop()
             await interaction.edit_original_response(view=_notice_view("Создаю сбор…"))
             party = await self._cog._create_and_broadcast(
@@ -478,11 +482,10 @@ class PartyPublishView(_PartyStateView):
                 channel=channel,
                 role=role,
                 initiator=self._initiator,
-                duration=timedelta(minutes=self._draft.minutes),
+                starts_at=self._draft.starts_at,
                 count=self._draft.count,
                 comment=self._draft.comment,
                 image_url=self._image_url,
-                finish_when_full=self._draft.finish_when_full,
             )
             notice = (
                 "Сбор опубликован."

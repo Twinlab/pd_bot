@@ -192,6 +192,30 @@ class TestGetDailyStats:
             assert result == {}
 
 
+async def test_daily_strict_read_propagates_database_error(manager):
+    with patch("utils.activity_data_manager.DailyActivity.filter", side_effect=RuntimeError("db")):
+        with pytest.raises(RuntimeError, match="db"):
+            await manager.get_daily_stats(date(2026, 10, 29), strict=True)
+
+
+@pytest.mark.parametrize("include_pending", [False, True])
+async def test_monthly_strict_read_propagates_database_error(manager, include_pending):
+    with (
+        patch("utils.activity_data_manager.MonthlyActivity.filter", side_effect=RuntimeError("db")),
+        patch("utils.wrapped_data_manager.WrappedDataManager.get_month", new=AsyncMock(side_effect=RuntimeError("db"))),
+    ):
+        with pytest.raises(RuntimeError, match="db"):
+            await manager.get_aggregated_monthly_stats(2026, 10, strict=True, include_pending=include_pending)
+
+
+async def test_monthly_includes_pending_from_consistent_snapshot(manager):
+    snapshot = MagicMock(games={123: {"Dota 2": 7200}})
+    with patch("utils.wrapped_data_manager.WrappedDataManager.get_month", new=AsyncMock(return_value=snapshot)) as read:
+        result = await manager.get_aggregated_monthly_stats(2026, 10, strict=True, include_pending=True)
+    assert result == {123: {"Dota 2": 7200}}
+    read.assert_awaited_once_with(2026, 10)
+
+
 class TestGetPendingDailyDates:
     """Тесты получения неархивированных дат."""
 

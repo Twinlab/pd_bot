@@ -44,6 +44,14 @@ def test_tyan_is_guild_only_hybrid_without_reroll_parameters():
     assert command.clean_params == {}
 
 
+async def test_history_command_does_not_generate_a_roll(tyan_cog, mock_context):
+    mock_context.interaction = MagicMock()
+    await FunCog.tyan_history.callback(tyan_cog, mock_context)
+    mock_context.defer.assert_awaited_once_with(ephemeral=True)
+    assert mock_context.send.await_args.kwargs["ephemeral"] is True
+    assert await TyanRoll.all().count() == 0
+
+
 async def test_prefix_check_rejects_dm(mock_context):
     mock_context.guild = None
     with pytest.raises(commands.NoPrivateMessage):

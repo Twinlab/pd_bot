@@ -130,6 +130,7 @@ class AnimeScheduleConfig(BaseModel):
         evening_minute: Минута вечерней публикации (UTC)
     """
 
+    enabled: bool = True
     morning_hour: int = 10
     morning_minute: int = 0
     evening_hour: int = 18
@@ -493,8 +494,8 @@ class PartyConfig(BaseModel):
     Attributes:
         initiator_emoji: Эмодзи, отображаемое рядом с инициатором пати
             (он автоматически в списке готовых).
-        min_duration_minutes: Минимальная длительность сбора в минутах.
-        max_duration_minutes: Максимальная длительность сбора в минутах.
+        min_duration_minutes: Минимальный запас минут до выбранного начала игры.
+        max_duration_minutes: Максимальный горизонт планирования в минутах.
         min_count: Минимальное число участников.
         max_count: Максимальное число участников (Discord-лимит на пинги).
         command_cooldown_seconds: Кулдаун команды /party на одного пользователя.
@@ -518,7 +519,7 @@ class PartyConfig(BaseModel):
 
     initiator_emoji: str = "👑"
     min_duration_minutes: int = 1
-    max_duration_minutes: int = 240
+    max_duration_minutes: int = 10080
     min_count: int = 1
     max_count: int = 25
     command_cooldown_seconds: int = 3600

@@ -84,11 +84,14 @@ class ActivityDataManager:
             logger.error(f"Ошибка при обновлении daily_activity в БД: {e}", exc_info=True)
             raise
 
-    async def get_daily_stats(self, target_date: date) -> dict[int, dict[str, int]]:
+    async def get_daily_stats(
+        self, target_date: date, *, strict: bool = False
+    ) -> dict[int, dict[str, int]]:
         """Получает всю статистику активности за указанную дату из БД.
 
         Args:
             target_date: Дата, за которую нужно получить статистику.
+            strict: Передавать ошибку чтения вызывающему коду вместо пустой статистики.
 
         Returns:
             Словарь вида {user_id: {game_name: seconds}}, содержащий статистику
@@ -115,6 +118,8 @@ class ActivityDataManager:
             logger.error(
                 f"Ошибка при получении daily_stats из БД за {target_date_str}: {e}", exc_info=True
             )
+            if strict:
+                raise
             return {}
 
     async def get_pending_daily_dates(self, before_date: date) -> list[date]:
@@ -276,18 +281,30 @@ class ActivityDataManager:
             return {}
 
     async def get_aggregated_monthly_stats(
-        self, year: int, month: int
+        self, year: int, month: int, *, strict: bool = False, include_pending: bool = False
     ) -> dict[int, dict[str, int]]:
         """Получает всю статистику активности за указанный месяц и год из БД.
 
         Args:
             year: Год, за который нужно получить статистику.
             month: Месяц, за который нужно получить статистику.
+            strict: Передавать ошибку чтения вызывающему коду.
+            include_pending: Учитывать ещё не перенесённые дневные записи в одном снимке.
 
         Returns:
             Словарь вида {user_id: {game_name: seconds}}, содержащий статистику
             активности всех пользователей за указанный месяц.
         """
+        if include_pending:
+            from utils.wrapped_data_manager import WrappedDataManager
+
+            try:
+                return (await WrappedDataManager().get_month(year, month)).games
+            except Exception:
+                if strict:
+                    raise
+                logger.exception("Не удалось прочитать полный снимок месяца %s-%02d", year, month)
+                return {}
         monthly_stats: dict[int, dict[str, int]] = defaultdict(dict)
         try:
             activities = await MonthlyActivity.filter(
@@ -310,6 +327,8 @@ class ActivityDataManager:
                 f"за {year}-{month:02d}: {e}",
                 exc_info=True,
             )
+            if strict:
+                raise
             return {}
 
     async def get_daily_stats_by_prefix(self, user_id: int, prefix: str) -> dict[str, int]:

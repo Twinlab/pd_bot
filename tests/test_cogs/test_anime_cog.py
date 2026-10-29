@@ -6,8 +6,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
 import pytest
+from freezegun import freeze_time
 
 from cogs.anime import AnimeCog, AnimePost, _build_post_view
+from utils.scheduled_delivery import ScheduledDelivery
+
+
+@pytest.fixture(autouse=True)
+def no_background_retry():
+    with patch("cogs.anime.AnimeCog.retry_scheduled.start"):
+        yield
 
 
 def _collect_text(view: discord.ui.LayoutView) -> str:
@@ -69,12 +77,109 @@ def create_mock_settings(channel_id=123456789):
     mock_settings.anime.min_score = 50
     mock_settings.anime.limit = 100
     mock_settings.anime.cache_size = 10
+    mock_settings.anime.schedule.enabled = True
     mock_settings.anime.schedule.morning_hour = 10
     mock_settings.anime.schedule.morning_minute = 0
     mock_settings.anime.schedule.evening_hour = 18
     mock_settings.anime.schedule.evening_minute = 0
     mock_settings.get_discord_color = MagicMock(return_value=discord.Color.blue())
     return mock_settings
+
+
+async def test_forbidden_source_stops_repeated_searches(mock_bot):
+    with patch("cogs.anime.get_settings", return_value=create_mock_settings()):
+        cog = AnimeCog(mock_bot)
+        cog._cache_loaded = True
+        cog._request_danbooru = AsyncMock(return_value=(403, []))
+
+        async def blocked(*args, **kwargs):
+            cog._last_api_status = 403
+            return []
+
+        cog._fetch_danbooru_posts = AsyncMock(side_effect=blocked)
+        assert await cog.get_anime_image() is None
+        cog._fetch_danbooru_posts.assert_awaited_once()
+
+
+async def test_request_error_never_logs_credentials(mock_bot, caplog):
+    settings = create_mock_settings()
+    settings.danbooru_login = "test-login"
+    settings.danbooru_api_key = "test-secret-never-log"
+    with patch("cogs.anime.get_settings", return_value=settings):
+        cog = AnimeCog(mock_bot)
+        session = MagicMock()
+        session.get.side_effect = ValueError("URL contains test-secret-never-log")
+        cog._get_session = MagicMock(return_value=session)
+        assert await cog._request_danbooru(settings, {"limit": "1"}) == (0, [])
+    assert "test-secret-never-log" not in caplog.text
+    assert "ValueError" in caplog.text
+
+
+async def test_partial_credentials_fail_before_network(mock_bot):
+    settings = create_mock_settings()
+    settings.danbooru_login = "test-login"
+    with patch("cogs.anime.get_settings", return_value=settings):
+        cog = AnimeCog(mock_bot)
+        cog._get_session = MagicMock()
+        assert await cog._request_danbooru(settings, {"limit": "1"}) == (401, [])
+        cog._get_session.assert_not_called()
+
+
+async def test_schedule_initial_activation_and_restart(mock_bot, mock_text_channel, tmp_path):
+    mock_bot.user.id = 99
+    mock_text_channel.id = 42
+    mock_bot.get_channel.return_value = mock_text_channel
+    mock_text_channel.send.return_value.id = 123
+    path = tmp_path / "anime.json"
+    with (
+        patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+        patch("cogs.anime.AnimeCache.get_or_create", new=AsyncMock()),
+        freeze_time("2026-10-29 10:01:00") as clock,
+    ):
+        cog = AnimeCog(mock_bot)
+        cog.delivery = ScheduledDelivery(path)
+        cog.get_anime_image = AsyncMock(return_value=make_post())
+        await cog.retry_scheduled()
+        mock_text_channel.send.assert_not_awaited()
+        clock.move_to("2026-10-29 18:05:00")
+        await cog.retry_scheduled()
+        restored = AnimeCog(mock_bot)
+        restored.delivery = ScheduledDelivery(path)
+        restored.get_anime_image = AsyncMock(side_effect=AssertionError("Already delivered"))
+        await restored.retry_scheduled()
+    mock_text_channel.send.assert_awaited_once()
+    cog.get_anime_image.assert_awaited_once()
+
+
+async def test_scheduled_art_recovers_lost_ack_from_components(mock_bot, mock_text_channel, tmp_path):
+    mock_bot.user.id = 99
+    mock_text_channel.id = 42
+    mock_bot.get_channel.return_value = mock_text_channel
+    published = MagicMock(id=123, content="")
+    published.author.id = 99
+    component = MagicMock()
+    component.to_dict.return_value = {"url": "https://danbooru.donmai.us/posts/444"}
+    published.components = [component]
+
+    async def history(**kwargs):
+        yield published
+
+    mock_text_channel.history = history
+    with (
+        patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+        patch("cogs.anime.AnimeCache.get_or_create", new=AsyncMock()),
+        freeze_time("2026-10-29 18:00:00") as clock,
+    ):
+        cog = AnimeCog(mock_bot)
+        cog.delivery = ScheduledDelivery(tmp_path / "anime.json")
+        cog.get_anime_image = AsyncMock(return_value=make_post())
+        mock_text_channel.send.side_effect = TimeoutError
+        with pytest.raises(TimeoutError):
+            await cog._deliver_scheduled("2026-10-29:evening")
+        clock.tick(180)
+        await cog._deliver_scheduled("2026-10-29:evening")
+    mock_text_channel.send.assert_awaited_once()
+    assert 444 in cog.post_cache
 
 
 class TestConcurrentPosts:
@@ -169,6 +274,24 @@ class TestAnimeCogInit:
 
             mock_morning_task.start.assert_not_called()
             mock_evening_task.start.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_disabled_schedule_preserves_manual_posting(self, mock_bot):
+        settings = create_mock_settings()
+        settings.anime.schedule.enabled = False
+        with (
+            patch("cogs.anime.get_settings", return_value=settings),
+            patch.object(AnimeCog, "morning_post") as morning,
+            patch.object(AnimeCog, "evening_post") as evening,
+        ):
+            cog = AnimeCog(mock_bot)
+            await cog.on_ready()
+            await cog.on_ready()
+            morning.start.assert_not_called()
+            evening.start.assert_not_called()
+            with patch.object(cog, "_post_anime_image", new=AsyncMock(return_value=True)) as post:
+                assert await cog.post_anime_image(rating="g", tag="genshin_impact")
+                post.assert_awaited_once_with(rating="g", tag="genshin_impact")
 
     @pytest.mark.asyncio
     async def test_on_ready_starts_scheduled_posts_once(self, mock_bot):

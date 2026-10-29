@@ -21,7 +21,7 @@ services:
       resources:
         limits:
           cpus: '0.3'
-          memory: 128M
+          memory: 512M
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
@@ -96,6 +96,7 @@ services:
       - .env
     environment:
       - BOT_ENVIRONMENT=production
+      - ANIME__SCHEDULE__ENABLED=true
       - PORTAL_API__ENABLED=true
       - PORTAL_API__HOST=0.0.0.0
       - PORTAL_API__PORT=8091

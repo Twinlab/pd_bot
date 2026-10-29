@@ -7,11 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import discord
 import pytest
 from discord.ext import commands
+from freezegun import freeze_time
 
 from cogs.party import PartyCog
 from config.settings import BotSettings
 from utils.party.manager import PartyPhase
-from utils.party.state import PartyStateStore
+from utils.party.state import PartyRecord, PartyStateStore
+from utils.time_utils import MOSCOW_TZ
 from utils.party.views import (
     PartyConfirmView,
     PartyPublishView,
@@ -117,6 +119,57 @@ def _make_party(
         deadline=datetime.now(UTC) + timedelta(minutes=15),
         finish_when_full=finish_when_full,
     )
+
+
+async def test_start_reminder_only_joined_and_not_repeated_after_restore(cog, bot):
+    party = _make_party(cog, count=2, finish_when_full=False)
+    await cog.manager.mark_ready(party.id, 200)
+    await cog.manager.mark_ready(party.id, 300)
+    members = {uid: make_member(uid) for uid in [100, 200, 300, 400]}
+    guild = MagicMock()
+    guild.get_member.side_effect = members.get
+    bot.get_guild.return_value = guild
+
+    async def confirm_saved(*args, **kwargs):
+        snapshot = cog._state_store.save.await_args.args[0]
+        assert snapshot.parties[0].reminder_attempted is True
+
+    members[100].send.side_effect = confirm_saved
+    await cog._remind_start(party)
+    restored = PartyRecord.from_party(party).to_party()
+    await cog._remind_start(restored)
+    for uid in [100, 200, 300]:
+        members[uid].send.assert_awaited_once()
+    members[400].send.assert_not_awaited()
+
+
+async def test_start_reminder_save_failure_prevents_notification(cog, bot):
+    party = _make_party(cog, finish_when_full=False)
+    member = make_member(100)
+    bot.get_guild.return_value = MagicMock(get_member=MagicMock(return_value=member))
+    cog._state_store.save.side_effect = OSError("disk full")
+    with pytest.raises(Exception):
+        await cog._remind_start(party)
+    member.send.assert_not_awaited()
+
+
+async def test_slow_reminder_does_not_shift_start(cog):
+    with freeze_time("2026-10-29 12:00:00") as clock:
+        party = _make_party(cog, finish_when_full=False)
+
+        async def sleep(seconds):
+            clock.tick(seconds)
+
+        async def remind(_):
+            clock.tick(10)
+
+        cog._remind_start = AsyncMock(side_effect=remind)
+        cog._finalize = AsyncMock()
+        with patch("cogs.party.asyncio.sleep", new=AsyncMock(side_effect=sleep)) as wait:
+            await cog._finalize_after(party)
+        assert [call.args[0] for call in wait.await_args_list] == [600, 290]
+        assert datetime.now(UTC) == party.deadline
+        cog._finalize.assert_awaited_once_with(party)
 
 
 class TestLifecycle:
@@ -919,135 +972,60 @@ class TestPartySlashCommand:
 
 
 class TestPartySetupModal:
-    """Единая модалка сбора (Modal v2): валидация и переход к превью."""
+    @pytest.fixture(autouse=True)
+    def frozen_clock(self):
+        with freeze_time("2026-10-29 12:00:00"):
+            yield
 
-    def _make_modal(self, cog: PartyCog) -> PartySetupModal:
+    def _make_modal(self, cog):
         initiator = MagicMock(spec=discord.Member, id=100)
-        initiator.guild = MagicMock(spec=discord.Guild, id=1)
-        role = MagicMock(spec=discord.Role, id=42, name="Гремлины", mention="<@&42>")
+        role = MagicMock(spec=discord.Role, id=42, name="Dota")
         return PartySetupModal(cog=cog, initiator=initiator, roles=[role], image_url=None)
 
-    def test_early_finish_defaults_to_deadline(self, cog: PartyCog) -> None:
+    def _fill(self, modal, *, day="2026-10-30", clock="21:30", count="5"):
+        modal._role_select = MagicMock(values=["42"])
+        modal._day_select = MagicMock(values=[day])
+        modal._time_input = MagicMock(value=clock)
+        modal._size_input = MagicMock(value=count)
+        modal._comment_input = MagicMock(value="го")
+
+    async def test_modal_has_date_and_clock_without_duration_or_early_finish(self, cog, patched_settings):
         modal = self._make_modal(cog)
+        labels = [item.text for item in modal.children]
+        assert len(labels) == 5
+        assert "День игры" in labels
+        assert "Начало по Москве" in labels
+        assert not hasattr(modal, "_duration_input")
+        assert not hasattr(modal, "_finish_select")
+        assert modal._day_select.options[0].value == "2026-10-29"
+        assert modal._day_select.options[0].default
 
-        defaults = {option.value: option.default for option in modal._finish_select.options}
-
-        assert defaults == {"false": True, "true": False}
-
-    @pytest.mark.asyncio
-    async def test_valid_submit_shows_publish_view(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Корректный ввод показывает превью с :class:`PartyPublishView`."""
+    async def test_valid_submit_freezes_moscow_start(self, cog, patched_settings):
         modal = self._make_modal(cog)
-        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
-        modal._duration_input = MagicMock(value=" 30 ")  # type: ignore[assignment]
-        modal._size_input = MagicMock(value="5")  # type: ignore[assignment]
-        modal._comment_input = MagicMock(value="  го  ")  # type: ignore[assignment]
-        modal._finish_select = MagicMock(values=["true"])  # type: ignore[assignment]
-
-        interaction = MagicMock(spec=discord.Interaction)
-        interaction.response = MagicMock()
-        interaction.response.send_message = AsyncMock()
-
-        await modal.on_submit(interaction)
-
-        interaction.response.send_message.assert_awaited_once()
-        kwargs = interaction.response.send_message.await_args.kwargs
-        assert kwargs["ephemeral"] is True
-        view = kwargs["view"]
+        self._fill(modal)
+        event = _slash_interaction()
+        await modal.on_submit(event)
+        view = event.response.send_message.await_args.kwargs["view"]
         assert isinstance(view, PartyPublishView)
-        assert view._draft == _PartyDraft(
-            role_id=42,
-            minutes=30,
-            count=5,
-            comment="го",
-            finish_when_full=True,
-        )
+        assert view._draft.starts_at == datetime(2026, 10, 30, 18, 30, tzinfo=UTC)
+        assert view._draft.count == 5
 
-    @pytest.mark.asyncio
-    async def test_non_numeric_minutes_rejected(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Нечисловое время — ephemeral-подсказка, превью не показывается."""
+    @pytest.mark.parametrize("day,clock", [("2026-10-29", "14:00"), ("2026-10-30", "скоро"), ("2026-11-20", "21:30")])
+    async def test_invalid_start_rejected(self, cog, patched_settings, day, clock):
         modal = self._make_modal(cog)
-        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
-        modal._duration_input = MagicMock(value="скоро")  # type: ignore[assignment]
-        modal._size_input = MagicMock(value="5")  # type: ignore[assignment]
-        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
+        self._fill(modal, day=day, clock=clock)
+        event = _slash_interaction()
+        await modal.on_submit(event)
+        assert "view" not in event.response.send_message.await_args.kwargs
+        assert event.response.send_message.await_args.kwargs["ephemeral"]
 
-        interaction = MagicMock(spec=discord.Interaction)
-        interaction.response = MagicMock()
-        interaction.response.send_message = AsyncMock()
-
-        await modal.on_submit(interaction)
-
-        interaction.response.send_message.assert_awaited_once()
-        assert "число" in interaction.response.send_message.await_args.args[0]
-        assert interaction.response.send_message.await_args.kwargs.get("ephemeral") is True
-
-    @pytest.mark.asyncio
-    async def test_minutes_out_of_range_rejected(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Время за пределами лимитов отбраковывается без превью."""
+    @pytest.mark.parametrize("count", ["пятеро", "999"])
+    async def test_invalid_count_rejected(self, cog, patched_settings, count):
         modal = self._make_modal(cog)
-        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
-        modal._duration_input = MagicMock(  # type: ignore[assignment]
-            value=str(patched_settings.party.max_duration_minutes + 1)
-        )
-        modal._size_input = MagicMock(value="5")  # type: ignore[assignment]
-        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
-
-        interaction = MagicMock(spec=discord.Interaction)
-        interaction.response = MagicMock()
-        interaction.response.send_message = AsyncMock()
-
-        await modal.on_submit(interaction)
-
-        assert "Время" in interaction.response.send_message.await_args.args[0]
-
-    @pytest.mark.asyncio
-    async def test_non_numeric_count_rejected(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Нечисловой состав — ephemeral-подсказка, превью не показывается."""
-        modal = self._make_modal(cog)
-        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
-        modal._duration_input = MagicMock(value="30")  # type: ignore[assignment]
-        modal._size_input = MagicMock(value="пятеро")  # type: ignore[assignment]
-        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
-
-        interaction = MagicMock(spec=discord.Interaction)
-        interaction.response = MagicMock()
-        interaction.response.send_message = AsyncMock()
-
-        await modal.on_submit(interaction)
-
-        interaction.response.send_message.assert_awaited_once()
-        assert "Состав" in interaction.response.send_message.await_args.args[0]
-        assert interaction.response.send_message.await_args.kwargs.get("ephemeral") is True
-
-    @pytest.mark.asyncio
-    async def test_count_out_of_range_rejected(
-        self, cog: PartyCog, patched_settings: BotSettings
-    ) -> None:
-        """Состав за пределами лимитов отбраковывается без превью."""
-        modal = self._make_modal(cog)
-        modal._role_select = MagicMock(values=["42"])  # type: ignore[assignment]
-        modal._duration_input = MagicMock(value="30")  # type: ignore[assignment]
-        modal._size_input = MagicMock(  # type: ignore[assignment]
-            value=str(patched_settings.party.max_count + 1)
-        )
-        modal._comment_input = MagicMock(value="")  # type: ignore[assignment]
-
-        interaction = MagicMock(spec=discord.Interaction)
-        interaction.response = MagicMock()
-        interaction.response.send_message = AsyncMock()
-
-        await modal.on_submit(interaction)
-
-        assert "Состав" in interaction.response.send_message.await_args.args[0]
+        self._fill(modal, count=count)
+        event = _slash_interaction()
+        await modal.on_submit(event)
+        assert "Состав" in event.response.send_message.await_args.args[0]
 
 
 class TestPartyPublishView:
@@ -1078,10 +1056,9 @@ class TestPartyPublishView:
         role = MagicMock(spec=discord.Role, id=42, name="Гремлины", mention="<@&42>")
         draft = _PartyDraft(
             role_id=42,
-            minutes=30,
+            starts_at=datetime.now(UTC) + timedelta(minutes=30),
             count=3,
             comment="го",
-            finish_when_full=True,
         )
         return PartyPublishView(
             cog=cog, initiator=initiator, roles=[role], image_url=None, draft=draft
@@ -1104,9 +1081,27 @@ class TestPartyPublishView:
         cog._create_and_broadcast.assert_awaited_once()
         ca = cog._create_and_broadcast.await_args.kwargs
         assert ca["count"] == 3
-        assert ca["duration"] == timedelta(minutes=30)
-        assert ca["finish_when_full"] is True
+        assert ca["starts_at"] == view._draft.starts_at
+        assert "finish_when_full" not in ca
         assert ca["role"] is interaction.guild.get_role.return_value
+
+    async def test_delayed_preview_keeps_selected_start(self, cog, patched_settings):
+        with freeze_time("2026-10-29 12:00:00") as clock:
+            view = self._make_view(cog)
+            chosen = view._draft.starts_at
+            clock.tick(600)
+            cog._create_and_broadcast = AsyncMock(return_value=None)
+            await view.handle_publish(self._make_interaction())
+            assert cog._create_and_broadcast.await_args.kwargs["starts_at"] == chosen
+
+    async def test_expired_preview_requires_edit(self, cog, patched_settings):
+        with freeze_time("2026-10-29 12:00:00") as clock:
+            view = self._make_view(cog)
+            clock.tick(1801)
+            cog._create_and_broadcast = AsyncMock()
+            click = self._make_interaction()
+            await view.handle_publish(click)
+            cog._create_and_broadcast.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_two_existing_previews_cannot_bypass_cooldown(
@@ -1300,8 +1295,7 @@ class TestPartyPublishView:
         interaction.response.send_modal.assert_awaited_once()
         modal = interaction.response.send_modal.await_args.args[0]
         assert isinstance(modal, PartySetupModal)
-        defaults = {option.value: option.default for option in modal._finish_select.options}
-        assert defaults == {"false": False, "true": True}
+        assert modal._time_input.default == view._draft.starts_at.astimezone(MOSCOW_TZ).strftime("%H:%M")
 
     @pytest.mark.asyncio
     async def test_cancel_closes_preview(
@@ -1364,11 +1358,10 @@ class TestCreateAndBroadcast:
             channel=channel,
             role=role,
             initiator=initiator,
-            duration=timedelta(minutes=15),
+            starts_at=datetime.now(UTC) + timedelta(minutes=15),
             count=2,
             comment="c",
             image_url=None,
-            finish_when_full=False,
         )
 
         assert party is not None

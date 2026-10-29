@@ -20,6 +20,24 @@ NORMAL = TyanConfig(mother_chance=0, none_chance=0, part_weights=(0, 0, 1))
 CATALOG = load_catalog()
 
 
+async def test_history_reads_snapshots_in_date_order_without_creating_today(tyan_db):
+    first = await get_roll(now=NOW - timedelta(days=2))
+    second = await get_roll(now=NOW - timedelta(days=1))
+    await get_roll(user_id=2, now=NOW)
+    manager = TyanDataManager()
+    with patch("utils.tyan_data_manager.generate_roll", side_effect=AssertionError("reroll")):
+        assert await manager.get_history(1) == [second, first]
+        assert await manager.get_history(1, before=second.day) == [first]
+        assert await manager.get_history(999) == []
+    assert await TyanRoll.all().count() == 3
+
+
+@pytest.mark.parametrize("limit", [0, 101])
+async def test_history_rejects_unbounded_page_size(limit):
+    with pytest.raises(ValueError):
+        await TyanDataManager().get_history(1, limit=limit)
+
+
 @pytest.fixture
 async def tyan_db(tmp_path):
     url = f"sqlite://{tmp_path / 'tyan.sqlite3'}"

@@ -1,11 +1,52 @@
-"""Валидация длительности сбора пати.
+"""Проверка выбранного московского времени игры и границ расписания."""
 
-Команда ``/party`` принимает целое число минут — здесь мы проверяем диапазон
-и превращаем его в :class:`datetime.timedelta`. Вынесено в отдельный модуль,
-чтобы валидацию было удобно покрыть unit-тестами без поднятия Discord/конфига.
-"""
+import re
+from datetime import UTC, date, datetime, time, timedelta
 
-from datetime import timedelta
+from utils.time_utils import MOSCOW_TZ
+
+
+def parse_start_time(
+    day: str,
+    clock: str,
+    *,
+    now: datetime,
+    min_minutes: int = 1,
+    max_minutes: int = 7 * 24 * 60,
+) -> datetime:
+    """Преобразует выбранный день и московское время в фиксированный момент UTC.
+
+    Args:
+        day: Дата из меню в формате YYYY-MM-DD.
+        clock: Часы и минуты, например 21:30.
+        now: Текущий момент с часовым поясом.
+        min_minutes: Минимальный запас времени до начала.
+        max_minutes: Максимальное расстояние до начала.
+
+    Returns:
+        Начало игры в UTC; прошедшее время не переносится на завтра автоматически.
+    """
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("Для проверки времени нужен часовой пояс")
+    match = re.fullmatch(r"([01]?\d|2[0-3]):([0-5]\d)", clock.strip())
+    if match is None:
+        raise ValueError("Введи время по Москве в формате ЧЧ:ММ, например 21:30.")
+    try:
+        selected_day = date.fromisoformat(day)
+    except ValueError:
+        raise ValueError("Выбери день сбора заново.") from None
+    start = datetime.combine(
+        selected_day, time(int(match[1]), int(match[2])), tzinfo=MOSCOW_TZ
+    ).astimezone(UTC)
+    if start <= now:
+        raise ValueError("Это время уже прошло. Выбери более позднее время или другой день.")
+    if start - now < timedelta(minutes=min_minutes):
+        raise ValueError(f"До начала должно оставаться хотя бы {min_minutes} мин.")
+    if start - now > timedelta(minutes=max_minutes):
+        raise ValueError(
+            f"Сбор можно назначить не дальше чем на {max_minutes // 1440} дней вперёд."
+        )
+    return start
 
 
 def parse_minutes(value: int, *, min_minutes: int, max_minutes: int) -> timedelta:

@@ -234,7 +234,7 @@ cs:
 party:
   initiator_emoji: "👑"           # Эмодзи рядом с инициатором (он автоматически готов)
   min_duration_minutes: 1
-  max_duration_minutes: 240       # 4 часа
+  max_duration_minutes: 10080     # Горизонт записи — 7 дней
   min_count: 1
   max_count: 25
   command_cooldown_seconds: 3600  # 1 час между вызовами /party на одного юзера
