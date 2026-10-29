@@ -689,6 +689,7 @@ class BotSettings(BaseSettings):
     # без неё работает анонимно с лимитом в 2 тега на запрос).
     danbooru_login: str | None = Field(default=None, alias="DANBOORU_LOGIN")
     danbooru_api_key: str | None = Field(default=None, alias="DANBOORU_API_KEY")
+    danbooru_user_id: int | None = Field(default=None, gt=0, alias="DANBOORU_USER_ID")
 
     # Lavalink — параметры подключения берутся из переменных окружения и затем
     # переносятся в music.lavalink через model_validator ниже.

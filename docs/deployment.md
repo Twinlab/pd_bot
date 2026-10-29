@@ -230,6 +230,10 @@ bash ops/backup_db.sh
 Основное расписание выполняет бот: 13:00 и 21:00 МСК. Compose задаёт
 `ANIME__SCHEDULE__ENABLED=true`; `DANBOORU_LOGIN` и `DANBOORU_API_KEY` передаются
 из серверного `.env`. Изменение `.env` подхватывается при пересоздании контейнера.
+Числовой `DANBOORU_USER_ID` задаётся в YAML или окружении и должен принадлежать
+тому же аккаунту. Он включается в `User-Agent` по [требованиям API Danbooru](https://danbooru.donmai.us/wiki_pages/help:api).
+Без него Cloudflare может возвращать HTML-проверку и HTTP 403 даже с верным ключом.
+Логин и ключ отправляются через HTTP Basic Authentication в заголовке, не в URL.
 После аварийного восстановления проверьте `compose.restore.yaml`: временные
 bind mounts поверх `/app/cogs/anime.py` и `/app/config/settings.py` подменяют
 файлы нового образа. Перед переходом на исправленный образ сохраните копию

@@ -17,6 +17,7 @@ import json
 import logging
 import random
 import re
+from base64 import b64encode
 from collections import deque
 from datetime import UTC, datetime, time
 from pathlib import Path
@@ -39,7 +40,7 @@ DANBOORU_API_URL = "https://danbooru.donmai.us/posts.json"
 DANBOORU_POST_URL = "https://danbooru.donmai.us/posts/{post_id}"
 ALLOWED_RATINGS: tuple[str, ...] = ("g", "s", "q", "e")
 IMAGE_EXTENSIONS: frozenset[str] = frozenset({"jpg", "jpeg", "png", "gif", "webp"})
-USER_AGENT = "pd_bot (Discord anime poster)"
+USER_AGENT = "pd_bot/1.0"
 
 MAX_RETRIES = 5
 
@@ -172,8 +173,12 @@ class AnimeCog(commands.Cog):
     def _get_session(self) -> aiohttp.ClientSession:
         """Возвращает переиспользуемую aiohttp-сессию с User-Agent для Danbooru."""
         if self._session is None or self._session.closed:
+            user_id = get_settings().danbooru_user_id
+            identity = f"user #{user_id}; " if user_id is not None else ""
             self._session = aiohttp.ClientSession(
-                headers={"User-Agent": USER_AGENT},
+                headers={
+                    "User-Agent": f"{USER_AGENT} ({identity}https://github.com/Twinlab/pd_bot)"
+                },
                 timeout=aiohttp.ClientTimeout(total=20, connect=10),
             )
         return self._session
@@ -343,16 +348,14 @@ class AnimeCog(commands.Cog):
             logger.error("Для Danbooru нужны оба поля: DANBOORU_LOGIN и DANBOORU_API_KEY")
             self._last_api_status = 401
             return 401, []
+        headers = {}
         if settings.danbooru_login and settings.danbooru_api_key:
-            params = {
-                **params,
-                "login": settings.danbooru_login,
-                "api_key": settings.danbooru_api_key,
-            }
+            credentials = f"{settings.danbooru_login}:{settings.danbooru_api_key}".encode()
+            headers["Authorization"] = "Basic " + b64encode(credentials).decode("ascii")
 
         session = self._get_session()
         try:
-            async with session.get(DANBOORU_API_URL, params=params) as response:
+            async with session.get(DANBOORU_API_URL, params=params, headers=headers) as response:
                 self._last_api_status = response.status
                 if response.status != 200:
                     logger.warning(

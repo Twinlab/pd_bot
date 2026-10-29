@@ -1,6 +1,7 @@
 """Тесты для кога AnimeCog."""
 
 import asyncio
+from base64 import b64decode
 from datetime import UTC, time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -69,6 +70,7 @@ def create_mock_settings(channel_id=123456789):
     mock_settings.channels.anime = channel_id
     mock_settings.danbooru_login = None
     mock_settings.danbooru_api_key = None
+    mock_settings.danbooru_user_id = 123
     mock_settings.anime.base_tags = ["1girl", "2girls"]
     mock_settings.anime.extra_tags = ["genshin_impact", "persona"]
     mock_settings.anime.extra_tag_chance = 0.6
@@ -123,6 +125,49 @@ async def test_partial_credentials_fail_before_network(mock_bot):
         cog._get_session = MagicMock()
         assert await cog._request_danbooru(settings, {"limit": "1"}) == (401, [])
         cog._get_session.assert_not_called()
+
+
+@pytest.mark.parametrize("user_id", [123, None])
+async def test_session_identifies_owner_and_reuses_connection(mock_bot, user_id):
+    settings = create_mock_settings()
+    settings.danbooru_user_id = user_id
+    with patch("cogs.anime.get_settings", return_value=settings):
+        cog = AnimeCog(mock_bot)
+        session = cog._get_session()
+        try:
+            expected = (
+                "pd_bot/1.0 (user #123; https://github.com/Twinlab/pd_bot)"
+                if user_id else "pd_bot/1.0 (https://github.com/Twinlab/pd_bot)"
+            )
+            assert session.headers["User-Agent"] == expected
+            assert cog._get_session() is session
+            assert session.timeout.total == 20
+        finally:
+            await session.close()
+        replacement = cog._get_session()
+        assert replacement is not session
+        await replacement.close()
+
+
+async def test_request_sends_credentials_in_header_not_url(mock_bot):
+    settings = create_mock_settings()
+    settings.danbooru_login = "test-login"
+    settings.danbooru_api_key = "test-key"
+    session = MagicMock()
+    response = AsyncMock()
+    response.status = 200
+    response.json.return_value = [{"id": 1}]
+    session.get.return_value.__aenter__.return_value = response
+    params = {"tags": "rating:g", "limit": "1"}
+    with patch("cogs.anime.get_settings", return_value=settings):
+        cog = AnimeCog(mock_bot)
+        cog._get_session = MagicMock(return_value=session)
+        assert await cog._request_danbooru(settings, params) == (200, [{"id": 1}])
+    sent = session.get.call_args.kwargs
+    assert sent["params"] == params == {"tags": "rating:g", "limit": "1"}
+    scheme, credentials = sent["headers"]["Authorization"].split(" ", 1)
+    assert scheme == "Basic"
+    assert b64decode(credentials).decode() == "test-login:test-key"
 
 
 async def test_schedule_initial_activation_and_restart(mock_bot, mock_text_channel, tmp_path):
@@ -547,9 +592,10 @@ class _FakeSession:
     def __init__(self):
         self.captured = {}
 
-    def get(self, url, params=None):
+    def get(self, url, params=None, headers=None):
         self.captured["url"] = url
         self.captured["params"] = params
+        self.captured["headers"] = headers
         return _FakeResp()
 
 
