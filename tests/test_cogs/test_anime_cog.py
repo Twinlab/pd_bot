@@ -3,6 +3,7 @@
 import asyncio
 from base64 import b64decode
 from datetime import UTC, time
+from io import BytesIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import discord
@@ -17,6 +18,17 @@ from utils.scheduled_delivery import ScheduledDelivery
 def no_background_retry():
     with patch("cogs.anime.AnimeCog.retry_scheduled.start"):
         yield
+
+
+@pytest.fixture
+def mock_image_download(mock_text_channel):
+    mock_text_channel.guild.filesize_limit = 10 * 1024 * 1024
+
+    async def download(post, *, max_bytes):
+        return discord.File(BytesIO(b"test-image"), filename=f"danbooru-{post.post_id}.jpg")
+
+    with patch.object(AnimeCog, "_download_image", side_effect=download) as download_mock:
+        yield download_mock
 
 
 def _collect_text(view: discord.ui.LayoutView) -> str:
@@ -170,7 +182,124 @@ async def test_request_sends_credentials_in_header_not_url(mock_bot):
     assert b64decode(credentials).decode() == "test-login:test-key"
 
 
-async def test_schedule_initial_activation_and_restart(mock_bot, mock_text_channel, tmp_path):
+def image_session(*, chunks=(b"image-data",), content_type="image/jpeg", length=None, status=200):
+    response = MagicMock(status=status, content_type=content_type, content_length=length)
+
+    async def stream(chunk_size):
+        for chunk in chunks:
+            yield chunk
+
+    response.content.iter_chunked.side_effect = stream
+    session = MagicMock()
+    session.get.return_value.__aenter__.return_value = response
+    return session, response
+
+
+@pytest.mark.parametrize("content_type,extension", [("image/jpeg", "jpg"), ("image/png", "png")])
+async def test_download_image_preserves_bytes_and_upload_name(mock_bot, content_type, extension):
+    session, response = image_session(chunks=(b"first", b"second"), content_type=content_type)
+    with patch("cogs.anime.get_settings", return_value=create_mock_settings()):
+        cog = AnimeCog(mock_bot)
+        cog._get_session = MagicMock(return_value=session)
+        post = make_post()._replace(url="https://cdn.donmai.us/original/test.jpg")
+        image = await cog._download_image(post, max_bytes=100)
+    try:
+        assert image.filename == f"danbooru-444.{extension}"
+        assert image.fp.read() == b"firstsecond"
+        session.get.assert_called_once_with(post.url, allow_redirects=False)
+    finally:
+        image.close()
+        image.fp.close()
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"length": 101},
+        {"chunks": (b"a" * 60, b"b" * 60)},
+        {"chunks": ()},
+        {"content_type": "text/html"},
+        {"status": 403},
+        {"status": 302},
+    ],
+)
+async def test_download_rejects_failed_empty_or_oversized_response(mock_bot, kwargs):
+    session, response = image_session(**kwargs)
+    with patch("cogs.anime.get_settings", return_value=create_mock_settings()):
+        cog = AnimeCog(mock_bot)
+        cog._get_session = MagicMock(return_value=session)
+        post = make_post()._replace(url="https://cdn.donmai.us/test.jpg")
+        with pytest.raises((ValueError, RuntimeError)):
+            await cog._download_image(post, max_bytes=100)
+    if kwargs.get("length"):
+        response.content.iter_chunked.assert_not_called()
+
+
+async def test_download_caps_memory_even_with_larger_guild_limit(mock_bot):
+    session, response = image_session(chunks=(b"12345",))
+    with (
+        patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+        patch("cogs.anime.MAX_IMAGE_BYTES", 4),
+    ):
+        cog = AnimeCog(mock_bot)
+        cog._get_session = MagicMock(return_value=session)
+        with pytest.raises(ValueError, match="лимит"):
+            await cog._download_image(
+                make_post()._replace(url="https://cdn.donmai.us/test.jpg"), max_bytes=100
+            )
+
+
+async def test_oversized_original_uses_danbooru_sample(mock_bot):
+    session, original = image_session(length=101)
+    sample_session, sample = image_session(chunks=(b"smaller-image",))
+    session.get.side_effect = [session.get.return_value, sample_session.get.return_value]
+    post = make_post()._replace(
+        url="https://cdn.donmai.us/original/test.jpg",
+        fallback_url="https://cdn.donmai.us/sample/test.jpg",
+    )
+    with patch("cogs.anime.get_settings", return_value=create_mock_settings()):
+        cog = AnimeCog(mock_bot)
+        cog._get_session = MagicMock(return_value=session)
+        image = await cog._download_image(post, max_bytes=100)
+    try:
+        assert image.fp.read() == b"smaller-image"
+        assert [call.args[0] for call in session.get.call_args_list] == [post.url, post.fallback_url]
+        original.content.iter_chunked.assert_not_called()
+    finally:
+        image.close()
+        image.fp.close()
+
+
+@pytest.mark.parametrize("url", ["http://cdn.donmai.us/test.jpg", "https://example.com/test.jpg"])
+async def test_download_rejects_non_danbooru_urls_before_network(mock_bot, url):
+    with patch("cogs.anime.get_settings", return_value=create_mock_settings()):
+        cog = AnimeCog(mock_bot)
+        cog._get_session = MagicMock()
+        with pytest.raises(ValueError):
+            await cog._download_image(make_post()._replace(url=url), max_bytes=100)
+        cog._get_session.assert_not_called()
+
+
+async def test_download_failure_does_not_send_empty_card_or_cache_post(
+    mock_bot, mock_text_channel, mock_image_download
+):
+    mock_bot.get_channel.return_value = mock_text_channel
+    mock_image_download.side_effect = RuntimeError("CDN unavailable")
+    with (
+        patch("cogs.anime.get_settings", return_value=create_mock_settings()),
+        patch("cogs.anime.AnimeCache.create", new=AsyncMock()) as save,
+    ):
+        cog = AnimeCog(mock_bot)
+        cog.get_anime_image = AsyncMock(return_value=make_post())
+        assert await cog.post_anime_image() is False
+    mock_text_channel.send.assert_not_awaited()
+    save.assert_not_awaited()
+    assert not cog.post_cache
+
+
+async def test_schedule_initial_activation_and_restart(
+    mock_bot, mock_text_channel, tmp_path, mock_image_download
+):
     mock_bot.user.id = 99
     mock_text_channel.id = 42
     mock_bot.get_channel.return_value = mock_text_channel
@@ -194,9 +323,15 @@ async def test_schedule_initial_activation_and_restart(mock_bot, mock_text_chann
         await restored.retry_scheduled()
     mock_text_channel.send.assert_awaited_once()
     cog.get_anime_image.assert_awaited_once()
+    sent = mock_text_channel.send.call_args.kwargs
+    assert _collect_media_urls(sent["view"]) == ["attachment://danbooru-444.jpg"]
+    assert sent["file"].filename == "danbooru-444.jpg"
+    mock_image_download.assert_awaited_once()
 
 
-async def test_scheduled_art_recovers_lost_ack_from_components(mock_bot, mock_text_channel, tmp_path):
+async def test_scheduled_art_recovers_lost_ack_from_components(
+    mock_bot, mock_text_channel, tmp_path, mock_image_download
+):
     mock_bot.user.id = 99
     mock_text_channel.id = 42
     mock_bot.get_channel.return_value = mock_text_channel
@@ -224,11 +359,14 @@ async def test_scheduled_art_recovers_lost_ack_from_components(mock_bot, mock_te
         clock.tick(180)
         await cog._deliver_scheduled("2026-10-29:evening")
     mock_text_channel.send.assert_awaited_once()
+    mock_image_download.assert_awaited_once()
     assert 444 in cog.post_cache
 
 
 class TestConcurrentPosts:
-    async def test_simultaneous_posts_choose_different_images(self, mock_bot, mock_text_channel):
+    async def test_simultaneous_posts_choose_different_images(
+        self, mock_bot, mock_text_channel, mock_image_download
+    ):
         mock_bot.get_channel.return_value = mock_text_channel
         first_send_started = asyncio.Event()
         allow_send = asyncio.Event()
@@ -263,7 +401,7 @@ class TestConcurrentPosts:
         assert list(cog.post_cache) == [111, 222]
 
     async def test_failed_send_releases_lock_and_keeps_image_available(
-        self, mock_bot, mock_text_channel
+        self, mock_bot, mock_text_channel, mock_image_download
     ):
         mock_bot.get_channel.return_value = mock_text_channel
         mock_text_channel.send.side_effect = [
@@ -285,6 +423,8 @@ class TestConcurrentPosts:
 
         assert list(cog.post_cache) == [111]
         save_post.assert_awaited_once()
+        assert mock_image_download.await_count == 2
+        assert all(call.kwargs["file"].fp.closed for call in mock_text_channel.send.await_args_list)
 
 
 class TestAnimeCogInit:
@@ -415,7 +555,7 @@ class TestAnimeCacheDatabase:
                 assert result == fresh_post
 
     @pytest.mark.asyncio
-    async def test_save_cache_item_on_post(self, mock_bot, mock_text_channel):
+    async def test_save_cache_item_on_post(self, mock_bot, mock_text_channel, mock_image_download):
         """Тест сохранения элемента кеша в БД при публикации."""
         with (
             patch("cogs.anime.get_settings", return_value=create_mock_settings()),
@@ -439,14 +579,16 @@ class TestAnimeCacheDatabase:
                 assert result is True
                 mock_text_channel.send.assert_called_once()
                 sent_view = mock_text_channel.send.call_args.kwargs["view"]
-                assert _collect_media_urls(sent_view) == ["https://example.com/test.jpg"]
+                assert _collect_media_urls(sent_view) == ["attachment://danbooru-555.jpg"]
                 assert "https://danbooru.donmai.us/posts/555" in _collect_text(sent_view)
                 mock_create.assert_called_once()
                 assert mock_create.call_args.kwargs["post_id"] == 555
                 assert 555 in anime_cog.post_cache
 
     @pytest.mark.asyncio
-    async def test_post_includes_danbooru_source_link(self, mock_bot, mock_text_channel):
+    async def test_post_includes_danbooru_source_link(
+        self, mock_bot, mock_text_channel, mock_image_download
+    ):
         """Публикуется CV2-карточка с полной картинкой и ссылкой на пост Danbooru."""
         with (
             patch("cogs.anime.get_settings", return_value=create_mock_settings()),
@@ -468,7 +610,10 @@ class TestAnimeCacheDatabase:
                 sent_view = mock_text_channel.send.call_args.kwargs["view"]
                 source_url = "https://danbooru.donmai.us/posts/999"
                 text = _collect_text(sent_view)
-                assert _collect_media_urls(sent_view) == [post.url]
+                assert _collect_media_urls(sent_view) == ["attachment://danbooru-999.jpg"]
+                sent_file = mock_text_channel.send.call_args.kwargs["file"]
+                assert sent_file.filename == "danbooru-999.jpg"
+                assert sent_file.fp.closed
                 assert source_url in text
                 assert post.characters in text
                 assert "Художник" in text
@@ -511,6 +656,13 @@ class TestParsePosts:
         assert result[0].post_id == 1
         assert result[0].artists == "artist name"
         assert result[0].characters == "char name"
+
+    def test_preserves_sample_url_for_attachment_size_limit(self):
+        cog = _build_cog()
+        raw = self._raw(large_file_url="https://cdn.donmai.us/sample/x.jpg")
+        result = cog._parse_posts([raw], create_mock_settings(), "s", require_girl=False)
+        assert result[0].url == raw["file_url"]
+        assert result[0].fallback_url == raw["large_file_url"]
 
     def test_drops_low_score(self):
         cog = _build_cog()
@@ -770,11 +922,11 @@ class TestBuildPostView:
 
     def test_full_card_has_image_source_and_meta(self):
         post = make_post(post_id=42, score=321)
-        view = _build_post_view(post, discord.Color.blue())
+        view = _build_post_view(post, discord.Color.blue(), media="attachment://danbooru-42.jpg")
 
         source_url = "https://danbooru.donmai.us/posts/42"
         text = _collect_text(view)
-        assert _collect_media_urls(view) == [post.url]
+        assert _collect_media_urls(view) == ["attachment://danbooru-42.jpg"]
         assert source_url in text
         assert post.characters in text
         assert post.artists in text
@@ -792,11 +944,11 @@ class TestBuildPostView:
             artists="",
             characters="",
         )
-        view = _build_post_view(post, discord.Color.blue())
+        view = _build_post_view(post, discord.Color.blue(), media="attachment://danbooru-7.jpg")
 
         text = _collect_text(view)
         assert "Открыть на Danbooru" in text
         assert "https://danbooru.donmai.us/posts/7" in text
-        assert _collect_media_urls(view) == [post.url]
+        assert _collect_media_urls(view) == ["attachment://danbooru-7.jpg"]
         assert "Художник" not in text
         assert "general" in text

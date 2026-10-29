@@ -20,9 +20,11 @@ import re
 from base64 import b64encode
 from collections import deque
 from datetime import UTC, datetime, time
+from io import BytesIO
 from pathlib import Path
 from time import time as unix_now
 from typing import Any, Literal, NamedTuple
+from urllib.parse import urlsplit
 
 import aiohttp
 import discord
@@ -41,6 +43,13 @@ DANBOORU_POST_URL = "https://danbooru.donmai.us/posts/{post_id}"
 ALLOWED_RATINGS: tuple[str, ...] = ("g", "s", "q", "e")
 IMAGE_EXTENSIONS: frozenset[str] = frozenset({"jpg", "jpeg", "png", "gif", "webp"})
 USER_AGENT = "pd_bot/1.0"
+MAX_IMAGE_BYTES = 25 * 1024 * 1024
+IMAGE_CONTENT_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
 
 MAX_RETRIES = 5
 
@@ -55,6 +64,7 @@ class AnimePost(NamedTuple):
     source: str
     artists: str
     characters: str
+    fallback_url: str = ""
 
 
 RATING_LABELS: dict[str, str] = {
@@ -71,7 +81,7 @@ def _format_tag_names(tag_string: str) -> str:
     return ", ".join(names)
 
 
-def _build_post_view(post: AnimePost, color: discord.Color) -> discord.ui.LayoutView:
+def _build_post_view(post: AnimePost, color: discord.Color, *, media: str) -> discord.ui.LayoutView:
     """Собирает «карточку» поста на Components V2.
 
     Картинка идёт через ``MediaGallery`` — показывается целиком, без обрезки. Имя
@@ -81,6 +91,7 @@ def _build_post_view(post: AnimePost, color: discord.Color) -> discord.ui.Layout
     Args:
         post: Пост Danbooru для публикации.
         color: Цвет акцентной полосы контейнера.
+        media: Ссылка ``attachment://`` на приложенный файл изображения.
 
     Returns:
         Готовый ``LayoutView`` с контейнером, картинкой и метаданными.
@@ -95,7 +106,7 @@ def _build_post_view(post: AnimePost, color: discord.Color) -> discord.ui.Layout
     meta_lines.append(f"-# score: {post.score} · rating: {rating_label}")
 
     return image_card(
-        media=post.url,
+        media=media,
         accent=color,
         text_above=[f"### [{title}]({source_url})"],
         text_below=["\n".join(meta_lines)],
@@ -491,10 +502,63 @@ class AnimeCog(commands.Cog):
                     source=str(post.get("source") or ""),
                     artists=_format_tag_names(post.get("tag_string_artist") or ""),
                     characters=_format_tag_names(post.get("tag_string_character") or ""),
+                    fallback_url=str(post.get("large_file_url") or ""),
                 )
             )
 
         return result
+
+    async def _download_image(self, post: AnimePost, *, max_bytes: int) -> discord.File:
+        """Использует уменьшенную копию Danbooru, если оригинал не подходит для вложения."""
+        try:
+            return await self._download_image_url(post.post_id, post.url, max_bytes=max_bytes)
+        except ValueError:
+            if not post.fallback_url or post.fallback_url == post.url:
+                raise
+            return await self._download_image_url(
+                post.post_id, post.fallback_url, max_bytes=max_bytes
+            )
+
+    async def _download_image_url(
+        self, post_id: int, image_url: str, *, max_bytes: int
+    ) -> discord.File:
+        """Загружает картинку без API-ключа, ограничивая размер и проверяя тип ответа."""
+        url = urlsplit(image_url)
+        if url.scheme != "https" or not (url.hostname or "").endswith(".donmai.us"):
+            raise ValueError("Картинка должна находиться на HTTPS-сервере Danbooru")
+        limit = min(max_bytes, MAX_IMAGE_BYTES)
+        async with self._get_session().get(image_url, allow_redirects=False) as response:
+            if response.status != 200:
+                raise RuntimeError(f"Загрузка картинки Danbooru: HTTP {response.status}")
+            extension = IMAGE_CONTENT_TYPES.get(response.content_type)
+            if extension is None:
+                raise ValueError("Danbooru вернул неподдерживаемый тип изображения")
+            if response.content_length is not None and response.content_length > limit:
+                raise ValueError("Картинка превышает лимит размера вложения")
+            data = bytearray()
+            async for chunk in response.content.iter_chunked(64 * 1024):
+                if len(data) + len(chunk) > limit:
+                    raise ValueError("Картинка превышает лимит размера вложения")
+                data.extend(chunk)
+        if not data:
+            raise ValueError("Danbooru вернул пустое изображение")
+        return discord.File(BytesIO(data), filename=f"danbooru-{post_id}.{extension}")
+
+    async def _send_post(self, channel: discord.TextChannel, post: AnimePost) -> discord.Message:
+        """Прикладывает файл: внешний адрес Danbooru может быть недоступен прокси Discord."""
+        image = await self._download_image(post, max_bytes=channel.guild.filesize_limit)
+        try:
+            view = _build_post_view(
+                post,
+                get_settings().get_discord_color("default"),
+                media=f"attachment://{image.filename}",
+            )
+            return await channel.send(
+                view=view, file=image, allowed_mentions=discord.AllowedMentions.none()
+            )
+        finally:
+            image.close()
+            image.fp.close()
 
     async def post_anime_image(self, *, rating: str | None = None, tag: str | None = None) -> bool:
         """Получает и публикует пост в настроенный канал.
@@ -528,8 +592,7 @@ class AnimeCog(commands.Cog):
                 logger.error("Не удалось получить новый пост для публикации")
                 return False
 
-            view = _build_post_view(post, get_settings().get_discord_color("default"))
-            await channel.send(view=view)
+            await self._send_post(channel, post)
             self.post_cache.append(post.post_id)
             try:
                 await AnimeCache.create(post_id=post.post_id, added_at=int(unix_now()))
@@ -574,10 +637,7 @@ class AnimeCog(commands.Cog):
 
             async def send(part: dict[str, Any]) -> discord.Message:
                 post = AnimePost(**part)
-                return await channel.send(
-                    view=_build_post_view(post, get_settings().get_discord_color("default")),
-                    allowed_mentions=discord.AllowedMentions.none(),
-                )
+                return await self._send_post(channel, post)
 
             def matches(part: dict[str, Any], message: discord.Message) -> bool:
                 source = DANBOORU_POST_URL.format(post_id=part["post_id"])
