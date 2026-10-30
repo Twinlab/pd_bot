@@ -29,6 +29,8 @@ def test_card_has_owner_mention_saved_text_and_next_moscow_date(day, next_date, 
     assert isinstance(view, discord.ui.LayoutView)
     assert view.has_components_v2()
     assert view.timeout is None
+    assert len(view.children) == 1
+    assert not any(isinstance(item, discord.ui.Button) for item in view.walk_children())
     card = view.to_components()[0]
     assert card["accent_color"] == color
     assert card["components"][0]["content"] == "## Тянка <@123> на сегодня"
