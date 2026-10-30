@@ -12,11 +12,27 @@ Multifunctional Discord bot built with Python 3.13+ and `discord.py`. Features D
 - **Lint/Format**: Ruff (line-length 100, double quotes)
 - **Type-check**: mypy (strict-ish; see `pyproject.toml` overrides)
 - **Tests**: pytest + pytest-asyncio (`asyncio_mode = "auto"`) + freezegun
-- **Deployment**: Docker → GHCR → Watchtower auto-pull on `main`. Production бот живёт **на отдельной облачной VM** (см. ниже).
+- **Deployment**: CI → GHCR → ручное обновление закреплённого Docker image digest на отдельной VPS. Watchtower в текущем production отключён (см. ниже).
 
 ## Environment Setup
 
-**Deployment topology.** Боевой бот живёт в Docker-контейнере на отдельной **облачной VM**. CI собирает образ → пушит в GHCR → Watchtower на VM подтягивает `:latest` каждые 60 секунд после мерджа в `main`. Локальная машина разработчика **не используется** для запуска бота — только для тестов, линта, тайпчека и code-review.
+**Deployment topology (проверено 31.10.2026).** После переезда 29.10.2026 production работает на VPS HOSTKEY в Германии: `82.21.117.94`, SSH-пользователь `twinlab`, каталог `/home/twinlab/pd_bot`, контейнер `pd_bot`, Compose-сервис `bot`. Локальная машина разработчика используется только для тестов, линта, тайпчека и code-review.
+
+CI после push/merge в `main` проверяет код и публикует образ в GHCR, но **не обновляет текущую VPS автоматически**. Production использует `docker-compose.yml` вместе с `compose.restore.yaml`; в override закреплён `ghcr.io/twinlab/pd_bot@sha256:...`, для бота установлено `com.centurylinklabs.watchtower.enable: "false"`, а Watchtower вынесен в профиль `auto-update-disabled`. Не включать автообновление и не заменять override обычным Compose-файлом без отдельного согласования.
+
+### Production access and release verification
+
+- Старый локальный SSH-алиас `discord` всё ещё указывает на прежнюю VM `62.84.121.113`. **Не использовать его для проверки или обновления текущего production.** Старые инструкции и memory skills с `ssh discord` относятся к прежней VM.
+- Проверенный способ подключения из Windows (ключ не читать и не выводить):
+
+  ```powershell
+  ssh -F NUL -i C:/Users/twinl/.ssh/discord -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=10 twinlab@82.21.117.94
+  ```
+
+- Docker-команды на VPS выполнять через `sudo -n`. Перед релизом проверить точный SHA в label `org.opencontainers.image.revision` скачанного образа и текущего контейнера; сохранить текущий digest для отката.
+- После успешного CI и разрешения на обновление: скачать образ нужного SHA, сделать резервную копию конфигурации и данных, изменить только digest сервиса `bot` в `compose.restore.yaml`, затем пересоздать только `bot` через оба Compose-файла и `up -d --no-deps bot`. При ошибке вернуть прежний override и образ. Сайт, Lavalink и yt-cipher не перезапускать без необходимости.
+- Полный backup создаёт `/usr/local/lib/pdroom/full_backup.py`; локальная синхронизация — `D:\PD-Room-Backups\Sync-PDRoomBackup.ps1`, результат — `D:\PD-Room-Backups\last-sync.json`. Архивы содержат секреты: не выводить и не коммитить их содержимое. `ops/backup_db.sh` сохраняет только SQLite и не заменяет полный backup.
+- После обновления проверить совпадение runtime SHA, `State.Status`, `RestartCount`, `OOMKilled` и ограниченное окно `docker logs` с сообщением «готов к работе» и отсутствием startup ERROR/CRITICAL/traceback. Для затронутой функции выполнить проверку без нежелательных публикаций. Успешный CI или push образа сами по себе не доказывают обновление бота.
 
 Поэтому:
 - **Не нужно** делать `python main.py` локально (нет прод-токенов, нет Lavalink-сервиса, нет голосовых соединений с Discord).
@@ -137,7 +153,7 @@ Pre-commit (`.pre-commit-config.yaml`) auto-runs `ruff --fix` and `ruff format`.
 
 ## Git & PR Conventions
 
-- Branches deploy automatically on merge to `main` (CI → GHCR → Watchtower polls every 60s)
+- Push/merge в `main` запускает CI и публикацию образа; текущая VPS обновляется отдельно с закреплением digest (см. Production access and release verification).
 - Before committing: `.venv/bin/ruff check . && .venv/bin/ruff format --check . && .venv/bin/pytest`
 - Keep diffs small and focused on a single concern
 - Commit messages: short imperative summary
