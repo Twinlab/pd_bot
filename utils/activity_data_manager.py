@@ -184,7 +184,7 @@ class ActivityDataManager:
                 ).all()
 
                 if not daily_records:
-                    logger.info(f"Нет данных за {target_date_str} для переноса.")
+                    logger.debug("Нет данных за %s для переноса.", target_date_str)
                     return True
 
                 # Преимущественно UPDATE → INSERT новых: на горячих юзерах большинство строк
