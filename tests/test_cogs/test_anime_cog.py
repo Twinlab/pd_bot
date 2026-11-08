@@ -111,7 +111,10 @@ async def test_forbidden_source_stops_repeated_searches(mock_bot):
             return []
 
         cog._fetch_danbooru_posts = AsyncMock(side_effect=blocked)
-        assert await cog.get_anime_image() is None
+        cog._safebooru = AsyncMock(return_value=make_post(post_id=-42))
+        result = await cog.get_anime_image()
+        assert result is not None and result.post_url.endswith("&id=42")
+        cog._safebooru.assert_awaited_once()
         cog._fetch_danbooru_posts.assert_awaited_once()
 
 

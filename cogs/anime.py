@@ -51,6 +51,7 @@ IMAGE_CONTENT_TYPES = {
     "image/webp": "webp",
 }
 
+SAFEBOORU_URL = "https://safebooru.org/index.php"
 MAX_RETRIES = 5
 
 
@@ -65,6 +66,13 @@ class AnimePost(NamedTuple):
     artists: str
     characters: str
     fallback_url: str = ""
+
+    @property
+    def post_url(self) -> str:
+        """Возвращает ссылку на пост с учётом пространства идентификаторов источника."""
+        if self.post_id < 0:
+            return f"{SAFEBOORU_URL}?page=post&s=view&id={-self.post_id}"
+        return DANBOORU_POST_URL.format(post_id=self.post_id)
 
 
 RATING_LABELS: dict[str, str] = {
@@ -96,8 +104,12 @@ def _build_post_view(post: AnimePost, color: discord.Color, *, media: str) -> di
     Returns:
         Готовый ``LayoutView`` с контейнером, картинкой и метаданными.
     """
-    source_url = DANBOORU_POST_URL.format(post_id=post.post_id)
-    title = post.characters[:256] if post.characters else "Открыть на Danbooru"
+    source_url = post.post_url
+    title = (
+        post.characters[:256]
+        if post.characters
+        else ("Открыть на Safebooru" if post.post_id < 0 else "Открыть на Danbooru")
+    )
     rating_label = RATING_LABELS.get(post.rating, post.rating or "—")
 
     meta_lines: list[str] = []
@@ -137,7 +149,7 @@ class AnimeCog(commands.Cog):
         self.post_cache: deque[int] = deque(maxlen=self.cache_size)
         self._cache_loaded: bool = False
         self._post_lock = asyncio.Lock()
-        self._last_api_status = 0
+        self._last_api_status = 200
         self.delivery = ScheduledDelivery(Path("data/anime_delivery.json"))
 
         if not self.channel_id:
@@ -251,7 +263,9 @@ class AnimeCog(commands.Cog):
             posts = await self._fetch_danbooru_posts(
                 settings, rating=self._pick_rating(settings, rating), tag=tag, use_extra=True
             )
-            if self._last_api_status in {401, 403, 429}:
+            if self._last_api_status in {0, 403, 429} or self._last_api_status >= 500:
+                return await self._safebooru(settings, rating, tag)
+            if self._last_api_status == 401:
                 return None
             candidate = self._pick_fresh(posts)
             if candidate:
@@ -268,7 +282,9 @@ class AnimeCog(commands.Cog):
                 posts = await self._fetch_danbooru_posts(
                     settings, rating=self._pick_rating(settings, rating), tag=None, use_extra=False
                 )
-                if self._last_api_status in {401, 403, 429}:
+                if self._last_api_status in {0, 403, 429} or self._last_api_status >= 500:
+                    return await self._safebooru(settings, rating, tag)
+                if self._last_api_status == 401:
                     return None
                 candidate = self._pick_fresh(posts)
                 if candidate:
@@ -335,7 +351,7 @@ class AnimeCog(commands.Cog):
             {"tags": " ".join(search_tags), "limit": str(settings.anime.limit)},
         )
         if status != 200:
-            if status in {500, 502, 503}:
+            if status == 500:
                 latest_tags = [
                     "order:id_desc" if item.startswith("order:") else item for item in search_tags
                 ]
@@ -378,6 +394,7 @@ class AnimeCog(commands.Cog):
                     return response.status, []
                 data = await response.json()
         except Exception as e:
+            self._last_api_status = 0
             logger.warning("Сбой запроса к Danbooru: %s", type(e).__name__)
             return 0, []
 
@@ -426,6 +443,8 @@ class AnimeCog(commands.Cog):
                 logger.info("Случайный поиск Danbooru недоступен; переходим к последним постам.")
                 order = "order:id_desc"
                 continue
+            if status in {0, 403, 429} or status >= 500:
+                return await self._safebooru(settings, rating, tag)
             if status != 200:
                 break
             posts = self._parse_posts(
@@ -444,6 +463,84 @@ class AnimeCog(commands.Cog):
                 page += 1
 
         logger.error(f"Не удалось найти подходящий пост по тегу '{tag}'.")
+        return None
+
+    async def _safebooru(
+        self, settings: Any, rating: str | None, tag: str | None
+    ) -> AnimePost | None:
+        """Ищет safe-арт на резервном источнике после сбоя основного API."""
+        if (rating is not None and rating != "g") or (
+            rating is None and "g" not in settings.anime.ratings
+        ):
+            return None
+        bases = list(settings.anime.base_tags or ["1girl"])
+        random.shuffle(bases)
+        searches = [tag] if tag is not None else bases
+        params = {
+            "page": "dapi",
+            "s": "post",
+            "q": "index",
+            "json": "1",
+            "limit": str(min(100, settings.anime.limit)),
+        }
+        excluded = set(settings.anime.excluded_tags) if tag is None else set()
+        try:
+            for search in searches:
+                params["tags"] = f"{search} rating:safe sort:score:desc"
+                for page in range(3):
+                    async with self._get_session().get(
+                        SAFEBOORU_URL, params={**params, "pid": str(page)}, allow_redirects=False
+                    ) as response:
+                        if response.status != 200:
+                            logger.warning("Safebooru: HTTP %s", response.status)
+                            return None
+                        rows = await response.json()
+                    if not isinstance(rows, list) or not rows:
+                        break
+                    candidates = []
+                    for row in rows:
+                        if not isinstance(row, dict) or row.get("rating") not in {
+                            "safe",
+                            "general",
+                        }:
+                            continue
+                        tags = set(str(row.get("tags", "")).split())
+                        if search not in tags or tags & excluded:
+                            continue
+                        url = str(row.get("file_url") or "")
+                        try:
+                            score = int(row.get("score") or 0)
+                            ident = int(row["id"])
+                        except (KeyError, TypeError, ValueError):
+                            continue
+                        if ident <= 0 or score < settings.anime.min_score:
+                            continue
+                        parsed = urlsplit(url)
+                        if (
+                            parsed.scheme != "https"
+                            or parsed.netloc != "safebooru.org"
+                            or parsed.path.rsplit(".", 1)[-1].lower() not in IMAGE_EXTENSIONS
+                        ):
+                            continue
+                        # Отрицательные ключи отделяют эти посты от старых ID Danbooru в кеше.
+                        candidates.append(
+                            AnimePost(
+                                url,
+                                -ident,
+                                score,
+                                "g",
+                                str(row.get("source") or ""),
+                                "",
+                                "",
+                                str(row.get("sample_url") or ""),
+                            )
+                        )
+                    candidate = self._pick_fresh(candidates)
+                    if candidate:
+                        logger.info("Резерв Safebooru: выбран пост %s", -candidate.post_id)
+                        return candidate
+        except (aiohttp.ClientError, TimeoutError, ValueError) as exc:
+            logger.warning("Сбой Safebooru: %s", type(exc).__name__)
         return None
 
     def _parse_posts(
@@ -524,8 +621,13 @@ class AnimeCog(commands.Cog):
     ) -> discord.File:
         """Загружает картинку без API-ключа, ограничивая размер и проверяя тип ответа."""
         url = urlsplit(image_url)
-        if url.scheme != "https" or not (url.hostname or "").endswith(".donmai.us"):
-            raise ValueError("Картинка должна находиться на HTTPS-сервере Danbooru")
+        allowed = (
+            url.netloc == "safebooru.org"
+            if post_id < 0
+            else (url.hostname or "").endswith(".donmai.us")
+        )
+        if url.scheme != "https" or not allowed:
+            raise ValueError("Картинка должна находиться на HTTPS-сервере источника")
         limit = min(max_bytes, MAX_IMAGE_BYTES)
         async with self._get_session().get(image_url, allow_redirects=False) as response:
             if response.status != 200:
@@ -542,7 +644,8 @@ class AnimeCog(commands.Cog):
                 data.extend(chunk)
         if not data:
             raise ValueError("Danbooru вернул пустое изображение")
-        return discord.File(BytesIO(data), filename=f"danbooru-{post_id}.{extension}")
+        provider = "safebooru" if post_id < 0 else "danbooru"
+        return discord.File(BytesIO(data), filename=f"{provider}-{abs(post_id)}.{extension}")
 
     async def _send_post(self, channel: discord.TextChannel, post: AnimePost) -> discord.Message:
         """Прикладывает файл: внешний адрес Danbooru может быть недоступен прокси Discord."""
@@ -600,7 +703,7 @@ class AnimeCog(commands.Cog):
                 logger.error(f"Ошибка при сохранении поста {post.post_id} в БД: {e}", exc_info=True)
 
             logger.info(
-                "Пост опубликован в #%s | Danbooru #%s | score=%s rating=%s | "
+                "Пост опубликован в #%s | ID %s | score=%s rating=%s | "
                 "художник=%s | персонажи=%s | источник=%s | post=%s | кэш=%s/%s",
                 channel.name,
                 post.post_id,
@@ -609,7 +712,7 @@ class AnimeCog(commands.Cog):
                 post.artists or "—",
                 post.characters or "—",
                 post.source or "—",
-                DANBOORU_POST_URL.format(post_id=post.post_id),
+                post.post_url,
                 len(self.post_cache),
                 self.cache_size,
             )
@@ -640,7 +743,7 @@ class AnimeCog(commands.Cog):
                 return await self._send_post(channel, post)
 
             def matches(part: dict[str, Any], message: discord.Message) -> bool:
-                source = DANBOORU_POST_URL.format(post_id=part["post_id"])
+                source = AnimePost(**part).post_url
                 components = json.dumps([component.to_dict() for component in message.components])
                 return (
                     re.search(re.escape(source) + r"(?!\d)", components + message.content)
